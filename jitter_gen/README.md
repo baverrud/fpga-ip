@@ -2,15 +2,19 @@
 
 Combines a selectable internal PRNG (xorshift32 or xorshift128) with a CDF
 comparator to produce non-uniform jitter values. On each `step` pulse, the
-internal PRNG advances and the lowest 8 bits are compared against configurable
-thresholds.
+internal PRNG advances and the lowest 8 bits of its output are compared against
+configurable cumulative thresholds to select one of four jitter output values.
+
+Typical use case: injecting non-uniform timing jitter into delay generators
+(e.g., `axis_latency_gen`) to model real-world DRAM or interconnect behaviour
+where small delays are common and large outliers are rare.
 
 Licensed under Zero-Clause BSD (0BSD).
 
 ## Features
 
-- **Selectable built-in PRNG** — xorshift32 or xorshift128, chosen by
-  commenting/uncommenting the instantiation in `rtl/jitter_gen.vhd`.
+- **Selectable built-in PRNG** — xorshift32 or xorshift128, chosen via the
+  `GC_USE_XORSHIFT128` generic (no source-code editing needed).
 - **CDF-based distribution** — Configurable thresholds shape the probability
   density of each jitter value.
 - **4 jitter buckets** — Three thresholds split the 0–255 range into four
@@ -26,17 +30,18 @@ Licensed under Zero-Clause BSD (0BSD).
 
 | Generic | Type | Default | Description |
 |---------|------|---------|-------------|
-| `GC_JITTER_WIDTH` | positive | 16 | Width of output jitter value |
-| `GC_SEED` | std_logic_vector(31:0) | x"DEADBEEF" | PRNG seed (xorshift32) |
-| `GC_SEED0` | std_logic_vector(63:0) | x"DEADBEEFCAFEBABE" | PRNG seed 0 (xorshift128) |
-| `GC_SEED1` | std_logic_vector(63:0) | x"0123456789ABCDEF" | PRNG seed 1 (xorshift128) |
-| `GC_VAL_0` | integer | 0 | Jitter value when slice < GC_TH_0 |
-| `GC_VAL_1` | integer | 1 | Jitter value when slice < GC_TH_1 |
-| `GC_VAL_2` | integer | 5 | Jitter value when slice < GC_TH_2 |
-| `GC_VAL_3` | integer | 20 | Jitter value when slice >= GC_TH_2 |
-| `GC_TH_0` | integer | 128 | First threshold (8-bit, 0–255) |
-| `GC_TH_1` | integer | 192 | Second threshold (must be > GC_TH_0) |
-| `GC_TH_2` | integer | 240 | Third threshold (must be > GC_TH_1) |
+| `GC_JITTER_WIDTH` | positive | 16 | Width of output `jitter` port (unsigned) |
+| `GC_USE_XORSHIFT128` | boolean | false | PRNG selection: `false` = xorshift32, `true` = xorshift128 |
+| `GC_SEED` | slv(31:0) | x"DEADBEEF" | xorshift32 seed (ignored when `GC_USE_XORSHIFT128=true`) |
+| `GC_SEED0` | slv(63:0) | x"DEADBEEFCAFEBABE" | xorshift128 seed 0 (ignored when `GC_USE_XORSHIFT128=false`) |
+| `GC_SEED1` | slv(63:0) | x"0123456789ABCDEF" | xorshift128 seed 1 (ignored when `GC_USE_XORSHIFT128=false`) |
+| `GC_VAL_0` | integer | 0 | Jitter value when `slice < GC_TH_0` (~50% probability) |
+| `GC_VAL_1` | integer | 1 | Jitter value when `slice < GC_TH_1` (~25% probability) |
+| `GC_VAL_2` | integer | 5 | Jitter value when `slice < GC_TH_2` (~19% probability) |
+| `GC_VAL_3` | integer | 20 | Jitter value when `slice >= GC_TH_2` (~6% probability) |
+| `GC_TH_0` | integer | 128 | First CDF threshold (0–255, must be < GC_TH_1) |
+| `GC_TH_1` | integer | 192 | Second CDF threshold (must be > GC_TH_0, < GC_TH_2) |
+| `GC_TH_2` | integer | 240 | Third CDF threshold (must be > GC_TH_1, < 256) |
 
 ### Ports
 
@@ -50,20 +55,20 @@ Licensed under Zero-Clause BSD (0BSD).
 
 ## Architecture
 
-One of two PRNGs is instantiated internally (selectable by commenting/
-uncommenting in the source):
+One of two PRNGs is instantiated internally, selected by the
+`GC_USE_XORSHIFT128` generic:
 
-- **xorshift32** — 32-bit state, single seed `GC_SEED`, 32-bit output (lower
-  8 bits used for CDF comparison).
-- **xorshift128** — 128-bit state, two 64-bit seeds `GC_SEED0`/`GC_SEED1`,
-  64-bit output (lower 8 bits used for CDF comparison).
+- **xorshift32** (`false`) — 32-bit state, single seed `GC_SEED`, 32-bit output.
+  Lower 8 bits used for CDF comparison.
+- **xorshift128** (`true`) — 128-bit state, two 64-bit seeds `GC_SEED0`/`GC_SEED1`,
+  64-bit output. Lower 8 bits used for CDF comparison.
 
-On each `step` pulse, the PRNG advances and its lowest 8 bits are compared
-against three cumulative thresholds. The `enable` port gates the output:
-when low, `jitter` is forced to zero regardless of `step`.
+On each `step` pulse, the selected PRNG advances and its lowest 8 bits are
+compared against three cumulative thresholds. The `enable` port gates the
+output — when low, `jitter` is forced to zero regardless of `step`.
 
-A synthesis wrapper (`jitter_gen_top.vhd`) exposes both seeds unconditionally
-for top-level instantiation.
+A synthesis wrapper (`jitter_gen_top.vhd`) passes all generics through for
+top-level instantiation.
 
 **CDF (Cumulative Distribution Function)** — the 8-bit random value (0–255)
 is used as a probability axis. Each threshold divides the range into segments

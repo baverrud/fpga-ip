@@ -1,9 +1,9 @@
 -----------------------------------------------------------------------
 --Filename         : jitter_gen.vhd
---Description      : CDF-based jitter generator with built-in PRNG.
---                 : Select PRNG by commenting/uncommenting below.
---                 : Takes the lowest 8 bits of the PRNG output and
---                 : compares them against cumulative thresholds.
+--Description      : CDF-based jitter generator with selectable built-in PRNG.
+--                 : GC_USE_XORSHIFT128 selects xorshift32 (false) or
+--                 : xorshift128 (true). Takes the lowest 8 bits of the
+--                 : PRNG output and compares against cumulative thresholds.
 --Author           : Rune Bæverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
@@ -51,7 +51,12 @@ architecture rtl of jitter_gen is
                                       (GC_TH_1 < GC_TH_2);
   constant C_TH_LIMIT_OK : boolean := (GC_TH_2 < 256) and (GC_TH_0 >= 0);
 
+  -- PRNG output bus (width 64 accommodates both xorshift32 and xorshift128).
+  -- xorshift32 drives only the lower 32 bits; upper bits are unused.
   signal rand_val  : std_logic_vector(63 downto 0);
+
+  -- Registered jitter output. Updated only on a rising clock edge where
+  -- rstn=1, enable=1, and step=1. Holds its value between step pulses.
   signal r_jitter  : unsigned(GC_JITTER_WIDTH-1 downto 0) := (others => '0');
 
 begin
@@ -84,6 +89,12 @@ begin
 
   jitter <= r_jitter;
 
+  -- Core jitter sampling process.
+  -- Priority (highest to lowest):
+  --   1. Reset (rstn=0)           → force output to zero
+  --   2. Enable low (enable=0)     → force output to zero (gating)
+  --   3. Step pulse (step=1)      → sample PRNG output, apply CDF mapping
+  --   4. Otherwise                → hold current r_jitter value
   process(clk)
     variable v_slice : unsigned(7 downto 0);
   begin
@@ -93,8 +104,17 @@ begin
       elsif enable = '0' then
         r_jitter <= (others => '0');
       elsif step = '1' then
+        -- Take lowest 8 bits of PRNG output as the probability axis (0-255)
         v_slice := unsigned(rand_val(7 downto 0));
 
+        -- CDF comparison: v_slice is compared against three cumulative
+        -- thresholds. Each threshold defines the upper bound of a probability
+        -- bucket. The thresholds are strictly ascending and span 0-255.
+        --
+        --   Bucket 0: [0,       GC_TH_0)  → GC_VAL_0  (~50%  at defaults)
+        --   Bucket 1: [GC_TH_0, GC_TH_1)  → GC_VAL_1  (~25%  at defaults)
+        --   Bucket 2: [GC_TH_1, GC_TH_2)  → GC_VAL_2  (~19%  at defaults)
+        --   Bucket 3: [GC_TH_2, 256)      → GC_VAL_3  (~6%   at defaults)
         if    v_slice < to_unsigned(GC_TH_0, 8) then
           r_jitter <= to_unsigned(GC_VAL_0, GC_JITTER_WIDTH);
         elsif v_slice < to_unsigned(GC_TH_1, 8) then
