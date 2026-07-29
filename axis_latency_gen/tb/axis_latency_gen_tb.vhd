@@ -27,7 +27,9 @@ architecture sim of axis_latency_gen_tb is
   signal m_axis_tvalid  : std_logic;
   signal m_axis_tready  : std_logic := '1';
 
-  signal base_delay : unsigned(31 downto 0) := to_unsigned(10, 32);
+  signal base_delay        : unsigned(31 downto 0) := to_unsigned(10, 32);
+  signal enable_base_delay : std_logic := '1';
+  signal enable_jitter     : std_logic := '1';
 
   -- fifo_count: log2ceil(GC_FIFO_DEPTH) + 1 = 5 bits for depth 16
   signal fifo_count     : unsigned(4 downto 0);
@@ -121,8 +123,10 @@ begin
       m_axis_tdata   => m_axis_tdata,
       m_axis_tvalid  => m_axis_tvalid,
       m_axis_tready  => m_axis_tready,
-      base_delay => base_delay,
-      fifo_count     => fifo_count
+      base_delay        => base_delay,
+      enable_base_delay => enable_base_delay,
+      enable_jitter     => enable_jitter,
+      fifo_count        => fifo_count
     );
 
   u_wrap_dut : entity work.axis_latency_gen
@@ -140,8 +144,10 @@ begin
       m_axis_tdata   => wr_m_tdata,
       m_axis_tvalid  => wr_m_tvalid,
       m_axis_tready  => wr_m_tready,
-      base_delay => wr_base_delay,
-      fifo_count     => wr_fifo_count
+      base_delay        => wr_base_delay,
+      enable_base_delay => enable_base_delay,
+      enable_jitter     => enable_jitter,
+      fifo_count        => wr_fifo_count
     );
 
   -- == Test sequence ==

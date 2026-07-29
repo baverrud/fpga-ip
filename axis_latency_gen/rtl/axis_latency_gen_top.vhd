@@ -44,7 +44,9 @@ entity axis_latency_gen_top is
     m_axis_tvalid  : out std_logic;
     m_axis_tready  : in  std_logic;
 
-    base_delay : in  std_logic_vector(GC_TIMER_WIDTH-1 downto 0);
+    base_delay         : in  std_logic_vector(GC_TIMER_WIDTH-1 downto 0);
+    enable_base_delay  : in  std_logic;
+    enable_jitter      : in  std_logic;
 
     fifo_count     : out std_logic_vector(log2ceil(GC_FIFO_DEPTH) downto 0)
   );
@@ -84,8 +86,10 @@ begin
       m_axis_tdata   => m_axis_tdata,
       m_axis_tvalid  => m_axis_tvalid,
       m_axis_tready  => m_axis_tready,
-      base_delay => unsigned(base_delay),
-      fifo_count     => fc
+      base_delay        => unsigned(base_delay),
+      enable_base_delay => enable_base_delay,
+      enable_jitter     => enable_jitter,
+      fifo_count        => fc
     );
 
   fifo_count <= std_logic_vector(resize(fc, fifo_count'length));

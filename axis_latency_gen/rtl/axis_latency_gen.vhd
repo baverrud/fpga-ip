@@ -54,7 +54,9 @@ entity axis_latency_gen is
     m_axis_tready  : in  std_logic;
 
     -- Configuration
-    base_delay     : in  unsigned(GC_TIMER_WIDTH-1 downto 0);
+    base_delay         : in  unsigned(GC_TIMER_WIDTH-1 downto 0);
+    enable_base_delay  : in  std_logic;
+    enable_jitter      : in  std_logic;
 
     -- Status
     fifo_count     : out unsigned(log2ceil(GC_FIFO_DEPTH) downto 0)
@@ -165,8 +167,8 @@ begin
       rstn   => aresetn,
       -- Step pulse: advance PRNG and sample jitter on each write
       step   => jg_step,
-      -- Enable: always 1 (jitter gating not needed in this context)
-      enable => '1',
+      -- Enable: gated by enable_jitter port
+      enable => enable_jitter,
       -- Output jitter value
       jitter => jg_jitter
     );
@@ -175,7 +177,16 @@ begin
   -- Write side: compute t_departure and push into FIFO
   -- ================================================================
   jg_step        <= s_axis_tvalid and tf_ready;
-  t_departure    <= global_timer + base_delay + resize(jg_jitter, GC_TIMER_WIDTH);
+  -- t_departure = timer + 1 (FIFO latency floor) + base_delay (gated) + jitter
+  -- The +1 ensures minimum delay equals the axis_fifo's internal pipeline latency.
+  p_departure : process(all)
+  begin
+    if enable_base_delay = '1' then
+      t_departure <= global_timer + 1 + base_delay + resize(jg_jitter, GC_TIMER_WIDTH);
+    else
+      t_departure <= global_timer + 1 + resize(jg_jitter, GC_TIMER_WIDTH);
+    end if;
+  end process;
 
   tf_data        <= s_axis_tdata & std_logic_vector(t_departure);
   tf_valid       <= s_axis_tvalid;
@@ -190,7 +201,7 @@ begin
       -- FIFO width = data + timestamp packed together
       GC_TDATA_WIDTH => C_FIFO_WIDTH,
       -- FIFO depth
-      GC_FIFO_DEPTH  => GC_FIFO_DEPTH,
+      GC_FIFO_DEPTH  => GC_FIFO_DEPTH
     )
     port map (
       -- Clock & reset
