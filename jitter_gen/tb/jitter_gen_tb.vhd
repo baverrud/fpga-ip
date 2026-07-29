@@ -15,13 +15,14 @@ end entity;
 
 architecture sim of jitter_gen_tb is
 
-  constant C_CLK_PERIOD : time := 10 ns;
+  constant C_CLK_PERIOD   : time     := 10 ns;
+  constant C_JITTER_WIDTH : positive := 8;
 
   signal clk  : std_logic := '0';
   signal rstn : std_logic := '0';
   signal step : std_logic := '0';
   signal enable : std_logic := '0';
-  signal jitter : unsigned(15 downto 0);
+  signal jitter : unsigned(C_JITTER_WIDTH-1 downto 0);
   signal sim_done : boolean := false;
 
   -- Observed jitter value tracking
@@ -30,11 +31,11 @@ architecture sim of jitter_gen_tb is
   signal hit_val2  : boolean := false;
   signal hit_val3  : boolean := false;
 
-  -- Expected valid values
-  constant C_VAL0 : unsigned(15 downto 0) := to_unsigned(0, 16);
-  constant C_VAL1 : unsigned(15 downto 0) := to_unsigned(1, 16);
-  constant C_VAL2 : unsigned(15 downto 0) := to_unsigned(5, 16);
-  constant C_VAL3 : unsigned(15 downto 0) := to_unsigned(20, 16);
+  -- Expected valid values (must match GC_VAL_0..3 and C_JITTER_WIDTH)
+  constant C_VAL0 : unsigned(C_JITTER_WIDTH-1 downto 0) := to_unsigned(0, C_JITTER_WIDTH);
+  constant C_VAL1 : unsigned(C_JITTER_WIDTH-1 downto 0) := to_unsigned(1, C_JITTER_WIDTH);
+  constant C_VAL2 : unsigned(C_JITTER_WIDTH-1 downto 0) := to_unsigned(3, C_JITTER_WIDTH);
+  constant C_VAL3 : unsigned(C_JITTER_WIDTH-1 downto 0) := to_unsigned(7, C_JITTER_WIDTH);
 
   impure function is_valid_jitter(v : unsigned) return boolean is
   begin
@@ -67,15 +68,29 @@ begin
 
   u_dut : entity work.jitter_gen
     generic map (
-      GC_JITTER_WIDTH => 16,
-      GC_SEED => x"DEADBEEF",
-      GC_VAL_0 => 0,    GC_VAL_1 => 1,
-      GC_VAL_2 => 5,    GC_VAL_3 => 20,
-      GC_TH_0  => 128,  GC_TH_1  => 192,
-      GC_TH_2  => 240
+      -- Width
+      GC_JITTER_WIDTH    => C_JITTER_WIDTH,
+      -- PRNG selection
+      GC_USE_XORSHIFT128 => false,
+      -- PRNG seeds (xorshift32 uses GC_SEED; xorshift128 uses GC_SEED0/1)
+      GC_SEED            => x"DEADBEEF",
+      GC_SEED0           => x"DEADBEEFCAFEBABE",
+      GC_SEED1           => x"0123456789ABCDEF",
+      -- 4 target jitter values
+      GC_VAL_0           => 0,
+      GC_VAL_1           => 1,
+      GC_VAL_2           => 3,
+      GC_VAL_3           => 7,
+      -- 3 cumulative thresholds (8-bit, strictly ascending, 0..255)
+      GC_TH_0            => 128,
+      GC_TH_1            => 192,
+      GC_TH_2            => 240
     )
     port map (
-      clk => clk, rstn => rstn, step => step, enable => enable,
+      clk    => clk,
+      rstn   => rstn,
+      step   => step,
+      enable => enable,
       jitter => jitter
     );
 
@@ -122,19 +137,24 @@ begin
     write(l, string'("  OK: output held at 0 with enable=1, no step")); writeline(output, l);
 
     -- ============================================================
-    -- Phase 4: Run 65536 samples and report bucket distribution
+    -- Phase 4: Run 1M samples and report bucket distribution
+    -- Expected distribution with GC_TH_0=128, GC_TH_1=192, GC_TH_2=240:
+    --   Bucket 0 (0):       128/256 = 50.00%  → ~500000
+    --   Bucket 1 (1):        64/256 = 25.00%  → ~250000
+    --   Bucket 2 (3):        48/256 = 18.75%  → ~187500
+    --   Bucket 3 (7):        16/256 =  6.25%  → ~62500
     -- ============================================================
-    write(l, string'("=== Phase 4: 65536 iterations ===")); writeline(output, l);
+    write(l, string'("=== Phase 4: 1M iterations ===")); writeline(output, l);
     enable <= '1';
     cnt0 := 0; cnt1 := 0; cnt2 := 0; cnt3 := 0;
-    for i in 0 to 65535 loop
+    for i in 0 to 999999 loop
       wait until rising_edge(clk); step <= '1';
       wait until rising_edge(clk);
       case to_integer(jitter) is  -- read while step is still high
         when 0  => cnt0 := cnt0 + 1;
         when 1  => cnt1 := cnt1 + 1;
-        when 5  => cnt2 := cnt2 + 1;
-        when 20 => cnt3 := cnt3 + 1;
+        when 3  => cnt2 := cnt2 + 1;
+        when 7 => cnt3 := cnt3 + 1;
         when others =>
           report "FAIL: unexpected jitter value " & integer'image(to_integer(jitter))
           severity failure;
@@ -168,24 +188,25 @@ begin
     writeline(output, l);
 
     -- ============================================================
-    -- Final bucket report (65536 samples from Phase 4)
+    -- Final bucket report (1M samples from Phase 4)
+    -- Expected: 50% → ~500000, 25% → ~250000, 18.75% → ~187500, 6.25% → ~62500
     -- ============================================================
-    write(l, string'("Bucket report (65536 samples):")); writeline(output, l);
+    write(l, string'("Bucket report (1M samples):")); writeline(output, l);
     write(l, string'("  GC_VAL_0 (0):  ")); write(l, cnt0);
-    write(l, string'("  ")); write(l, (cnt0 * 10000 / 65536) / 100);
-    write(l, string'(".")); write(l, (cnt0 * 10000 / 65536) mod 100);
+    write(l, string'("  (exp ~500000)  ")); write(l, (cnt0 * 100) / 1000000);
+    write(l, string'(".")); write(l, ((cnt0 * 100) mod 1000000) * 100 / 1000000);
     write(l, string'("%")); writeline(output, l);
     write(l, string'("  GC_VAL_1 (1):  ")); write(l, cnt1);
-    write(l, string'("  ")); write(l, (cnt1 * 10000 / 65536) / 100);
-    write(l, string'(".")); write(l, (cnt1 * 10000 / 65536) mod 100);
+    write(l, string'("  (exp ~250000)  ")); write(l, (cnt1 * 100) / 1000000);
+    write(l, string'(".")); write(l, ((cnt1 * 100) mod 1000000) * 100 / 1000000);
     write(l, string'("%")); writeline(output, l);
-    write(l, string'("  GC_VAL_2 (5):  ")); write(l, cnt2);
-    write(l, string'("  ")); write(l, (cnt2 * 10000 / 65536) / 100);
-    write(l, string'(".")); write(l, (cnt2 * 10000 / 65536) mod 100);
+    write(l, string'("  GC_VAL_2 (3):  ")); write(l, cnt2);
+    write(l, string'("  (exp ~187500)  ")); write(l, (cnt2 * 100) / 1000000);
+    write(l, string'(".")); write(l, ((cnt2 * 100) mod 1000000) * 100 / 1000000);
     write(l, string'("%")); writeline(output, l);
-    write(l, string'("  GC_VAL_3 (20): ")); write(l, cnt3);
-    write(l, string'("  ")); write(l, (cnt3 * 10000 / 65536) / 100);
-    write(l, string'(".")); write(l, (cnt3 * 10000 / 65536) mod 100);
+    write(l, string'("  GC_VAL_3 (7): ")); write(l, cnt3);
+    write(l, string'("  (exp ~62500)   ")); write(l, (cnt3 * 100) / 1000000);
+    write(l, string'(".")); write(l, ((cnt3 * 100) mod 1000000) * 100 / 1000000);
     write(l, string'("%")); writeline(output, l);
 
     -- Assert all four buckets were observed at least once

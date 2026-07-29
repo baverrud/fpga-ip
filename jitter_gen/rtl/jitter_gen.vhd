@@ -13,7 +13,7 @@ use ieee.numeric_std.all;
 
 entity jitter_gen is
   generic (
-    GC_JITTER_WIDTH     : positive := 16;
+    GC_JITTER_WIDTH     : positive := 8;
 
     -- PRNG selection: false = xorshift32, true = xorshift128
     GC_USE_XORSHIFT128  : boolean  := false;
@@ -26,8 +26,8 @@ entity jitter_gen is
     -- 4 target jitter values
     GC_VAL_0            : integer := 0;
     GC_VAL_1            : integer := 1;
-    GC_VAL_2            : integer := 5;
-    GC_VAL_3            : integer := 20;
+    GC_VAL_2            : integer := 3;
+    GC_VAL_3            : integer := 7;
 
     -- 3 cumulative thresholds (8-bit, strictly ascending, 0..255)
     GC_TH_0             : integer := 128;

@@ -30,15 +30,15 @@ Licensed under Zero-Clause BSD (0BSD).
 
 | Generic | Type | Default | Description |
 |---------|------|---------|-------------|
-| `GC_JITTER_WIDTH` | positive | 16 | Width of output `jitter` port (unsigned) |
+| `GC_JITTER_WIDTH` | positive | 8 | Width of output `jitter` port (unsigned) |
 | `GC_USE_XORSHIFT128` | boolean | false | PRNG selection: `false` = xorshift32, `true` = xorshift128 |
 | `GC_SEED` | slv(31:0) | x"DEADBEEF" | xorshift32 seed (ignored when `GC_USE_XORSHIFT128=true`) |
 | `GC_SEED0` | slv(63:0) | x"DEADBEEFCAFEBABE" | xorshift128 seed 0 (ignored when `GC_USE_XORSHIFT128=false`) |
 | `GC_SEED1` | slv(63:0) | x"0123456789ABCDEF" | xorshift128 seed 1 (ignored when `GC_USE_XORSHIFT128=false`) |
 | `GC_VAL_0` | integer | 0 | Jitter value when `slice < GC_TH_0` (~50% probability) |
 | `GC_VAL_1` | integer | 1 | Jitter value when `slice < GC_TH_1` (~25% probability) |
-| `GC_VAL_2` | integer | 5 | Jitter value when `slice < GC_TH_2` (~19% probability) |
-| `GC_VAL_3` | integer | 20 | Jitter value when `slice >= GC_TH_2` (~6% probability) |
+| `GC_VAL_2` | integer | 3 | Jitter value when `slice < GC_TH_2` (~19% probability) |
+| `GC_VAL_3` | integer | 7 | Jitter value when `slice >= GC_TH_2` (~6% probability) |
 | `GC_TH_0` | integer | 128 | First CDF threshold (0–255, must be < GC_TH_1) |
 | `GC_TH_1` | integer | 192 | Second CDF threshold (must be > GC_TH_0, < GC_TH_2) |
 | `GC_TH_2` | integer | 240 | Third CDF threshold (must be > GC_TH_1, < 256) |
@@ -84,10 +84,10 @@ Each threshold is the cumulative sum of probabilities before it:
 
 | Condition | Probability | Output |
 |-----------|-------------|--------|
-| `slice < GC_TH_0` (e.g. < 128) | 128/255 ≈ 50% | `GC_VAL_0` |
-| `slice < GC_TH_1` (e.g. < 192) | 64/255  ≈ 25% | `GC_VAL_1` |
-| `slice < GC_TH_2` (e.g. < 240) | 48/255  ≈ 19% | `GC_VAL_2` |
-| `slice >= GC_TH_2` | 15/255  ≈ 6%  | `GC_VAL_3` |
+| `slice < GC_TH_0` (e.g. < 128) | 128/256 = 50.00% | `GC_VAL_0` |
+| `slice < GC_TH_1` (e.g. < 192) | 64/256  = 25.00% | `GC_VAL_1` |
+| `slice < GC_TH_2` (e.g. < 240) | 48/256  = 18.75% | `GC_VAL_2` |
+| `slice >= GC_TH_2` | 16/256  =  6.25% | `GC_VAL_3` |
 
 Elaboration-time assertions catch invalid threshold configurations (not
 strictly ascending or out of range).
