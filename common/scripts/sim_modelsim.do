@@ -193,21 +193,15 @@ if {$CREATE_PROJECT} {
     puts "\[sim.do\] ERROR: Failed to create ModelSim project: $err"
   }
 
-  # In GUI mode, open the project and compile through it so the
-  # Project pane shows each file as compiled (green). Must run
-  # before vsim — no simulation is loaded so the save works.
+  # In GUI mode, open the newly-created project natively BEFORE loading the
+  # design. ModelSim forbids opening a project while a simulation is active,
+  # so this must happen first.
   if {![batch_mode]} {
     if {[catch {
       project open [file normalize $proj_file]
       puts "\[sim.do\] Project opened in GUI: $proj_file"
     } err]} {
       puts "\[sim.do\] NOTE: Could not auto-open project: $err"
-    }
-    if {[catch {
-      project compileall
-      puts "\[sim.do\] Project sources compiled (Project pane status updated)."
-    } err]} {
-      puts "\[sim.do\] NOTE: project compileall reported: $err"
     }
   }
 }
