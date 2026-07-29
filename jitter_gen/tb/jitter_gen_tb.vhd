@@ -188,6 +188,21 @@ begin
     write(l, string'(".")); write(l, (cnt3 * 10000 / 65536) mod 100);
     write(l, string'("%")); writeline(output, l);
 
+    -- Assert all four buckets were observed at least once
+    if not hit_val0 then
+      report "FAIL: bucket GC_VAL_0 never observed" severity failure;
+    end if;
+    if not hit_val1 then
+      report "FAIL: bucket GC_VAL_1 never observed" severity failure;
+    end if;
+    if not hit_val2 then
+      report "FAIL: bucket GC_VAL_2 never observed" severity failure;
+    end if;
+    if not hit_val3 then
+      report "FAIL: bucket GC_VAL_3 never observed" severity failure;
+    end if;
+    write(l, string'("  All 4 buckets observed OK")); writeline(output, l);
+
     -- ============================================================
     -- Done
     -- ============================================================
