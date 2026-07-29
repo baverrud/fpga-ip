@@ -141,24 +141,33 @@ begin
   -- ================================================================
   u_jitter_gen : entity work.jitter_gen
     generic map (
+      -- Jitter output width (16-bit)
       GC_JITTER_WIDTH    => 16,
+      -- PRNG selection: false = xorshift32, true = xorshift128
       GC_USE_XORSHIFT128 => GC_USE_XORSHIFT128,
+      -- PRNG seeds
       GC_SEED            => GC_JG_SEED,
       GC_SEED0           => GC_JG_SEED0,
       GC_SEED1           => GC_JG_SEED1,
+      -- 4 target jitter values
       GC_VAL_0           => GC_JG_VAL_0,
       GC_VAL_1           => GC_JG_VAL_1,
       GC_VAL_2           => GC_JG_VAL_2,
       GC_VAL_3           => GC_JG_VAL_3,
+      -- 3 cumulative thresholds (8-bit, strictly ascending, 0..255)
       GC_TH_0            => GC_JG_TH_0,
       GC_TH_1            => GC_JG_TH_1,
       GC_TH_2            => GC_JG_TH_2
     )
     port map (
+      -- Clock & reset
       clk    => aclk,
       rstn   => aresetn,
+      -- Step pulse: advance PRNG and sample jitter on each write
       step   => jg_step,
+      -- Enable: always 1 (jitter gating not needed in this context)
       enable => '1',
+      -- Output jitter value
       jitter => jg_jitter
     );
 
@@ -178,18 +187,24 @@ begin
   -- ================================================================
   u_fifo : entity work.axis_fifo
     generic map (
+      -- FIFO width = data + timestamp packed together
       GC_TDATA_WIDTH => C_FIFO_WIDTH,
-      GC_DATA_DEPTH  => GC_FIFO_DEPTH
+      -- FIFO depth
+      GC_FIFO_DEPTH  => GC_FIFO_DEPTH,
     )
     port map (
+      -- Clock & reset
       aclk           => aclk,
       aresetn        => aresetn,
+      -- Slave (write) side: {tdata, t_departure} packed
       s_axis_tdata   => tf_data,
       s_axis_tvalid  => tf_valid,
       s_axis_tready  => tf_ready,
+      -- Master (read) side: {tdata, t_departure} unpacked
       m_axis_tdata   => ff_data,
       m_axis_tvalid  => ff_valid,
       m_axis_tready  => ff_ready,
+      -- FIFO occupancy
       fifo_count     => fifo_count
     );
 

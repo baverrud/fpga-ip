@@ -73,7 +73,7 @@ begin
   dut: entity work.axis_fifo
     generic map (
       GC_TDATA_WIDTH => C_WIDTH,
-      GC_DATA_DEPTH  => C_DEPTH)
+      GC_FIFO_DEPTH  => C_DEPTH)
     port map (
       aclk           => aclk,
       aresetn        => aresetn,

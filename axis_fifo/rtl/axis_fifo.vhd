@@ -3,7 +3,7 @@
 --Description      : Safe, Parameterizable Elastic Buffer (FBEB) with:
 --                 :  - Inferring of shift-register LUTs (SRLs, on Xilinx 
 --                 :    architectures) for depths > 2, or a double-buffer 
---                 :    if GC_DATA_DEPTH = 2.
+--                 :    if GC_FIFO_DEPTH = 2.
 --                 :  - Simulation address-guarding for non-power-of-2 depths.
 --                 :  - Unsigned occupancy level count output port (fifo_count).
 --                 :  - Fully registered handshaking flow-control.
@@ -29,7 +29,7 @@ use work.util_pkg.all;
 entity axis_fifo is
   generic (
     GC_TDATA_WIDTH  : positive; -- Width of the unified AXI-Stream TDATA bus (can pack data + custom metadata)
-    GC_DATA_DEPTH   : positive range 2 to positive'high); 
+    GC_FIFO_DEPTH   : positive range 2 to positive'high); 
   port (
     aclk            : in  std_logic;
     aresetn         : in  std_logic; -- Synchronous reset, active low (AMBA-compliant naming)
@@ -44,17 +44,17 @@ entity axis_fifo is
     m_axis_tvalid   : out std_logic;
     m_axis_tready   : in  std_logic;
 
-    fifo_count      : out unsigned (log2ceil(GC_DATA_DEPTH) downto 0)); -- FIFO occupancy level
+    fifo_count      : out unsigned (log2ceil(GC_FIFO_DEPTH) downto 0)); -- FIFO occupancy level
 end entity;
 
 architecture arch of axis_fifo is
 
-  type t_srl is array (0 to GC_DATA_DEPTH-1) of std_logic_vector (GC_TDATA_WIDTH-1 downto 0);
+  type t_srl is array (0 to GC_FIFO_DEPTH-1) of std_logic_vector (GC_TDATA_WIDTH-1 downto 0);
 
   -- state record definition
   type t_rec is record
     fifo_data      : t_srl;
-    fifo_index     : signed (log2ceil(GC_DATA_DEPTH) downto 0);
+    fifo_index     : signed (log2ceil(GC_FIFO_DEPTH) downto 0);
     s_axis_tready  : std_logic;
     m_axis_tvalid  : std_logic;
   end record;
@@ -67,7 +67,7 @@ architecture arch of axis_fifo is
   -- and infer highly compact Shift-Register LUT (SRL16E/SRL32E) primitives.
   constant C_REC_DEFAULT : t_rec := (
     fifo_data      => (others => (others => '-')), 
-    fifo_index     => to_signed(-1, log2ceil(GC_DATA_DEPTH) + 1),
+    fifo_index     => to_signed(-1, log2ceil(GC_FIFO_DEPTH) + 1),
     s_axis_tready  => '1',
     m_axis_tvalid  => '0');
 
@@ -81,7 +81,7 @@ begin -- architecture
            -- for compatibility with Vivado block design tools
   process(r, s_axis_tdata, s_axis_tvalid, m_axis_tready)
     variable v           : t_rec;
-    variable read_index  : integer range 0 to GC_DATA_DEPTH-1;
+    variable read_index  : integer range 0 to GC_FIFO_DEPTH-1;
   begin
     -- recover stored state
     v := r;
@@ -104,7 +104,7 @@ begin -- architecture
     -- A push operation shifts the entire array forward, placing new data at index 0.
     -- This VHDL shift representation maps natively to Xilinx SRL primitives.
     if (s_axis_tvalid = '1') and (r.s_axis_tready = '1') then
-      v.fifo_data(1 to GC_DATA_DEPTH-1) := v.fifo_data (0 to GC_DATA_DEPTH-2);
+      v.fifo_data(1 to GC_FIFO_DEPTH-1) := v.fifo_data (0 to GC_FIFO_DEPTH-2);
       v.fifo_data(0)                    := s_axis_tdata;
       
       -- If pushing without popping (increasing occupancy level)
@@ -122,7 +122,7 @@ begin -- architecture
     -- Completely registered system flags: updates are latched on active clock edges.
     -- This isolates combinational paths, ensuring zero cascading path delays.
     -- AXI standard master drivers must keep valid high until ready asserts.
-    if (v.fifo_index = GC_DATA_DEPTH-1) then
+    if (v.fifo_index = GC_FIFO_DEPTH-1) then
       v.s_axis_tready  := '0'; -- FIFO is full, hold incoming writes
     else
       v.s_axis_tready  := '1';

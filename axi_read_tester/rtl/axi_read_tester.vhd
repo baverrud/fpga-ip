@@ -161,7 +161,7 @@ begin
   u_sb_fifo : entity work.axis_fifo
     generic map (
       GC_TDATA_WIDTH  => C_SB_WIDTH,
-      GC_DATA_DEPTH   => GC_SB_FIFO_DEPTH
+      GC_FIFO_DEPTH   => GC_SB_FIFO_DEPTH
     )
     port map (
       aclk            => aclk,

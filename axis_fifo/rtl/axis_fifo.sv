@@ -3,7 +3,7 @@
 //Description      : Safe, Parameterizable Elastic Buffer (FBEB) translated to SystemVerilog:
 //                 :  - Inferring of shift-register LUTs (SRLs, on Xilinx 
 //                 :    architectures) for depths > 2, or a double-buffer 
-//                 :    if GC_DATA_DEPTH = 2.
+//                 :    if GC_FIFO_DEPTH = 2.
 //                 :  - Simulation address-guarding for non-power-of-2 depths.
 //                 :  - Unsigned occupancy level count output port (fifo_count).
 //                 :  - Fully registered handshaking flow-control.
@@ -20,7 +20,7 @@
 
 module axis_fifo #(
     parameter int GC_TDATA_WIDTH = 8,
-    parameter int GC_DATA_DEPTH  = 3
+    parameter int GC_FIFO_DEPTH  = 3
 ) (
     input  logic aclk,
     input  logic aresetn, // Synchronous reset, active low
@@ -36,15 +36,15 @@ module axis_fifo #(
     input  logic m_axis_tready,
 
     // FIFO occupancy level
-    output logic [$clog2(GC_DATA_DEPTH):0] fifo_count
+    output logic [$clog2(GC_FIFO_DEPTH):0] fifo_count
 );
 
-  localparam int INDEX_WIDTH = $clog2(GC_DATA_DEPTH) + 1;
+  localparam int INDEX_WIDTH = $clog2(GC_FIFO_DEPTH) + 1;
   localparam logic signed [INDEX_WIDTH-1:0] RESET_INDEX = -1;
 
   // State record equivalent struct definition
   typedef struct {
-    logic [GC_TDATA_WIDTH-1:0] fifo_data [0:GC_DATA_DEPTH-1];
+    logic [GC_TDATA_WIDTH-1:0] fifo_data [0:GC_FIFO_DEPTH-1];
     logic signed [INDEX_WIDTH-1:0] fifo_index;
     logic s_axis_tready;
     logic m_axis_tvalid;
@@ -91,7 +91,7 @@ module axis_fifo #(
     // --- Write and Shift Interface ---
     if (s_axis_tvalid && r.s_axis_tready) begin
       // Shift array forward
-      for (int i = GC_DATA_DEPTH - 1; i > 0; i = i - 1) begin
+      for (int i = GC_FIFO_DEPTH - 1; i > 0; i = i - 1) begin
         v.fifo_data[i] = v.fifo_data[i-1];
       end
       v.fifo_data[0] = s_axis_tdata;
@@ -107,7 +107,7 @@ module axis_fifo #(
     end
 
     // --- Flow-Control Handshaking Flags generation ---
-    if (v.fifo_index == (GC_DATA_DEPTH - 1)) begin
+    if (v.fifo_index == (GC_FIFO_DEPTH - 1)) begin
       v.s_axis_tready = 1'b0; // FIFO is full, hold incoming writes
     end else begin
       v.s_axis_tready = 1'b1;

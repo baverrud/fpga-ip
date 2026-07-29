@@ -27,7 +27,7 @@ use bitvis_vip_axistream.axistream_bfm_pkg.all;
 entity axis_fifo_uvvm_th is
   generic (
     GC_DATA_WIDTH : positive := 8;    -- Data byte width configurations
-    GC_DATA_DEPTH : positive := 4;    -- Queue capacity constraints of the target FIFO
+    GC_FIFO_DEPTH : positive := 4;    -- Queue capacity constraints of the target FIFO
     GC_CLK_PERIOD : time     := 10 ns -- Baseline toggle period for the clock generator
   );
   port (
@@ -90,7 +90,7 @@ begin
   dut : entity work.axis_fifo
     generic map (
       GC_TDATA_WIDTH => GC_DATA_WIDTH,
-      GC_DATA_DEPTH  => GC_DATA_DEPTH
+      GC_FIFO_DEPTH  => GC_FIFO_DEPTH
     )
     port map (
       aclk           => clk_i,

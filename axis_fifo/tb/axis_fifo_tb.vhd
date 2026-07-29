@@ -45,7 +45,7 @@ begin
   dut: entity work.axis_fifo
     generic map (
       GC_TDATA_WIDTH => C_DATA_WIDTH,
-      GC_DATA_DEPTH  => C_DATA_DEPTH)
+      GC_FIFO_DEPTH  => C_DATA_DEPTH)
     port map (
       aclk           => aclk,
       aresetn        => aresetn,
@@ -94,7 +94,7 @@ begin
     axis_write(aclk, s_axis_tdata, s_axis_tvalid, s_axis_tready, x"C3");
     wait for 1 ns;
 
-    -- Assert full status: fifo_count must equal GC_DATA_DEPTH
+    -- Assert full status: fifo_count must equal GC_FIFO_DEPTH
     -- and s_axis_tready must be deasserted.
     assert fifo_count = 3
       report "FAIL: fifo_count should be 3 after 3rd push, got " & integer'image(to_integer(fifo_count))

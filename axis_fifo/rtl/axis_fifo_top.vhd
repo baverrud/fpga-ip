@@ -18,7 +18,7 @@ use work.util_pkg.all;
 entity axis_fifo_top is
   generic (
     GC_TDATA_WIDTH  : positive := 8;
-    GC_DATA_DEPTH   : positive := 64
+    GC_FIFO_DEPTH   : positive := 64
   );
   port (
     aclk            : in  std_logic;
@@ -35,13 +35,13 @@ entity axis_fifo_top is
     m_axis_tready   : in  std_logic;
 
     -- FIFO occupancy level
-    fifo_count      : out std_logic_vector (log2ceil(GC_DATA_DEPTH) downto 0)
+    fifo_count     : out std_logic_vector(log2ceil(GC_FIFO_DEPTH) downto 0)
   );
 end entity;
 
 architecture rtl of axis_fifo_top is
 
-  signal fifo_count_i  : unsigned(log2ceil(GC_DATA_DEPTH) downto 0);
+  signal fifo_count_i  : unsigned(log2ceil(GC_FIFO_DEPTH) downto 0);
 
 begin
 
@@ -51,7 +51,7 @@ begin
   dut: entity work.axis_fifo
     generic map (
       GC_TDATA_WIDTH => GC_TDATA_WIDTH,
-      GC_DATA_DEPTH  => GC_DATA_DEPTH
+      GC_FIFO_DEPTH  => GC_FIFO_DEPTH
     )
     port map (
       aclk           => aclk,

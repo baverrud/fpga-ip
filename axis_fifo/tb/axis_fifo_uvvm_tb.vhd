@@ -96,7 +96,7 @@ begin
 th_inst : entity work.axis_fifo_uvvm_th
     generic map (
       GC_DATA_WIDTH => C_WIDTH,
-      GC_DATA_DEPTH => C_DEPTH,
+      GC_FIFO_DEPTH => C_DEPTH,
       GC_CLK_PERIOD => TCLK
     )
     port map (

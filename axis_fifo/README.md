@@ -38,7 +38,7 @@ dependencies).
 | Generic          | Type      | Description                                              |
 |------------------|-----------|----------------------------------------------------------|
 | `GC_TDATA_WIDTH` | positive  | Width of the `tdata` bus (can pack data + sideband bits) |
-| `GC_DATA_DEPTH`  | positive  | FIFO capacity (minimum 2, maximum `positive'high`)        |
+| `GC_FIFO_DEPTH`  | positive  | FIFO capacity (minimum 2, maximum `positive'high`)        |
 
 ### Ports
 
@@ -52,7 +52,7 @@ dependencies).
 | `m_axis_tdata`   | out       | `GC_TDATA_WIDTH`               | Master (read) data bus                   |
 | `m_axis_tvalid`  | out       | 1                              | Master read valid                        |
 | `m_axis_tready`  | in        | 1                              | Master ready (flow control)              |
-| `fifo_count`     | out       | `log2ceil(GC_DATA_DEPTH) + 1`  | Current occupancy level (unsigned)       |
+| `fifo_count`     | out       | `log2ceil(GC_FIFO_DEPTH) + 1`  | Current occupancy level (unsigned)       |
 
 ### AXI4-Stream Handshaking
 
@@ -98,7 +98,7 @@ The core uses a classic two-process register-transfer style:
 The storage array is modelled as:
 
 ```vhdl
-type t_srl is array (0 to GC_DATA_DEPTH-1) of
+type t_srl is array (0 to GC_FIFO_DEPTH-1) of
   std_logic_vector(GC_TDATA_WIDTH-1 downto 0);
 ```
 
@@ -106,7 +106,7 @@ On a write, the entire array shifts forward by one position and new data
 is placed at index 0:
 
 ```vhdl
-v.fifo_data(1 to GC_DATA_DEPTH-1) := v.fifo_data(0 to GC_DATA_DEPTH-2);
+v.fifo_data(1 to GC_FIFO_DEPTH-1) := v.fifo_data(0 to GC_FIFO_DEPTH-2);
 v.fifo_data(0)                    := s_axis_tdata;
 ```
 
@@ -169,7 +169,7 @@ congestion.
 
 ### Depth Mapping
 
-| `GC_DATA_DEPTH` | Inferred Primitive |
+| `GC_FIFO_DEPTH` | Inferred Primitive |
 |-----------------|-------------------|
 | 2 | Double-buffer (FDRE pair) |
 | 3–16 | SRL16E |

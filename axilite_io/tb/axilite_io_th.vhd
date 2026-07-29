@@ -148,7 +148,7 @@ begin
   -- ================================================================
   -- FIFO 0: m_axis[0] -> s_axis[0] loopback
   fifo_0 : entity work.axis_fifo
-    generic map (GC_TDATA_WIDTH => 32, GC_DATA_DEPTH => GC_FIFO_DEPTH)
+    generic map (GC_TDATA_WIDTH => 32, GC_FIFO_DEPTH => GC_FIFO_DEPTH)
     port map (
       aclk          => aclk,
       aresetn       => aresetn,
@@ -163,7 +163,7 @@ begin
 
   -- FIFO 1: m_axis[1] -> s_axis[1] loopback
   fifo_1 : entity work.axis_fifo
-    generic map (GC_TDATA_WIDTH => 32, GC_DATA_DEPTH => GC_FIFO_DEPTH)
+    generic map (GC_TDATA_WIDTH => 32, GC_FIFO_DEPTH => GC_FIFO_DEPTH)
     port map (
       aclk          => aclk,
       aresetn       => aresetn,
