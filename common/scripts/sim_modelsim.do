@@ -216,36 +216,16 @@ if {$CREATE_PROJECT} {
     } err]} {
       puts "\[sim.do\] NOTE: Could not auto-open project: $err"
     }
-  }
-}
-
-# In project GUI mode, stop here — the project is open in the GUI with
-# files populated. The user can compile, add files, or load the design
-# manually. The quit and project wrappers below stay active.
-if {$CREATE_PROJECT && ![batch_mode]} {
-  catch { rename quit _simdo_real_quit }
-  catch { rename project _simdo_real_project }
-
-  proc project {args} {
-    set subcmd [lindex $args 0]
-    if {$subcmd eq "compileall" && [lsearch -exact $args "-n"] < 0} {
-      set args [linsert $args 1 -n]
+    # Compile through the project so the Project pane shows files as
+    # compiled (green). No simulation is loaded yet, so the .mpf save
+    # during compileall works cleanly.
+    if {[catch {
+      project compileall
+      puts "\[sim.do\] Project sources compiled (Project pane status updated)."
+    } err]} {
+      puts "\[sim.do\] NOTE: project compileall reported: $err"
     }
-    uplevel 1 [linsert $args 0 _simdo_real_project]
   }
-
-  proc quit {args} {
-    if {[info exists ::simdo_project_file]} {
-      catch { file attributes $::simdo_project_file -readonly 1 }
-    }
-    catch { _simdo_real_quit -sim }
-    if {[info exists ::simdo_project_file]} {
-      catch { file attributes $::simdo_project_file -readonly 0 }
-    }
-    catch { _simdo_real_project close }
-    eval _simdo_real_quit $args
-  }
-  return
 }
 
 # Prepare loading arguments
@@ -286,6 +266,34 @@ if {![batch_mode]} {
   # (e.g. ModelSim Intel FPGA Starter Edition wave refresh glitches).
   catch { run -all }
   catch { wave zoom full }
+
+  # In project mode, install wrappers so Compile All uses -n (skip .mpf
+  # save while simulation is loaded) and quit unloads the sim before
+  # closing the project.
+  if {$CREATE_PROJECT} {
+    catch { rename quit _simdo_real_quit }
+    catch { rename project _simdo_real_project }
+
+    proc project {args} {
+      set subcmd [lindex $args 0]
+      if {$subcmd eq "compileall" && [lsearch -exact $args "-n"] < 0} {
+        set args [linsert $args 1 -n]
+      }
+      uplevel 1 [linsert $args 0 _simdo_real_project]
+    }
+
+    proc quit {args} {
+      if {[info exists ::simdo_project_file]} {
+        catch { file attributes $::simdo_project_file -readonly 1 }
+      }
+      catch { _simdo_real_quit -sim }
+      if {[info exists ::simdo_project_file]} {
+        catch { file attributes $::simdo_project_file -readonly 0 }
+      }
+      catch { _simdo_real_project close }
+      eval _simdo_real_quit $args
+    }
+  }
 } else {
   # Batch CLI mode: execute tests and exit simulation workspace cleanly.
   # Wrap in catch to suppress the async SrcCommon::LoadDBSDialog Tk error
