@@ -11,11 +11,37 @@ set build_dir [pwd]
 set ip_dir    [file dirname [file dirname $build_dir]]  ;# up to <ip>/
 set repo_root [file dirname $ip_dir]                     ;# up to sub/fpga-ip/
 
-if {![info exists std]} { set std "-2008" }
-if {![info exists tb]}  { set tb "${ip}_tb" }
+if {![info exists std]}   { set std   "-2008"   }
+if {![info exists tb]}    { set tb    "${ip}_tb" }
+if {![info exists files]} { set files "vhdl.f"  }
 set flist     "$repo_root/$ip/scripts/$files"
 set work_dir  "$build_dir/work"
 set wave_do   "$repo_root/$ip/scripts/wave01.do"
+
+# --- Auto-detect top entity from [tb] section of .f file ---
+# Overrides the default ${ip}_tb when the .f file references a
+# differently-named testbench (e.g. a manual copy with a custom name).
+set fh [open $flist]
+set in_tb 0
+while {[gets $fh line] >= 0} {
+    set line [string trim $line]
+    if {[regexp {\[tb\]} $line]} { set in_tb 1; continue }
+    if {[regexp {\[.*\]} $line]}  { set in_tb 0 }
+    if {$in_tb && $line ne "" && ![string match "#*" $line]} {
+        set tb_path [file join $repo_root $line]
+        if {[file exists $tb_path]} {
+            set tfh [open $tb_path]
+            while {[gets $tfh tline] >= 0} {
+                if {[regexp {^\s*entity\s+(\w+)\s+is} [string trim $tline] -> e]} {
+                    set tb $e; break
+                }
+            }
+            close $tfh
+        }
+        break
+    }
+}
+close $fh
 
 # 1. Save wave layout from previous session, but only if a wave window
 #    with signals exists (avoid overwriting saved layout with empty one).

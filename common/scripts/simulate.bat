@@ -10,8 +10,11 @@ REM   %1  Scripts directory (absolute path to per-IP scripts/ folder)
 REM   %2  File list name (without .f extension)
 REM         Examples: vhdl, uvvm, sv
 REM   %3  Optional flag:
-REM         gui   — Launch ModelSim GUI with waveform viewer
-REM         clean — Delete the modelsim/ working directory
+REM         gui     — Launch ModelSim GUI with waveform viewer
+REM         clean   — Delete the modelsim/ working directory
+REM         project — Launch GUI + create ModelSim project file (.mpf)
+REM   %4  Additional modifier (only when %3=gui):
+REM         project — Also create ModelSim project file (.mpf)
 REM
 REM Behaviour:
 REM   - Derives IP name from the scripts directory parent folder.
@@ -34,6 +37,13 @@ setlocal enabledelayedexpansion
 set "SCRIPTS_DIR=%~1"
 set "NAME=%~2"
 set "GUI=%~3"
+set "PROJECT=%~4"
+
+REM If %3 is "project", treat as GUI mode + project flag
+if /I "%GUI%"=="project" (
+  set "PROJECT=project"
+  set "GUI=gui"
+)
 
 if /I "%NAME%"=="clean" goto :clean
 if "%NAME%"=="" (
@@ -88,9 +98,32 @@ REM --- Create clean working directory ---
 REM The modelsim/ directory holds compiled libraries, transcripts, and
 REM artifacts. We remove and recreate it so every run starts
 REM fresh — no stale object files from previous compiles.
+REM Project mode uses a separate modelsim_proj/ directory so it can
+REM coexist with non-project simulation runs. Since *_proj/ is ignored
+REM in git/VS Code, naming it modelsim_proj/ prevents IDE file-scanning
+REM locks that cause "Access is denied" when compiling/saving in the GUI.
 set "SIM_DIR=%SCRIPTS_DIR%\..\modelsim"
+if /I "%PROJECT%"=="project" (
+  set "SIM_DIR=%SCRIPTS_DIR%\..\modelsim_proj"
+)
 if exist "%SIM_DIR%" rmdir /s /q "%SIM_DIR%" 2>nul
 mkdir "%SIM_DIR%" 2>nul
+
+REM --- Handle local modelsim.ini for writeable project mode ---
+REM When MODELSIM environment variable points to the read-only global UVVM
+REM modelsim.ini, ModelSim GUI operations (like compile, project save, or exit)
+REM will fail with "Access is denied" / "Unable to replace existing ini file"
+REM on the .mpf because ModelSim attempts to modify the global directory.
+REM Copying modelsim.ini locally and unsetting the env var completely fixes this.
+if /I "%PROJECT%"=="project" (
+  if defined MODELSIM (
+    if exist "%MODELSIM%" (
+      copy /Y "%MODELSIM%" "%SIM_DIR%\modelsim.ini" >nul
+      attrib -R "%SIM_DIR%\modelsim.ini" >nul
+    )
+  )
+  set "MODELSIM="
+)
 
 REM --- Resolve path to the shared simulation engine ---
 REM sim_modelsim.do is the universal ModelSim/Questa Tcl engine that
@@ -114,9 +147,9 @@ REM Tcl engine script with the top entity, file list, and optional time
 REM resolution. The engine handles all compilation + elaboration + run.
 echo [simulate] Running %NAME% testbench (batch)...
 if "%TIMING%"=="" (
-  vsim -c -do "do %SIM_DO% work.%TOP_TB% %FILE_LIST%"
+  vsim -c -do "do %SIM_DO% work.%TOP_TB% %FILE_LIST% %PROJECT%"
 ) else (
-  vsim -c -do "do %SIM_DO% work.%TOP_TB% %FILE_LIST% %TIMING%"
+  vsim -c -do "do %SIM_DO% work.%TOP_TB% %FILE_LIST% %TIMING% %PROJECT%"
 )
 popd
 exit /b %ERRORLEVEL%
@@ -124,9 +157,9 @@ exit /b %ERRORLEVEL%
 :run_gui
 echo [simulate] Opening %NAME% testbench (GUI)...
 if "%TIMING%"=="" (
-  start /B "ModelSim" vsim -do "do %SIM_DO% work.%TOP_TB% %FILE_LIST%"
+  start /B "ModelSim" vsim -do "do %SIM_DO% work.%TOP_TB% %FILE_LIST% %PROJECT%"
 ) else (
-  start /B "ModelSim" vsim -do "do %SIM_DO% work.%TOP_TB% %FILE_LIST% %TIMING%"
+  start /B "ModelSim" vsim -do "do %SIM_DO% work.%TOP_TB% %FILE_LIST% %TIMING% %PROJECT%"
 )
 popd
 exit /b %ERRORLEVEL%

@@ -22,19 +22,15 @@ REM              vivado    — Vivado synthesis (via synthesize.bat)
 REM              xsim      — Xilinx XSim simulation (via simulate_xsim.bat)
 REM   [gui]    Optional flag to launch GUI mode with waveform viewer.
 REM            Omit for batch/headless mode. Not valid with 'all'.
+REM   [project] Optional flag to create a ModelSim project file (.mpf).
+REM            Can be combined with gui: "run <ip> <name> <tool> gui project"
 REM
 REM Examples:
-REM   run axis_fifo vhdl  modelsim          # ModelSim VHDL (batch)
-REM   run axis_fifo uvvm  modelsim          # ModelSim UVVM (batch)
-REM   run axis_fifo sv    modelsim gui      # ModelSim SV (GUI)
-REM   run axis_fifo vhdl  vivado            # Vivado VHDL synthesis (batch)
-REM   run axis_fifo sv    vivado gui        # Vivado SV project + GUI
-REM   run axis_fifo vhdl  xsim              # XSim VHDL simulation (batch)
-REM   run axis_fifo vhdl  xsim gui          # XSim VHDL (GUI)
-REM   run axis_fifo vhdl                    # VHDL file list, all tools
-REM   run axis_fifo all                     # All batch permutations
-REM   run axis_fifo all   modelsim          # All .f files, ModelSim only
-REM   run axis_fifo clean                   # Remove all artifacts
+REM   run axis_fifo vhdl  modelsim              # ModelSim VHDL (batch)
+REM   run axis_fifo uvvm  modelsim              # ModelSim UVVM (batch)
+REM   run axis_fifo sv    modelsim gui          # ModelSim SV (GUI)
+REM   run axis_fifo vhdl  modelsim project      # ModelSim VHDL (GUI + project)
+REM   run axis_fifo vhdl  modelsim gui project  # ModelSim VHDL (GUI + project)
 REM
 REM File-List Convention:
 REM   Each <name> maps to axis_fifo/scripts/<name>.f, which lists the
@@ -64,6 +60,7 @@ set "IP=%~1"
 set "NAME=%~2"
 set "TOOL=%~3"
 set "GUI=%~4"
+set "PROJECT=%~5"
 
 if "%IP%"=="" goto :usage
 if "%NAME%"=="" goto :usage
@@ -87,7 +84,7 @@ echo [run] Unknown tool: %TOOL%
 goto :usage
 
 :simulate
-call ..\..\common\scripts\simulate.bat "%CD%" %NAME% %GUI%
+call ..\..\common\scripts\simulate.bat "%CD%" %NAME% %GUI% %PROJECT%
 exit /b %ERRORLEVEL%
 
 :synthesize

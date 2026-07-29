@@ -3,7 +3,6 @@
 # =============================================================================
 
 set ip    [file tail [file dirname [pwd]]]
-set files "vhdl.f"
 set tb    "${ip}_tb"
 set std   "-2008"
 

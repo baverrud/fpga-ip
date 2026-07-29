@@ -34,6 +34,11 @@
 set PrefMain(EnableDB) 0
 catch { set PrefMain(EnableDB) 0 }
 
+# Ensure local modelsim.ini from the launcher has correct write permissions
+if {[file exists modelsim.ini]} {
+  catch { file attributes modelsim.ini -readonly 0 }
+}
+
 # In batch mode, Tcl/tool errors must terminate the simulator with a failing
 # exit code. Otherwise vsim -c can drop to the "ModelSim>" prompt, which makes
 # launcher flows like "run all" appear hung. Do not override onbreak here:
@@ -46,10 +51,16 @@ if {[batch_mode]} {
 set TB_TOP ""
 set FILE_LIST ""
 set TIMING_RES ""
+if {![info exists CREATE_PROJECT]} { set CREATE_PROJECT "" }
 
 if {[info exists 1]} { set TB_TOP $1 }
 if {[info exists 2]} { set FILE_LIST $2 }
-if {[info exists 3]} { set TIMING_RES $3 }
+if {[info exists 3]} { 
+  if {$3 in {project 1 yes}} { set CREATE_PROJECT 1 } else { set TIMING_RES $3 }
+}
+if {[info exists 4]} { 
+  if {$4 in {project 1 yes}} { set CREATE_PROJECT 1 }
+}
 
 # Fallback via argv
 if {$TB_TOP == ""} {
@@ -58,10 +69,20 @@ if {$TB_TOP == ""} {
     if {[string index $first_arg 0] != "-"} {
       set TB_TOP $first_arg
       if {$argc > 1} { set FILE_LIST [lindex $argv 1] }
-      if {$argc > 2} { set TIMING_RES [lindex $argv 2] }
+      if {$argc > 2} { 
+        set val [lindex $argv 2]
+        if {$val in {project 1 yes}} { set CREATE_PROJECT 1 } else { set TIMING_RES $val }
+      }
+      if {$argc > 3} { 
+        set val [lindex $argv 3]
+        if {$val in {project 1 yes}} { set CREATE_PROJECT 1 }
+      }
     }
   }
 }
+
+# Normalize project flag
+if {$CREATE_PROJECT in {project 1 yes}} { set CREATE_PROJECT 1 } else { set CREATE_PROJECT 0 }
 
 if {$TB_TOP == "" || $FILE_LIST == ""} {
   puts "\[sim.do\] ERROR: Missing parameters!"
@@ -137,6 +158,86 @@ proc compile_files_from_list {file_list_path} {
 puts "\[sim.do\] Compiling design dependencies from $FILE_LIST..."
 compile_files_from_list $FILE_LIST
 
+# --- Create ModelSim project (.mpf) if requested ---
+# We use ModelSim's native project commands to create and populate the project.
+#
+# Project artifacts go into modelsim_proj/ (separate from modelsim/) so
+# project and non-project runs coexist without clobbering each other.
+# We name the project file after the IP directory name (e.g. axis_latency_gen.mpf)
+# instead of the testbench entity name, avoiding namespace collisions.
+if {$CREATE_PROJECT} {
+  set ip_dir [file dirname [file dirname [file normalize $FILE_LIST]]]
+  set ip_name [file tail $ip_dir]
+  set proj_name $ip_name
+  set proj_file "${proj_name}.mpf"
+  set ::simdo_project_file [file normalize $proj_file]
+  puts "\[sim.do\] Creating ModelSim project: $proj_file (IP: $ip_name)"
+
+  set entries [parse_files_list $FILE_LIST [list]]
+
+  # Delete any existing project files to ensure a clean slate
+  if {[file exists $proj_file]} {
+    file delete -force $proj_file
+  }
+
+  # Build the project natively using ModelSim Tcl commands
+  if {[catch {
+    project new . $proj_name
+    foreach entry $entries {
+      lassign $entry file_path file_type vhdl_std
+      set abs_path [file normalize $file_path]
+      set native_path [file nativename $abs_path]
+      project addfile $native_path
+    }
+    project close
+    puts "\[sim.do\] ModelSim project created successfully."
+  } err]} {
+    puts "\[sim.do\] ERROR: Failed to create ModelSim project: $err"
+  }
+
+  # Ensure the newly created project file is writeable
+  if {[file exists $proj_file]} {
+    catch { file attributes $proj_file -readonly 0 }
+  }
+
+  # In GUI mode, open the newly-created project natively BEFORE loading the
+  # design. ModelSim forbids opening a project while a simulation is active,
+  # so this must happen first. The design is then loaded normally below, and
+  # a quit override (installed after the run) unloads the design and closes
+  # the project cleanly on exit — avoiding the "Unable to replace existing
+  # ini file / File can not be renamed" errors that occur when ModelSim tries
+  # to save the project .mpf while a design is still loaded.
+  if {![batch_mode]} {
+    if {[catch {
+      project open [file normalize $proj_file]
+      puts "\[sim.do\] Project opened in GUI: $proj_file"
+    } err]} {
+      puts "\[sim.do\] NOTE: Could not auto-open project: $err"
+    }
+    # Compile all sources THROUGH the project (not just via the standalone
+    # vcom above) so the Project pane shows each file as compiled (green)
+    # instead of "?" (unknown). This MUST run before the design is loaded:
+    # a project save while a design is active fails with a rename error, and
+    # marking files up-to-date now also prevents ModelSim from auto-compiling
+    # (and thus re-saving the .mpf) after the design loads. ModelSim auto-
+    # determines the correct dependency compile order.
+    if {[catch {
+      project compileall
+      puts "\[sim.do\] Project sources compiled (Project pane status updated)."
+    } err]} {
+      puts "\[sim.do\] NOTE: project compileall reported: $err"
+    }
+
+    # Keep the project file writeable. User actions such as adding a file
+    # need to update the .mpf. Later, after the design is loaded, we wrap the
+    # project command so project-changing operations unload the simulation
+    # before ModelSim attempts to save this file.
+    if {[file exists $proj_file]} {
+      catch { file attributes $proj_file -readonly 0 }
+    }
+  }
+}
+
 # Prepare loading arguments
 set VSIM_ARGS "-voptargs=\"+acc\""
 if {$TIMING_RES != ""} {
@@ -175,6 +276,21 @@ if {![batch_mode]} {
   # (e.g. ModelSim Intel FPGA Starter Edition wave refresh glitches).
   catch { run -all }
   catch { wave zoom full }
+
+  # In project mode, install a quit override so exiting the GUI unloads the
+  # design and closes the project BEFORE ModelSim attempts to save the .mpf.
+  # ModelSim cannot save the project file while a design is loaded (the .mpf
+  # is locked), which otherwise produces "Unable to replace existing ini
+  # file / File can not be renamed" errors on exit. Unloading the sim first
+  # (quit -sim) then closing the project performs a clean, error-free save.
+  if {$CREATE_PROJECT} {
+    catch { rename quit _simdo_real_quit }
+    proc quit {args} {
+      catch { _simdo_real_quit -sim }
+      catch { project close }
+      eval _simdo_real_quit $args
+    }
+  }
 } else {
   # Batch CLI mode: execute tests and exit simulation workspace cleanly.
   # Wrap in catch to suppress the async SrcCommon::LoadDBSDialog Tk error
@@ -182,3 +298,4 @@ if {![batch_mode]} {
   catch { run -all }
   quit -code 0
 }
+

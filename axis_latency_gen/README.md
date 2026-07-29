@@ -28,13 +28,15 @@ Licensed under Zero-Clause BSD (0BSD).
 | `GC_DATA_WIDTH` | positive | 32 | Width of TDATA on both AXI-Stream interfaces |
 | `GC_FIFO_DEPTH` | positive | 16 | Depth of internal FIFO (entries) |
 | `GC_TIMER_WIDTH` | positive | 32 | Width of internal global timer and `base_delay` |
+| `GC_JG_JITTER_WIDTH` | positive | 8 | Jitter output width |
+| `GC_USE_XORSHIFT128` | boolean | false | PRNG selection: false=xorshift32, true=xorshift128 |
 | `GC_JG_SEED` | slv(31:0) | x"DEADBEEF" | Jitter generator PRNG seed (xorshift32) |
 | `GC_JG_SEED0` | slv(63:0) | x"DEADBEEFCAFEBABE" | Jitter gen seed 0 (xorshift128) |
 | `GC_JG_SEED1` | slv(63:0) | x"0123456789ABCDEF" | Jitter gen seed 1 (xorshift128) |
 | `GC_JG_VAL_0` | integer | 0 | Jitter value when slice < GC_JG_TH_0 |
 | `GC_JG_VAL_1` | integer | 1 | Jitter value when slice < GC_JG_TH_1 |
-| `GC_JG_VAL_2` | integer | 5 | Jitter value when slice < GC_JG_TH_2 |
-| `GC_JG_VAL_3` | integer | 20 | Jitter value when slice >= GC_JG_TH_2 |
+| `GC_JG_VAL_2` | integer | 3 | Jitter value when slice < GC_JG_TH_2 |
+| `GC_JG_VAL_3` | integer | 7 | Jitter value when slice >= GC_JG_TH_2 |
 | `GC_JG_TH_0` | integer | 128 | First CDF threshold |
 | `GC_JG_TH_1` | integer | 192 | Second CDF threshold |
 | `GC_JG_TH_2` | integer | 240 | Third CDF threshold |
@@ -52,12 +54,14 @@ Licensed under Zero-Clause BSD (0BSD).
 | `m_axis_tvalid` | out | 1 | Master valid (gated by time) |
 | `m_axis_tready` | in | 1 | Master ready (downstream backpressure) |
 | `base_delay` | in | GC_TIMER_WIDTH | Base delay added to every entry |
+| `enable_base_delay` | in | 1 | Gates base_delay addition |
+| `enable_jitter` | in | 1 | Gates jitter contribution |
 | `fifo_count` | out | unsigned | FIFO occupancy |
 
 ## Architecture
 
 ```
-  S_AXIS ──┬──► [timer + base + jitter] ──► FIFO({data, t_depart})
+  S_AXIS ──┬──► [timer + 1 + base_delay(gated) + jitter] ──► FIFO({data, t_depart})
            │                                        │
            └──► jitter_gen (step on write)           ▼
                                               [signed(timer - t) >= 0?]
@@ -69,13 +73,13 @@ Licensed under Zero-Clause BSD (0BSD).
 ### Write path (entry)
 
 On `s_axis_tvalid & s_axis_tready`:
-1. Step `jitter_gen` → get random jitter value
-2. Compute `t_departure = global_timer + base_delay + jitter`
+1. Step `jitter_gen` (new sample used by the **next** write; first write after reset uses jitter=0)
+2. Compute `t_departure = timer + 1 (FWFT pipeline) + base_delay (gated) + jitter`
 3. Push `{s_axis_tdata, t_departure}` into the wider `axis_fifo`
 
 ### Read path (dispatch)
 
-When FIFO not empty and `signed(global_timer - head.t_departure) >= 0`:
+When FIFO not empty and `signed(timer - head.t_departure) >= 0`:
 1. Pop FIFO, split `{data, timestamp}`
 2. Drive `m_axis_tdata`, assert `m_axis_tvalid` (gated by `m_axis_tready`)
 
@@ -89,7 +93,7 @@ The correct wrap-safe comparison is **same-width modular subtraction**, then
 interpret the result as signed:
 
 ```vhdl
-v_time_diff <= signed(global_timer - t_departure);
+v_time_diff <= signed(timer - t_departure);
 release     <= (v_time_diff >= 0);
 ```
 
@@ -106,7 +110,7 @@ future:
 So this would be equivalent in hardware:
 
 ```vhdl
-v_time_diff <= global_timer - t_departure;  -- unsigned bits
+v_time_diff <= timer - t_departure;  -- unsigned bits
 release     <= not v_time_diff(GC_TIMER_WIDTH-1);
 ```
 
@@ -115,7 +119,7 @@ the intent directly: negative means "not yet", non-negative means "arrived".
 
 Do **not** zero-extend the operands before subtracting. Zero-extension turns
 the comparison into a normal unsigned magnitude comparison, which releases too
-early when `t_departure` has wrapped to a small value and `global_timer` is
+early when `t_departure` has wrapped to a small value and `timer` is
 still near the maximum value.
 
 #### Example with an 8-bit timer
@@ -131,7 +135,7 @@ t_departure = 250 + 10 = 260 mod 256 = 4
 Before the wrap, while timer = 251:
 
 ```
-global_timer - t_departure = 251 - 4 = 247
+timer - t_departure = 251 - 4 = 247
 247 as signed(8-bit) = -9
 ```
 
@@ -141,7 +145,7 @@ has to pass 252, 253, 254, 255, 0, 1, 2, 3, then 4.
 At timer = 4:
 
 ```
-global_timer - t_departure = 4 - 4 = 0
+timer - t_departure = 4 - 4 = 0
 0 as signed(8-bit) = 0
 ```
 
@@ -182,13 +186,13 @@ IP.
 |---|---|
 | **FIFO empty** | `ff_valid = '0'`. `ff_ready` stays low, `m_axis_tvalid` stays low. No pop, no spurious output. |
 | **FIFO full** | `tf_ready = '0'`, reflected to `s_axis_tready = '0'`. Upstream sees backpressure. |
-| **`base_delay = 0`** | Delay is purely from jitter. `t_departure` may be <= current timer if jitter also = 0. |
+| **`base_delay = 0`** | Minimum 1-cycle FIFO pipeline floor. `t_departure = timer + 1 + jitter`. |
 | **Jitter = 0** | Possible when CDF thresholds route to `GC_VAL_0 = 0`. Still valid — pass-through with only base delay. |
 | **`t_departure` in the past** | `v_time_diff >= 0` immediately. Entry dispatched on the next read cycle. |
 | **`m_axis_tready` deasserted** | `ff_ready` blocked. Entry sits at FIFO head, `v_time_diff` continues to grow. Dispatched as soon as downstream is ready. |
 | **Simultaneous write + read** | Independent write/read paths on single clock. FIFO handles concurrent push and pop. |
 | **Write burst faster than dispatch** | FIFO fills up. When full, `s_axis_tready` deasserts, gating further writes. |
-| **Back-to-back writes** | Each gets its own `jitter_gen` sample (stepped on each accepted write). Independent departure times. |
+| **Back-to-back writes** | Each write steps `jitter_gen`; the new sample is used by the **next** write (one-beat delayed). Independent departure times. |
 | **`aresetn` during operation** | Timer resets to 0. FIFO and `jitter_gen` reset. All in-flight entries discarded. |
 | **Timer wraps mid-queue** | Same-width modular subtraction keeps the entry waiting until the wrapped timer reaches `t_departure`. No premature release. |
 | **Max delay exceeded** | Ambiguous if `base_delay + jitter >= 2^(GC_TIMER_WIDTH-1)`. At `GC_TIMER_WIDTH=32` and 100 MHz: safe delay range is < 21.5 s. |

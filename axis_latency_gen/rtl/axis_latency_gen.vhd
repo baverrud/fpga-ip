@@ -23,6 +23,8 @@ entity axis_latency_gen is
     GC_TIMER_WIDTH : positive := 32;
 
     -- Jitter generator generics (passed through to jitter_gen)
+    -- Jitter output width (default matches jitter_gen's GC_JITTER_WIDTH)
+    GC_JG_JITTER_WIDTH : positive := 8;
     -- PRNG selection: false = xorshift32, true = xorshift128
     GC_USE_XORSHIFT128 : boolean  := false;
     -- PRNG seeds (xorshift32 uses GC_JG_SEED; xorshift128 uses GC_JG_SEED0/1)
@@ -66,9 +68,9 @@ end entity;
 architecture rtl of axis_latency_gen is
 
   -- -----------------------------------------------------------------
-  -- Global free-running timer
+  -- Free-running cycle counter
   -- -----------------------------------------------------------------
-  signal global_timer : unsigned(GC_TIMER_WIDTH-1 downto 0) := (others => '0');
+  signal timer : unsigned(GC_TIMER_WIDTH-1 downto 0) := (others => '0');
 
   -- -----------------------------------------------------------------
   -- Wider FIFO: stores {s_axis_tdata, t_departure}
@@ -90,7 +92,7 @@ architecture rtl of axis_latency_gen is
   -- Jitter generator
   -- -----------------------------------------------------------------
   signal jg_step         : std_logic;
-  signal jg_jitter       : unsigned(15 downto 0);  -- GC_JITTER_WIDTH=16
+  signal jg_jitter       : unsigned(GC_JG_JITTER_WIDTH-1 downto 0);
 
   -- -----------------------------------------------------------------
   -- Write-side computed departure time
@@ -108,7 +110,7 @@ architecture rtl of axis_latency_gen is
   --   MSB = 0 -> signed result is >= 0     -> departure has arrived
   --
   -- Example with an 8-bit timer:
-  --   global_timer = 251, t_departure = 4
+  --   timer = 251, t_departure = 4
   --   251 - 4 = 247 = 0xF7 = -9 as signed(8)
   --   Negative means "not yet", so the entry waits through rollover.
   --
@@ -125,15 +127,15 @@ architecture rtl of axis_latency_gen is
 begin
 
   -- ================================================================
-  -- Global timer
+  -- Free-running cycle counter
   -- ================================================================
   process(aclk)
   begin
     if rising_edge(aclk) then
       if aresetn = '0' then
-        global_timer <= (others => '0');
+        timer <= (others => '0');
       else
-        global_timer <= global_timer + 1;
+        timer <= timer + 1;
       end if;
     end if;
   end process;
@@ -143,8 +145,8 @@ begin
   -- ================================================================
   u_jitter_gen : entity work.jitter_gen
     generic map (
-      -- Jitter output width (16-bit)
-      GC_JITTER_WIDTH    => 16,
+      -- Jitter output width
+      GC_JITTER_WIDTH    => GC_JG_JITTER_WIDTH,
       -- PRNG selection: false = xorshift32, true = xorshift128
       GC_USE_XORSHIFT128 => GC_USE_XORSHIFT128,
       -- PRNG seeds
@@ -165,7 +167,9 @@ begin
       -- Clock & reset
       clk    => aclk,
       rstn   => aresetn,
-      -- Step pulse: advance PRNG and sample jitter on each write
+      -- Step pulse: advance PRNG and update jitter register on each
+      -- accepted write. Because jitter_gen is clocked, the updated
+      -- sample is visible after this edge (used by the next write).
       step   => jg_step,
       -- Enable: gated by enable_jitter port
       enable => enable_jitter,
@@ -177,14 +181,27 @@ begin
   -- Write side: compute t_departure and push into FIFO
   -- ================================================================
   jg_step        <= s_axis_tvalid and tf_ready;
-  -- t_departure = timer + 1 (FIFO latency floor) + base_delay (gated) + jitter
-  -- The +1 ensures minimum delay equals the axis_fifo's internal pipeline latency.
-  p_departure : process(all)
+  -- Jitter timing semantics:
+  --   * The current write uses the currently visible jg_jitter value.
+  --   * jg_step='1' on this write updates jitter_gen's register on the
+  --     same rising edge, so that new sample is used by the next write.
+  --   * Result: jitter contribution is intentionally one accepted write
+  --     delayed. The first accepted write after reset uses jitter=0.
+  -- t_departure = timer + 1 (FWFT pipeline) + base_delay (gated) + jitter
+  -- The +1 accounts for the axis_fifo's registered output: an entry written
+  -- at timer=T appears at the FIFO output at timer=T+1. Without it, a
+  -- base_delay of N would be consumed by the pipeline (timer advancing
+  -- during the pipeline cycle) and the observed latency would be N rather
+  -- than N+1. With the +1, base_delay maps directly to added cycles on
+  -- top of the pipeline floor: base_delay=0 + enables low = 1 cycle,
+  -- base_delay=1 = 2 cycles, etc.
+  -- Minimum observed latency is 1 cycle (FIFO pipeline alone).
+  p_departure : process(timer, base_delay, jg_jitter, enable_base_delay)
   begin
     if enable_base_delay = '1' then
-      t_departure <= global_timer + 1 + base_delay + resize(jg_jitter, GC_TIMER_WIDTH);
+      t_departure <= timer + 1 + base_delay + resize(jg_jitter, GC_TIMER_WIDTH);
     else
-      t_departure <= global_timer + 1 + resize(jg_jitter, GC_TIMER_WIDTH);
+      t_departure <= timer + 1 + resize(jg_jitter, GC_TIMER_WIDTH);
     end if;
   end process;
 
@@ -225,7 +242,7 @@ begin
   -- ================================================================
   -- Read side: release when time has arrived
   -- ================================================================
-  v_time_diff  <= signed(global_timer - ff_t_departure) when ff_valid = '1' else
+  v_time_diff  <= signed(timer - ff_t_departure) when ff_valid = '1' else
                   (others => '0');
   time_arrived <= '1' when (ff_valid = '1') and (v_time_diff >= 0) else '0';
 
