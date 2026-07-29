@@ -282,12 +282,66 @@ if {![batch_mode]} {
   # ModelSim cannot save the project file while a design is loaded (the .mpf
   # is locked), which otherwise produces "Unable to replace existing ini
   # file / File can not be renamed" errors on exit. Unloading the sim first
-  # (quit -sim) then closing the project performs a clean, error-free save.
+  # (quit -sim) then closing the project performs a clean save.
+  #
+  # Also wrap the project command: for compileall we append `-n` to skip
+  # the .mpf save while the simulation is loaded. The compile itself
+  # succeeds; the project file is saved cleanly on exit by the quit
+  # wrapper. Other project operations (addfile, removefile) cannot avoid
+  # the save attempt, but the operation succeeds in memory and persists
+  # when the quit wrapper saves the project after unloading the sim.
   if {$CREATE_PROJECT} {
     catch { rename quit _simdo_real_quit }
+    catch { rename project _simdo_real_project }
+
+    proc project {args} {
+      set subcmd [lindex $args 0]
+      # compileall: append -n to skip the .mpf save while simulation
+      # is loaded. The compile itself succeeds; the project file is
+      # saved cleanly on exit by the quit wrapper below.
+      if {$subcmd eq "compileall" && [lsearch -exact $args "-n"] < 0} {
+        set args [linsert $args 1 -n]
+        uplevel 1 [linsert $args 0 _simdo_real_project]
+        return
+      }
+      # All other project-changing commands: the save attempt is
+      # unavoidable, but we can make it produce one clean "write
+      # protected" message instead of three garbled errors by
+      # temporarily marking the .mpf read-only. The operation
+      # succeeds in memory and is saved on exit.
+      if {[lsearch -exact {
+        addfile addfolder calculateorder close compileall compileoutofdate
+        compilefile delete new open removefile
+      } $subcmd] >= 0} {
+        if {[info exists ::simdo_project_file] && [file exists $::simdo_project_file]} {
+          catch { file attributes $::simdo_project_file -readonly 1 }
+        }
+        uplevel 1 [linsert $args 0 _simdo_real_project]
+        if {[info exists ::simdo_project_file] && [file exists $::simdo_project_file]} {
+          catch { file attributes $::simdo_project_file -readonly 0 }
+        }
+        return
+      }
+      uplevel 1 [linsert $args 0 _simdo_real_project]
+    }
+
     proc quit {args} {
+      # ModelSim cannot save the .mpf while a simulation is loaded.
+      # Mark the .mpf read-only before unloading so the unavoidable
+      # save attempt during quit -sim produces one clean "write
+      # protected" message instead of three garbled "Access denied"
+      # errors. Restore writable after unload so project close can
+      # save cleanly.
+      if {[info exists ::simdo_project_file]} {
+        catch { file attributes $::simdo_project_file -readonly 1 }
+      }
       catch { _simdo_real_quit -sim }
-      catch { project close }
+      if {[info exists ::simdo_project_file]} {
+        catch { file attributes $::simdo_project_file -readonly 0 }
+      }
+      # Save project state now that simulation is unloaded.
+      catch { _simdo_real_project close }
+      # Project now needs to be closed; the quit below handles final exit.
       eval _simdo_real_quit $args
     }
   }
