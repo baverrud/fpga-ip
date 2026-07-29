@@ -15,18 +15,26 @@ use work.util_pkg.all;
 
 entity axis_latency_gen is
   generic (
+    -- Data path width
     GC_DATA_WIDTH  : positive := 32;
+    -- FIFO depth (entries)
     GC_FIFO_DEPTH  : positive := 16;
+    -- Width of internal timer and base_delay port
     GC_TIMER_WIDTH : positive := 32;
 
-    -- Jitter generator generics (passed to jitter_gen)
+    -- Jitter generator generics (passed through to jitter_gen)
+    -- PRNG selection: false = xorshift32, true = xorshift128
+    GC_USE_XORSHIFT128 : boolean  := false;
+    -- PRNG seeds (xorshift32 uses GC_JG_SEED; xorshift128 uses GC_JG_SEED0/1)
     GC_JG_SEED     : std_logic_vector(31 downto 0) := x"DEADBEEF";
     GC_JG_SEED0    : std_logic_vector(63 downto 0) := x"DEADBEEFCAFEBABE";
     GC_JG_SEED1    : std_logic_vector(63 downto 0) := x"0123456789ABCDEF";
+    -- 4 target jitter values
     GC_JG_VAL_0    : integer := 0;
     GC_JG_VAL_1    : integer := 1;
-    GC_JG_VAL_2    : integer := 5;
-    GC_JG_VAL_3    : integer := 20;
+    GC_JG_VAL_2    : integer := 3;
+    GC_JG_VAL_3    : integer := 7;
+    -- 3 cumulative thresholds (8-bit, strictly ascending, 0..255)
     GC_JG_TH_0     : integer := 128;
     GC_JG_TH_1     : integer := 192;
     GC_JG_TH_2     : integer := 240
@@ -133,14 +141,18 @@ begin
   -- ================================================================
   u_jitter_gen : entity work.jitter_gen
     generic map (
-      GC_JITTER_WIDTH => 16,
-      GC_SEED  => GC_JG_SEED,
-      GC_SEED0 => GC_JG_SEED0,
-      GC_SEED1 => GC_JG_SEED1,
-      GC_VAL_0 => GC_JG_VAL_0, GC_VAL_1 => GC_JG_VAL_1,
-      GC_VAL_2 => GC_JG_VAL_2, GC_VAL_3 => GC_JG_VAL_3,
-      GC_TH_0  => GC_JG_TH_0,  GC_TH_1  => GC_JG_TH_1,
-      GC_TH_2  => GC_JG_TH_2
+      GC_JITTER_WIDTH    => 16,
+      GC_USE_XORSHIFT128 => GC_USE_XORSHIFT128,
+      GC_SEED            => GC_JG_SEED,
+      GC_SEED0           => GC_JG_SEED0,
+      GC_SEED1           => GC_JG_SEED1,
+      GC_VAL_0           => GC_JG_VAL_0,
+      GC_VAL_1           => GC_JG_VAL_1,
+      GC_VAL_2           => GC_JG_VAL_2,
+      GC_VAL_3           => GC_JG_VAL_3,
+      GC_TH_0            => GC_JG_TH_0,
+      GC_TH_1            => GC_JG_TH_1,
+      GC_TH_2            => GC_JG_TH_2
     )
     port map (
       clk    => aclk,

@@ -18,14 +18,16 @@ entity axis_latency_gen_top is
     GC_FIFO_DEPTH  : positive := 16;
     GC_TIMER_WIDTH : positive := 32;
 
-    -- Jitter generator generics
+    -- Jitter generator generics (passed to jitter_gen)
+    -- PRNG selection: false = xorshift32, true = xorshift128
+    GC_USE_XORSHIFT128 : boolean  := false;
     GC_JG_SEED         : std_logic_vector(31 downto 0) := x"DEADBEEF";
     GC_JG_SEED0        : std_logic_vector(63 downto 0) := x"DEADBEEFCAFEBABE";
     GC_JG_SEED1        : std_logic_vector(63 downto 0) := x"0123456789ABCDEF";
     GC_JG_VAL_0        : integer := 0;
     GC_JG_VAL_1        : integer := 1;
-    GC_JG_VAL_2        : integer := 5;
-    GC_JG_VAL_3        : integer := 20;
+    GC_JG_VAL_2        : integer := 3;
+    GC_JG_VAL_3        : integer := 7;
     GC_JG_TH_0         : integer := 128;
     GC_JG_TH_1         : integer := 192;
     GC_JG_TH_2         : integer := 240
@@ -58,19 +60,20 @@ begin
 
   u_core : entity work.axis_latency_gen
     generic map (
-      GC_DATA_WIDTH  => GC_DATA_WIDTH,
-      GC_FIFO_DEPTH  => GC_FIFO_DEPTH,
-      GC_TIMER_WIDTH => GC_TIMER_WIDTH,
-      GC_JG_SEED     => GC_JG_SEED,
-      GC_JG_SEED0    => GC_JG_SEED0,
-      GC_JG_SEED1    => GC_JG_SEED1,
-      GC_JG_VAL_0    => GC_JG_VAL_0,
-      GC_JG_VAL_1    => GC_JG_VAL_1,
-      GC_JG_VAL_2    => GC_JG_VAL_2,
-      GC_JG_VAL_3    => GC_JG_VAL_3,
-      GC_JG_TH_0     => GC_JG_TH_0,
-      GC_JG_TH_1     => GC_JG_TH_1,
-      GC_JG_TH_2     => GC_JG_TH_2
+      GC_DATA_WIDTH      => GC_DATA_WIDTH,
+      GC_FIFO_DEPTH      => GC_FIFO_DEPTH,
+      GC_TIMER_WIDTH     => GC_TIMER_WIDTH,
+      GC_USE_XORSHIFT128 => GC_USE_XORSHIFT128,
+      GC_JG_SEED         => GC_JG_SEED,
+      GC_JG_SEED0        => GC_JG_SEED0,
+      GC_JG_SEED1        => GC_JG_SEED1,
+      GC_JG_VAL_0        => GC_JG_VAL_0,
+      GC_JG_VAL_1        => GC_JG_VAL_1,
+      GC_JG_VAL_2        => GC_JG_VAL_2,
+      GC_JG_VAL_3        => GC_JG_VAL_3,
+      GC_JG_TH_0         => GC_JG_TH_0,
+      GC_JG_TH_1         => GC_JG_TH_1,
+      GC_JG_TH_2         => GC_JG_TH_2
     )
     port map (
       aclk           => aclk,
