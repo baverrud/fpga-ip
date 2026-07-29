@@ -193,6 +193,19 @@ if {$CREATE_PROJECT} {
     puts "\[sim.do\] ERROR: Failed to create ModelSim project: $err"
   }
 
+  # Fix VHDL standard in the .mpf to match our direct compiles.
+  # Questa 2025.3 defaults to VHDL-2019 on project new; the RTL and TB
+  # files use VHDL-2008. The project auto-compile on open uses whatever
+  # is in the .mpf, so change it before opening.
+  set mpf_fix_fh [open $proj_file r]
+  set mpf_fix_data [read $mpf_fix_fh]
+  close $mpf_fix_fh
+  regsub -all {VHDL93 = 2019} $mpf_fix_data {VHDL93 = 2008} mpf_fix_data
+  regsub -all {vhdl_use93 2019} $mpf_fix_data {vhdl_use93 2008} mpf_fix_data
+  set mpf_fix_fh [open $proj_file w]
+  puts -nonewline $mpf_fix_fh $mpf_fix_data
+  close $mpf_fix_fh
+
   # In GUI mode, open the newly-created project natively BEFORE loading the
   # design. ModelSim forbids opening a project while a simulation is active,
   # so this must happen first.
