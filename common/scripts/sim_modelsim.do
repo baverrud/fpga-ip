@@ -170,17 +170,15 @@ if {$CREATE_PROJECT} {
   set ip_name [file tail $ip_dir]
   set proj_name $ip_name
   set proj_file "${proj_name}.mpf"
+  set cr_file  "${proj_name}.cr.mti"
   set ::simdo_project_file [file normalize $proj_file]
   puts "\[sim.do\] Creating ModelSim project: $proj_file (IP: $ip_name)"
 
   set entries [parse_files_list $FILE_LIST [list]]
 
-  # Delete any existing project files to ensure a clean slate
-  if {[file exists $proj_file]} {
-    file delete -force $proj_file
-  }
-
-  # Build the project natively using ModelSim Tcl commands
+  # Build the project natively using ModelSim Tcl commands.
+  # MODELSIM is cleared and modelsim.ini is copied locally so
+  # project new / project addfile work without save errors.
   if {[catch {
     project new . $proj_name
     foreach entry $entries {
@@ -195,18 +193,9 @@ if {$CREATE_PROJECT} {
     puts "\[sim.do\] ERROR: Failed to create ModelSim project: $err"
   }
 
-  # Ensure the newly created project file is writeable
-  if {[file exists $proj_file]} {
-    catch { file attributes $proj_file -readonly 0 }
-  }
-
-  # In GUI mode, open the newly-created project natively BEFORE loading the
-  # design. ModelSim forbids opening a project while a simulation is active,
-  # so this must happen first. The design is then loaded normally below, and
-  # a quit override (installed after the run) unloads the design and closes
-  # the project cleanly on exit — avoiding the "Unable to replace existing
-  # ini file / File can not be renamed" errors that occur when ModelSim tries
-  # to save the project .mpf while a design is still loaded.
+  # In GUI mode, open the project and compile through it so the
+  # Project pane shows each file as compiled (green). Must run
+  # before vsim — no simulation is loaded so the save works.
   if {![batch_mode]} {
     if {[catch {
       project open [file normalize $proj_file]
@@ -214,26 +203,11 @@ if {$CREATE_PROJECT} {
     } err]} {
       puts "\[sim.do\] NOTE: Could not auto-open project: $err"
     }
-    # Compile all sources THROUGH the project (not just via the standalone
-    # vcom above) so the Project pane shows each file as compiled (green)
-    # instead of "?" (unknown). This MUST run before the design is loaded:
-    # a project save while a design is active fails with a rename error, and
-    # marking files up-to-date now also prevents ModelSim from auto-compiling
-    # (and thus re-saving the .mpf) after the design loads. ModelSim auto-
-    # determines the correct dependency compile order.
     if {[catch {
       project compileall
       puts "\[sim.do\] Project sources compiled (Project pane status updated)."
     } err]} {
       puts "\[sim.do\] NOTE: project compileall reported: $err"
-    }
-
-    # Keep the project file writeable. User actions such as adding a file
-    # need to update the .mpf. Later, after the design is loaded, we wrap the
-    # project command so project-changing operations unload the simulation
-    # before ModelSim attempts to save this file.
-    if {[file exists $proj_file]} {
-      catch { file attributes $proj_file -readonly 0 }
     }
   }
 }
