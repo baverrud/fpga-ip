@@ -105,14 +105,9 @@ source [file normalize [file join $FILE_LIST_DIR .. .. common scripts files_util
 # the actual entity name. This allows thin wrappers like sim.do to pass
 # a dummy entity and let the .f file define the real one.
 if {[string match "*_AUTO_" $TB_TOP]} {
-  set entries [parse_files_list $FILE_LIST [list]]
-  set repo_root [file dirname $FILE_LIST_DIR]
-  foreach entry $entries {
-    lassign $entry file_path file_type vhdl_std
-    # Check if this file is in the [tb] section by reading the .f file
-    # (The section info is lost in parse_files_list, so re-scan.)
-  }
-  # Fallback: scan .f for [tb] entry manually
+  # Parse the [tb] section from the .f file to find the entity name.
+  # .f entries are relative to sub/fpga-ip/, resolved from repo root.
+  set repo_root [file normalize [file join $FILE_LIST_DIR .. ..]]
   set fh [open $FILE_LIST r]
   set in_tb 0
   while {[gets $fh line] >= 0} {
