@@ -11,6 +11,13 @@ cd ../sim/sim01
 
 do ../../../common/scripts/compile.do
 
+# In GUI mode, add top-level signals to wave before running
+if {![batch_mode]} {
+    catch { delete wave * }
+    add wave -divider "Default System Waves"
+    add wave /*
+}
+
 run -all
 if {![batch_mode]} { wave zoom full }
 catch { write format wave $wave_do }
