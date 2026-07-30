@@ -1,10 +1,6 @@
 -----------------------------------------------------------------------
---Filename         : axis_latency_gen_manual_tb.vhd
---Description      : Testbench for axis_latency_gen. Tests basic delay, burst
---                 : with backpressure, idle, timer wrap (via 8-bit timer DUT),
---                 : FIFO full, in-flight reset, data ordering, enable-gate
---                 : paths (jitter toggle, base_delay=0, both low), simultaneous
---                 : push/pop, min-delay observation, and full-rate verification.
+--Filename         : axis_latency_gen_simple_tb.vhd
+--Description      : Simple testbench for axis_latency_gen.
 --Author           : Rune Bæverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
@@ -13,17 +9,17 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 use std.textio.all;
 
-entity axis_latency_gen_manual_tb is
+entity axis_latency_gen_simple_tb is
 end entity;
 
-architecture sim of axis_latency_gen_manual_tb is
+architecture sim of axis_latency_gen_simple_tb is
 
   constant C_CLK_PERIOD : time := 10 ns;
 
   -- ===================================================================
   -- Main DUT (GC_TIMER_WIDTH=32) signals
   -- ===================================================================
-  signal aclk              : std_logic := '0';
+  signal aclk              : std_logic := '1';
   signal aresetn           : std_logic := '0';
 
   signal s_axis_tdata      : std_logic_vector(31 downto 0) := (others => '0');
@@ -34,29 +30,12 @@ architecture sim of axis_latency_gen_manual_tb is
   signal m_axis_tvalid     : std_logic;
   signal m_axis_tready     : std_logic := '1';
 
-  signal base_delay        : unsigned(31 downto 0) := to_unsigned(10, 32);
+  signal base_delay        : unsigned(7 downto 0) := to_unsigned(10, 8);
   signal enable_base_delay : std_logic := '1';
   signal enable_jitter     : std_logic := '1';
 
   -- fifo_count: log2ceil(GC_FIFO_DEPTH) + 1 = 5 bits for depth 16
   signal fifo_count        : unsigned(4 downto 0);
-
-  -- ===================================================================
-  -- Wrap DUT (GC_TIMER_WIDTH=8, for timer-wrap regression testing)
-  -- Uses separate signals to run independently of the main DUT.
-  -- The 8-bit timer wraps every 256 cycles, verifying the signed-
-  -- subtraction wrap logic without simulating 2^32 cycles.
-  -- ===================================================================
-  signal wr_s_tdata     : std_logic_vector(31 downto 0) := (others => '0');
-  signal wr_s_tvalid    : std_logic := '0';
-  signal wr_s_tready    : std_logic;
-
-  signal wr_m_tdata     : std_logic_vector(31 downto 0);
-  signal wr_m_tvalid    : std_logic;
-  signal wr_m_tready    : std_logic := '1';
-
-  signal wr_base_delay  : unsigned(7 downto 0) := to_unsigned(10, 8);
-  signal wr_fifo_count  : unsigned(4 downto 0);
 
   signal sim_done       : boolean := false;
 
@@ -130,6 +109,15 @@ architecture sim of axis_latency_gen_manual_tb is
     tready <= '0';
   end procedure;
 
+
+  procedure wait_cycles(signal clk : in std_logic; n : in integer) is
+  begin
+    for i in 1 to n loop
+      wait until rising_edge(clk);
+    end loop;
+  end procedure;
+
+
 begin
 
   aclk <= not aclk after C_CLK_PERIOD / 2 when not sim_done else '0';
@@ -142,9 +130,19 @@ begin
   -- =================================================================
   u_dut : entity work.axis_latency_gen
     generic map (
-      GC_DATA_WIDTH  => 32,
-      GC_FIFO_DEPTH  => 16,
-      GC_TIMER_WIDTH => 32
+      GC_DATA_WIDTH      => 32,
+      GC_FIFO_DEPTH      => 16,
+      GC_TIMER_WIDTH     => 8,
+      GC_JG_JITTER_WIDTH => 8,
+      GC_JG_SEED         => x"11111111",
+      GC_JG_VAL_0        => 1,
+      GC_JG_VAL_1        => 2,
+      GC_JG_VAL_2        => 3,
+      GC_JG_VAL_3        => 4,
+
+      GC_JG_TH_0         => 128,
+      GC_JG_TH_1         => 192,
+      GC_JG_TH_2         => 240
     )
     port map (
       aclk              => aclk,
@@ -161,51 +159,8 @@ begin
       fifo_count        => fifo_count
     );
 
-  -- =================================================================
-  -- Wrap DUT: 8-bit timer width. Used only in Phase 4 to verify the
-  -- timer wrap-around logic. With a 32-bit timer the wrap would take
-  -- 2^32 cycles (~43 s at 100 MHz) — impractical for simulation.
-  -- The 8-bit timer wraps every 256 cycles, proving the signed-
-  -- modular subtraction releases entries correctly through rollover.
-  -- =================================================================
-  u_wrap_dut : entity work.axis_latency_gen
-    generic map (
-      GC_DATA_WIDTH  => 32,
-      GC_FIFO_DEPTH  => 16,
-      GC_TIMER_WIDTH => 8
-    )
-    port map (
-      aclk              => aclk,
-      aresetn           => aresetn,
-      s_axis_tdata      => wr_s_tdata,
-      s_axis_tvalid     => wr_s_tvalid,
-      s_axis_tready     => wr_s_tready,
-      m_axis_tdata      => wr_m_tdata,
-      m_axis_tvalid     => wr_m_tvalid,
-      m_axis_tready     => wr_m_tready,
-      base_delay        => wr_base_delay,
-      enable_base_delay => enable_base_delay,
-      enable_jitter     => enable_jitter,
-      fifo_count        => wr_fifo_count
-    );
 
-  -- =================================================================
-  -- Capture process: samples m_axis_tdata on every beat where
-  -- m_axis_tvalid='1'. Used by Phase 14 to verify back-to-back
-  -- writes where entries are consumed by the RTL during the write
-  -- phase and cannot be drained with axis_read afterward.
-  -- =================================================================
-  p_capture : process(aclk)
-  begin
-    if rising_edge(aclk) then
-      if aresetn = '0' then
-        captured_cnt <= 0;
-      elsif m_axis_tvalid = '1' and m_axis_tready = '1' and captured_cnt < captured_data'length then
-        captured_data(captured_cnt) <= m_axis_tdata;
-        captured_cnt <= captured_cnt + 1;
-      end if;
-    end if;
-  end process;
+
 
   -- == Test sequence ==
   process
@@ -216,20 +171,29 @@ begin
     variable cnt_rx    : natural;
     variable v_rx_data : std_logic_vector(31 downto 0);
   begin
-    -- ============================================================
-    -- Reset
-    -- ============================================================
-    write(l, string'("=== Phase 0: Reset ===")); writeline(output, l);
-    aresetn <= '0';
+
+    aresetn       <= '0';
     s_axis_tdata  <= (others => '0');
     s_axis_tvalid <= '0';
     m_axis_tready <= '1';
-    wait for C_CLK_PERIOD * 5;
+
+    base_delay        <=  to_unsigned(2, 8);
+    enable_base_delay <= '0';
+    enable_jitter     <= '0';
+
+
+    wait_cycles(aclk, 2);
     aresetn <= '1';
-    wait for C_CLK_PERIOD * 3;
-    write(l, string'("  OK: reset complete")); writeline(output, l);
+
+    for i in 0 to 7 loop
+      axis_write(aclk, s_axis_tdata, s_axis_tvalid, s_axis_tready,
+                 std_logic_vector(to_unsigned(10#500# + i, 32)));
+    end loop;
+
+
 
     
+    wait_cycles(aclk, 10);
     -- ============================================================
     -- Done
     -- ============================================================
