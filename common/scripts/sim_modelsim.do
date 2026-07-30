@@ -99,6 +99,47 @@ if {$TB_TOP == "" || $FILE_LIST == ""} {
 set FILE_LIST_DIR [file dirname $FILE_LIST]
 source [file normalize [file join $FILE_LIST_DIR .. .. common scripts files_util.tcl]]
 
+# --- Auto-detect top entity from [tb] section if TB_TOP ends with _AUTO_ ---
+# When the caller passes a placeholder entity like <ip>_AUTO_, this block
+# reads the .f file's [tb] section, opens that VHDL file, and extracts
+# the actual entity name. This allows thin wrappers like sim.do to pass
+# a dummy entity and let the .f file define the real one.
+if {[string match "*_AUTO_" $TB_TOP]} {
+  set entries [parse_files_list $FILE_LIST [list]]
+  set repo_root [file dirname $FILE_LIST_DIR]
+  foreach entry $entries {
+    lassign $entry file_path file_type vhdl_std
+    # Check if this file is in the [tb] section by reading the .f file
+    # (The section info is lost in parse_files_list, so re-scan.)
+  }
+  # Fallback: scan .f for [tb] entry manually
+  set fh [open $FILE_LIST r]
+  set in_tb 0
+  while {[gets $fh line] >= 0} {
+    set line [string trim $line]
+    if {[regexp {\[tb\]} $line]} { set in_tb 1; continue }
+    if {[regexp {\[.*\]} $line]} { set in_tb 0 }
+    if {$in_tb && $line ne "" && ![string match "#*" $line]} {
+      set tb_rel [lindex $line 0]
+      set tb_abs [file normalize [file join $repo_root $tb_rel]]
+      if {[file exists $tb_abs]} {
+        set tfh [open $tb_abs r]
+        while {[gets $tfh tline] >= 0} {
+          if {[regexp {^\s*entity\s+(\w+)\s+is} $tline -> e]} {
+            set TB_TOP "work.$e"
+            close $tfh
+            break
+          }
+        }
+        catch { close $tfh }
+      }
+      break
+    }
+  }
+  close $fh
+  puts "\[sim.do\] Auto-detected top entity: $TB_TOP"
+}
+
 # Auto-detect UVVM configuration via the shared .f utility.
 set is_uvvm [is_uvvm_files_list $FILE_LIST]
 # Also keep filename-based check for backwards compatibility
