@@ -1,16 +1,25 @@
 -----------------------------------------------------------------------
 --Filename         : axi_mem_model_core.vhd
 --Description      : Core beat-sequencing engine for axi_mem_model.
---                 : Receives delayed AR info from the AR-side
---                 : axis_latency_gen and generates per-beat response
---                 : entries for the beat-gap axis_latency_gen.
---                 :
---                 : Emulates address-based read data patterns:
---                 : 32-bit address words for buses >= 4 bytes,
---                 : 16-bit address values for 2-byte buses, and
---                 : 8-bit address values for 1-byte buses.
---                 :
---                 : Two-process register-transfer style (Gaisler).
+--
+--                 Sits between two axis_latency_gen instances:
+--                   IN:  delayed AR info   ← AR-side gen
+--                   OUT: per-beat response → R-side (beat-gap) gen
+--
+--                 On each AR it generates (cur_len+1) beats at maximum
+--                 rate (1 per cycle), pushing them into the R-side gen.
+--                 The R-side gen's FIFO and timer provide inter-beat
+--                 spacing and pipeline elasticity.
+--
+--                 Data pattern: address-derived (each beat returns a
+--                 function of the address), suitable for verification.
+--
+--                 Zero-idle back-to-back: if the next AR arrives before
+--                 the last beat is consumed, the next transaction starts
+--                 immediately without dropping r_valid.
+--
+--                 Two-process register-transfer style (Gaisler).
+--
 --Author           : Rune Bæverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
@@ -29,17 +38,20 @@ entity axi_mem_model_core is
     aclk    : in  std_logic;
     aresetn : in  std_logic;
 
-    -- Delayed AR info from AR-side axis_latency_gen
-    -- Packed: {arid, araddr, arlen}
-    s_axis_tdata   : in  std_logic_vector(GC_ID_WIDTH + GC_ADDR_WIDTH + 8 - 1 downto 0);
-    s_axis_tvalid  : in  std_logic;
-    s_axis_tready  : out std_logic;
+    -- AXI4 AR channel — receives delayed ARs from the AR-side gen
+    ar_id    : in  std_logic_vector(GC_ID_WIDTH-1 downto 0);
+    ar_addr  : in  std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
+    ar_len   : in  std_logic_vector(7 downto 0);
+    ar_valid : in  std_logic;
+    ar_ready : out std_logic;
 
-    -- Per-beat response to R-side axis_latency_gen
-    -- Packed: {rid, rdata, rresp, rlast}
-    m_axis_tdata   : out std_logic_vector(GC_ID_WIDTH + 8*GC_DATA_BYTES + 2 + 1 - 1 downto 0);
-    m_axis_tvalid  : out std_logic;
-    m_axis_tready  : in  std_logic
+    -- AXI4 R channel — drives beats into the R-side (beat-gap) gen
+    r_id    : out std_logic_vector(GC_ID_WIDTH-1 downto 0);
+    r_data  : out std_logic_vector(8*GC_DATA_BYTES-1 downto 0);
+    r_resp  : out std_logic_vector(1 downto 0);
+    r_last  : out std_logic;
+    r_valid : out std_logic;
+    r_ready : in  std_logic
   );
 end entity;
 
@@ -47,40 +59,15 @@ architecture rtl of axi_mem_model_core is
 
   constant C_RDATA_WIDTH : positive := 8 * GC_DATA_BYTES;
 
-  -- -----------------------------------------------------------------
-  -- AR info field offsets (s_axis_tdata)
-  -- Layout: [arid][araddr][arlen]  — MSB to LSB
-  -- -----------------------------------------------------------------
-  constant C_ARLEN_LOW   : natural := 0;
-  constant C_ARLEN_HIGH  : natural := 7;
-  constant C_ADDR_LOW    : natural := C_ARLEN_HIGH + 1;
-  constant C_ADDR_HIGH   : natural := C_ADDR_LOW + GC_ADDR_WIDTH - 1;
-  constant C_ID_LOW      : natural := C_ADDR_HIGH + 1;
-  constant C_ID_HIGH     : natural := C_ID_LOW + GC_ID_WIDTH - 1;
-
-  -- -----------------------------------------------------------------
-  -- Beat response field offsets (m_axis_tdata)
-  -- Layout: [rid][rdata][rresp][rlast]  — MSB to LSB
-  -- -----------------------------------------------------------------
-  constant C_RLAST_LOW   : natural := 0;
-  constant C_RLAST_HIGH  : natural := 0;           -- 1 bit
-  constant C_RRESP_LOW   : natural := C_RLAST_HIGH + 1;
-  constant C_RRESP_HIGH  : natural := C_RRESP_LOW + 1;  -- 2 bits
-  constant C_RDATA_LOW   : natural := C_RRESP_HIGH + 1;
-  constant C_RDATA_HIGH  : natural := C_RDATA_LOW + C_RDATA_WIDTH - 1;
-  constant C_RID_LOW     : natural := C_RDATA_HIGH + 1;
-  constant C_RID_HIGH    : natural := C_RID_LOW + GC_ID_WIDTH - 1;
-
-  constant C_AR_WIDTH : natural := C_ID_HIGH + 1;   -- s_axis_tdata width
-  constant C_R_WIDTH  : natural := C_RID_HIGH + 1;  -- m_axis_tdata width
-
-  subtype ar_payload_t is std_logic_vector(C_AR_WIDTH-1 downto 0);
-  subtype r_payload_t  is std_logic_vector(C_R_WIDTH-1 downto 0);
+  -- Convenience subtypes
   subtype rdata_t      is std_logic_vector(C_RDATA_WIDTH-1 downto 0);
   subtype ar_id_t      is std_logic_vector(GC_ID_WIDTH-1 downto 0);
   subtype ar_addr_t    is unsigned(GC_ADDR_WIDTH-1 downto 0);
   subtype ar_len_t     is unsigned(7 downto 0);
 
+  -- =================================================================
+  -- Helper: validate bus width at elaboration
+  -- =================================================================
   function is_supported_data_width(data_bytes : positive) return boolean is
   begin
     return (data_bytes = 1)  or (data_bytes = 2)  or
@@ -89,36 +76,28 @@ architecture rtl of axi_mem_model_core is
            (data_bytes = 64) or (data_bytes = 128);
   end function;
 
-  function get_arid(payload : ar_payload_t) return ar_id_t is
-  begin
-    return payload(C_ID_HIGH downto C_ID_LOW);
-  end function;
-
-  function get_araddr(payload : ar_payload_t) return ar_addr_t is
-  begin
-    return unsigned(payload(C_ADDR_HIGH downto C_ADDR_LOW));
-  end function;
-
-  function get_arlen(payload : ar_payload_t) return ar_len_t is
-  begin
-    return unsigned(payload(C_ARLEN_HIGH downto C_ARLEN_LOW));
-  end function;
-
+  -- =================================================================
+  -- Helper: compute beat address within a burst
+  --   AXI INCR semantics: each consecutive beat advances by
+  --   GC_DATA_BYTES.  beat_idx=0 → base_addr, beat_idx=1 → +DATA_BYTES.
+  -- =================================================================
   function beat_addr(base_addr : ar_addr_t; beat_idx : ar_len_t) return ar_addr_t is
   begin
-    -- Consecutive beats advance by GC_DATA_BYTES in the address space
-    -- (AXI INCR semantics for a read burst of width GC_DATA_BYTES).
     return base_addr + to_unsigned(to_integer(beat_idx) * GC_DATA_BYTES, GC_ADDR_WIDTH);
   end function;
 
+  -- =================================================================
+  -- Helper: deterministic address-derived data pattern
+  --   Sized to bus width:
+  --     ≥4 bytes : each 32-bit word slot holds its byte address
+  --                e.g. addr=0x1000 → word0=0x1000, word1=0x1004...
+  --     2 bytes  : 16-bit address value
+  --     1 byte   : 8-bit address value
+  -- =================================================================
   function make_rdata(addr : ar_addr_t) return rdata_t is
     variable v_data   : rdata_t := (others => '0');
     variable v_addr32 : unsigned(31 downto 0);
   begin
-    -- Deterministic address-derived data pattern, sized to bus width:
-    --   ≥4 bytes: each 32-bit word returns a 32-bit address
-    --   2 bytes:  16-bit address value
-    --   1 byte:    8-bit address value
     if GC_DATA_BYTES >= 4 then
       v_addr32 := resize(addr, 32);
       for word_idx in 0 to GC_DATA_BYTES/4 - 1 loop
@@ -130,38 +109,33 @@ architecture rtl of axi_mem_model_core is
     else  -- GC_DATA_BYTES = 1
       v_data(7 downto 0) := std_logic_vector(resize(addr, 8));
     end if;
-
     return v_data;
   end function;
 
-  function pack_rbeat(id   : ar_id_t;
-                      data : rdata_t;
-                      last : std_logic) return r_payload_t is
-    variable payload : r_payload_t := (others => '0');
-  begin
-    payload(C_RLAST_LOW) := last;
-    payload(C_RRESP_HIGH downto C_RRESP_LOW) := "00";
-    payload(C_RDATA_HIGH downto C_RDATA_LOW) := data;
-    payload(C_RID_HIGH   downto C_RID_LOW)   := id;
-    return payload;
-  end function;
-
-  -- -----------------------------------------------------------------
+  -- =================================================================
   -- State machine
-  -- Pushes beats at 1/cycle into the R-side gen; gen's FIFO
-  -- depth handles pipelining and inter-beat spacing.
-  -- -----------------------------------------------------------------
+  --   S_WAIT_AR    — idle, waiting for the next AR
+  --   S_SEND_BEATS — pushing beats at 1/cycle into the R-side gen
+  --
+  --   The R-side gen's FIFO absorbs pipeline bubbles; its internal
+  --   timer enforces the actual inter-beat gap.  This core just
+  --   produces beats as fast as the R-side gen can accept them.
+  -- =================================================================
   type state_t is (S_WAIT_AR, S_SEND_BEATS);
 
   type reg_t is record
-    state    : state_t;
-    beat_idx : unsigned(7 downto 0);
-    cur_id   : ar_id_t;
-    cur_addr : ar_addr_t;
-    cur_len  : ar_len_t;
-    -- Registered R-side output
-    r_tdata  : std_logic_vector(C_R_WIDTH-1 downto 0);
-    r_tvalid : std_logic;
+    state    : state_t;               -- Current state
+    beat_idx : unsigned(7 downto 0);  -- Next beat index (0-based)
+    cur_id   : ar_id_t;               -- AR ID of current transaction
+    cur_addr : ar_addr_t;             -- Base address of current transaction
+    cur_len  : ar_len_t;              -- Burst length (0 = single beat)
+
+    -- Registered R-channel outputs (combed in p_comb, clocked in p_reg)
+    r_id    : ar_id_t;
+    r_data  : rdata_t;
+    r_resp  : std_logic_vector(1 downto 0);
+    r_last  : std_logic;
+    r_valid : std_logic;
   end record;
 
   constant C_REG_DEFAULT : reg_t := (
@@ -170,8 +144,11 @@ architecture rtl of axi_mem_model_core is
     cur_id   => (others => '0'),
     cur_addr => (others => '0'),
     cur_len  => (others => '0'),
-    r_tdata  => (others => '0'),
-    r_tvalid => '0'
+    r_id     => (others => '0'),
+    r_data   => (others => '0'),
+    r_resp   => (others => '0'),
+    r_last   => '0',
+    r_valid  => '0'
   );
 
   signal r, r_in : reg_t := C_REG_DEFAULT;
@@ -184,68 +161,132 @@ begin
 
   -- =================================================================
   -- p_comb : Combinatorial next-state and output logic
+  --
+  --   Reads:  current register (r), AR inputs, r_ready
+  --   Writes: next register (r_in), AR/R output ports
+  --
+  --   All R-channel outputs are registered — they reflect r.* and get
+  --   updated on the next clock edge via p_reg.
   -- =================================================================
-  p_comb : process(r, s_axis_tdata, s_axis_tvalid, m_axis_tready)
+  p_comb : process(r, ar_id, ar_addr, ar_len, ar_valid, r_ready)
     variable v           : reg_t;
     variable v_beat_addr : ar_addr_t;
     variable v_next_idx  : ar_len_t;
     variable v_last      : std_logic;
   begin
-    v := r;
+    v := r;  -- start with current state (hold by default)
 
-    -- Defaults
-    s_axis_tready <= '0';
+    -- Default: AR not ready
+    ar_ready <= '0';
 
     case r.state is
 
+      -- =============================================================
+      -- S_WAIT_AR : wait for the next AR to arrive
+      --
+      --   ar_ready is always asserted.  The AR-side gen's FIFO
+      --   handles backpressure — we can accept whenever we're not
+      --   actively pushing beats.
+      -- =============================================================
       when S_WAIT_AR =>
-        -- Clear R-side valid (we may be returning from a burst) and
-        -- assert AR ready unconditionally — the AR-side latency gen
-        -- handles its own FIFO backpressure.
-        v.r_tvalid := '0';
-        s_axis_tready <= '1';
-        if s_axis_tvalid = '1' then
-          v.cur_id   := get_arid(s_axis_tdata);
-          v.cur_addr := get_araddr(s_axis_tdata);
-          v.cur_len  := get_arlen(s_axis_tdata);
+        -- Clear R-side valid (in case we just finished a burst)
+        v.r_valid := '0';
+        ar_ready <= '1';
+
+        if ar_valid = '1' then
+          -- Capture the AR and produce the first beat immediately.
+          -- For len=0 this is also the last beat.
+          v.cur_id   := ar_id;
+          v.cur_addr := unsigned(ar_addr);
+          v.cur_len  := unsigned(ar_len);
           v.beat_idx := (others => '0');
 
-          v_last := '1' when v.cur_len = 0 else '0';
-          v.r_tdata := pack_rbeat(v.cur_id, make_rdata(v.cur_addr), v_last);
-          v.r_tvalid := '1';
-          v.state    := S_SEND_BEATS;
+          v_last       := '1' when v.cur_len = 0 else '0';
+          v.r_id       := v.cur_id;
+          v.r_data     := make_rdata(v.cur_addr);
+          v.r_resp     := "00";          -- OKAY response
+          v.r_last     := v_last;
+          v.r_valid    := '1';
+          v.state      := S_SEND_BEATS;
         end if;
 
+      -- =============================================================
+      -- S_SEND_BEATS : push beats into the R-side gen at 1/cycle
+      --
+      --   A beat is consumed when r_ready='1' and r.r_valid='1'.
+      --   Intermediate beats advance the beat index; on the last beat
+      --   we either start the next transaction (if AR already waiting)
+      --   or return to S_WAIT_AR.
+      -- =============================================================
       when S_SEND_BEATS =>
-        -- Push beats at max rate; R-side gen's timer provides
-        -- inter-beat spacing.  m_axis_tready drops when gen's
-        -- FIFO fills (natural backpressure).
-        if m_axis_tready = '1' and r.r_tvalid = '1' then
+        -- Look-ahead: assert ar_ready on the last beat so the next AR
+        -- can be accepted in the same cycle (zero-idle back-to-back).
+        if r.beat_idx = r.cur_len and r.r_valid = '1' then
+          ar_ready <= '1';
+        end if;
+
+        -- Beat consumed?
+        if r_ready = '1' and r.r_valid = '1' then
+
           if r.beat_idx = r.cur_len then
-            v.r_tvalid := '0';
-            v.state    := S_WAIT_AR;
+            -- Last beat of current burst just consumed.
+
+            if ar_valid = '1' then
+              -- Next AR already waiting → start next transaction
+              -- immediately.  r_valid stays high — zero idle cycles.
+              v.cur_id   := ar_id;
+              v.cur_addr := unsigned(ar_addr);
+              v.cur_len  := unsigned(ar_len);
+              v.beat_idx := (others => '0');
+              v_last       := '1' when unsigned(ar_len) = 0 else '0';
+              v.r_id       := ar_id;
+              v.r_data     := make_rdata(unsigned(ar_addr));
+              v.r_resp     := "00";
+              v.r_last     := v_last;
+              -- r_valid remains '1'
+
+            else
+              -- No next AR yet → return to WAIT_AR.
+              -- r_valid goes low; ar_ready will be asserted next cycle.
+              v.r_valid := '0';
+              v.state   := S_WAIT_AR;
+            end if;
+
           else
+            -- Intermediate beat: advance to next index.
             v_next_idx  := r.beat_idx + 1;
             v_beat_addr := beat_addr(r.cur_addr, v_next_idx);
             v_last      := '1' when v_next_idx = r.cur_len else '0';
 
             v.beat_idx := v_next_idx;
-            v.r_tdata  := pack_rbeat(r.cur_id, make_rdata(v_beat_addr), v_last);
-            -- stay in S_SEND_BEATS
+            v.r_id     := r.cur_id;       -- same ID for whole burst
+            v.r_data   := make_rdata(v_beat_addr);
+            v.r_resp   := "00";
+            v.r_last   := v_last;
+            -- r_valid stays '1'
           end if;
+
         end if;
+        -- No handshake this cycle → hold all register state.
 
     end case;
 
-    -- Drive registered outputs
-    m_axis_tdata  <= r.r_tdata;
-    m_axis_tvalid <= r.r_tvalid;
+    -- Drive registered R outputs from the current register state.
+    -- These reflect values latched on the previous clock edge.
+    r_id    <= r.r_id;
+    r_data  <= r.r_data;
+    r_resp  <= r.r_resp;
+    r_last  <= r.r_last;
+    r_valid <= r.r_valid;
 
     r_in <= v;
   end process p_comb;
 
   -- =================================================================
   -- p_reg : Synchronous register update with reset
+  --
+  --   All state and output registers update here on the rising edge.
+  --   Reset puts us in S_WAIT_AR with all outputs cleared.
   -- =================================================================
   p_reg : process(aclk)
   begin

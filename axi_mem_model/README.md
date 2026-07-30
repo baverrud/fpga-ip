@@ -30,11 +30,12 @@ AR channel ──► axis_latency_gen ──► axi_mem_model_core ──► axi
 
 - **Configurable first-beat latency** — `base_latency` runtime port
 - **Configurable inter-beat gap** — `base_beat_gap` runtime port
-- **CDF-based jitter** — Internal to `axis_latency_gen`, 0-20 cycle spread
-  by default (suitable for LPDDR4 modelling)
+- **CDF-based jitter** — Internal to `axis_latency_gen`, default max
+  7 cycles (suitable for LPDDR4 modelling)
 - **In-flight AR tracking** — AR-side FIFO depth limits concurrent requests
-- **Zero-latency mode** — `enable=0` sets both delays to 0 for
-  near-pass-through behaviour
+- **Per-instance enable gating** — `ar_*_enable` / `r_*_enable` ports
+  gate base delay and jitter independently for each gen.  Disabling all
+  four produces near-zero-latency pass-through.
 - **Address-based data pattern** — Each R beat returns deterministic
   address-derived values sized to the configured bus width
   (see [Read Data Pattern](#read-data-pattern)).
@@ -62,7 +63,10 @@ AR channel ──► axis_latency_gen ──► axi_mem_model_core ──► axi
 |------|-----------|-------|-------------|
 | `aclk` | in | 1 | Clock |
 | `aresetn` | in | 1 | Synchronous reset, active low |
-| `enable` | in | 1 | 0 = zero delays, 1 = configured delays |
+| `ar_base_enable` | in | 1 | AR-side base delay enable |
+| `ar_jitter_enable` | in | 1 | AR-side jitter enable |
+| `r_base_enable` | in | 1 | R-side base delay enable |
+| `r_jitter_enable` | in | 1 | R-side jitter enable |
 | `base_latency` | in | GC_TIMER_WIDTH | Nominal first-beat delay (cycles) |
 | `base_beat_gap` | in | GC_TIMER_WIDTH | Nominal inter-beat gap (cycles) |
 | `ar_valid` | in | 1 | AR channel valid |
@@ -113,8 +117,8 @@ They are omitted for simplicity.
   first R beat valid
 - **Inter-beat gap**: `base_beat_gap + jitter` cycles between consecutive
   R beats
-- **Zero-latency**: With `enable=0` both delays are zeroed; pipeline
-  depth adds a few cycles of unavoidable latency
+- **Zero-latency**: With all enables low both gens produce zero delay;
+  pipeline depth adds a few cycles of unavoidable latency
 
 ## Read Data Pattern
 

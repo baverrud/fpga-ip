@@ -4,8 +4,8 @@
 --                 : Tests GC_DATA_BYTES = 1,2,4,8,16,32,64,128 with
 --                 : burst lengths 0,3,7,255 plus back-to-back ARs,
 --                 : zero-latency, FIFO-full, R-backpressure, and
---                 : reset-in-flight â€” all in a single run.
---Author           : Rune BÃ¦verrud
+--                 : reset-in-flight — all in a single run.
+--Author           : Rune Bæverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;
@@ -78,7 +78,8 @@ begin
     generic map (GC_DATA_BYTES=>1,GC_ADDR_WIDTH=>C_ADDR_WIDTH,
       GC_ID_WIDTH=>C_ID_WIDTH,GC_AR_FIFO_DEPTH=>C_AR_FIFO_DEPTH,
       GC_TIMER_WIDTH=>C_TIMER_WIDTH)
-    port map (aclk=>aclk,aresetn=>aresetn_dut(0),enable=>enable(0),
+    port map (aclk=>aclk,aresetn=>aresetn_dut(0),ar_base_enable=>enable(0),
+      ar_jitter_enable=>enable(0),r_base_enable=>enable(0),r_jitter_enable=>enable(0),
       base_latency=>base_latency,base_beat_gap=>base_beat_gap,
       ar_valid=>ar_valid(0),ar_ready=>ar_ready(0),
       ar_id=>s_ar_id,ar_addr=>s_ar_addr,ar_len=>s_ar_len,
@@ -89,7 +90,8 @@ begin
     generic map (GC_DATA_BYTES=>2,GC_ADDR_WIDTH=>C_ADDR_WIDTH,
       GC_ID_WIDTH=>C_ID_WIDTH,GC_AR_FIFO_DEPTH=>C_AR_FIFO_DEPTH,
       GC_TIMER_WIDTH=>C_TIMER_WIDTH)
-    port map (aclk=>aclk,aresetn=>aresetn_dut(1),enable=>enable(1),
+    port map (aclk=>aclk,aresetn=>aresetn_dut(1),ar_base_enable=>enable(1),
+      ar_jitter_enable=>enable(1),r_base_enable=>enable(1),r_jitter_enable=>enable(1),
       base_latency=>base_latency,base_beat_gap=>base_beat_gap,
       ar_valid=>ar_valid(1),ar_ready=>ar_ready(1),
       ar_id=>s_ar_id,ar_addr=>s_ar_addr,ar_len=>s_ar_len,
@@ -100,7 +102,8 @@ begin
     generic map (GC_DATA_BYTES=>4,GC_ADDR_WIDTH=>C_ADDR_WIDTH,
       GC_ID_WIDTH=>C_ID_WIDTH,GC_AR_FIFO_DEPTH=>C_AR_FIFO_DEPTH,
       GC_TIMER_WIDTH=>C_TIMER_WIDTH)
-    port map (aclk=>aclk,aresetn=>aresetn_dut(2),enable=>enable(2),
+    port map (aclk=>aclk,aresetn=>aresetn_dut(2),ar_base_enable=>enable(2),
+      ar_jitter_enable=>enable(2),r_base_enable=>enable(2),r_jitter_enable=>enable(2),
       base_latency=>base_latency,base_beat_gap=>base_beat_gap,
       ar_valid=>ar_valid(2),ar_ready=>ar_ready(2),
       ar_id=>s_ar_id,ar_addr=>s_ar_addr,ar_len=>s_ar_len,
@@ -111,7 +114,8 @@ begin
     generic map (GC_DATA_BYTES=>8,GC_ADDR_WIDTH=>C_ADDR_WIDTH,
       GC_ID_WIDTH=>C_ID_WIDTH,GC_AR_FIFO_DEPTH=>C_AR_FIFO_DEPTH,
       GC_TIMER_WIDTH=>C_TIMER_WIDTH)
-    port map (aclk=>aclk,aresetn=>aresetn_dut(3),enable=>enable(3),
+    port map (aclk=>aclk,aresetn=>aresetn_dut(3),ar_base_enable=>enable(3),
+      ar_jitter_enable=>enable(3),r_base_enable=>enable(3),r_jitter_enable=>enable(3),
       base_latency=>base_latency,base_beat_gap=>base_beat_gap,
       ar_valid=>ar_valid(3),ar_ready=>ar_ready(3),
       ar_id=>s_ar_id,ar_addr=>s_ar_addr,ar_len=>s_ar_len,
@@ -122,7 +126,8 @@ begin
     generic map (GC_DATA_BYTES=>16,GC_ADDR_WIDTH=>C_ADDR_WIDTH,
       GC_ID_WIDTH=>C_ID_WIDTH,GC_AR_FIFO_DEPTH=>C_AR_FIFO_DEPTH,
       GC_TIMER_WIDTH=>C_TIMER_WIDTH)
-    port map (aclk=>aclk,aresetn=>aresetn_dut(4),enable=>enable(4),
+    port map (aclk=>aclk,aresetn=>aresetn_dut(4),ar_base_enable=>enable(4),
+      ar_jitter_enable=>enable(4),r_base_enable=>enable(4),r_jitter_enable=>enable(4),
       base_latency=>base_latency,base_beat_gap=>base_beat_gap,
       ar_valid=>ar_valid(4),ar_ready=>ar_ready(4),
       ar_id=>s_ar_id,ar_addr=>s_ar_addr,ar_len=>s_ar_len,
@@ -133,7 +138,8 @@ begin
     generic map (GC_DATA_BYTES=>32,GC_ADDR_WIDTH=>C_ADDR_WIDTH,
       GC_ID_WIDTH=>C_ID_WIDTH,GC_AR_FIFO_DEPTH=>C_AR_FIFO_DEPTH,
       GC_TIMER_WIDTH=>C_TIMER_WIDTH)
-    port map (aclk=>aclk,aresetn=>aresetn_dut(5),enable=>enable(5),
+    port map (aclk=>aclk,aresetn=>aresetn_dut(5),ar_base_enable=>enable(5),
+      ar_jitter_enable=>enable(5),r_base_enable=>enable(5),r_jitter_enable=>enable(5),
       base_latency=>base_latency,base_beat_gap=>base_beat_gap,
       ar_valid=>ar_valid(5),ar_ready=>ar_ready(5),
       ar_id=>s_ar_id,ar_addr=>s_ar_addr,ar_len=>s_ar_len,
@@ -144,7 +150,8 @@ begin
     generic map (GC_DATA_BYTES=>64,GC_ADDR_WIDTH=>C_ADDR_WIDTH,
       GC_ID_WIDTH=>C_ID_WIDTH,GC_AR_FIFO_DEPTH=>C_AR_FIFO_DEPTH,
       GC_TIMER_WIDTH=>C_TIMER_WIDTH)
-    port map (aclk=>aclk,aresetn=>aresetn_dut(6),enable=>enable(6),
+    port map (aclk=>aclk,aresetn=>aresetn_dut(6),ar_base_enable=>enable(6),
+      ar_jitter_enable=>enable(6),r_base_enable=>enable(6),r_jitter_enable=>enable(6),
       base_latency=>base_latency,base_beat_gap=>base_beat_gap,
       ar_valid=>ar_valid(6),ar_ready=>ar_ready(6),
       ar_id=>s_ar_id,ar_addr=>s_ar_addr,ar_len=>s_ar_len,
@@ -155,7 +162,8 @@ begin
     generic map (GC_DATA_BYTES=>128,GC_ADDR_WIDTH=>C_ADDR_WIDTH,
       GC_ID_WIDTH=>C_ID_WIDTH,GC_AR_FIFO_DEPTH=>C_AR_FIFO_DEPTH,
       GC_TIMER_WIDTH=>C_TIMER_WIDTH)
-    port map (aclk=>aclk,aresetn=>aresetn_dut(7),enable=>enable(7),
+    port map (aclk=>aclk,aresetn=>aresetn_dut(7),ar_base_enable=>enable(7),
+      ar_jitter_enable=>enable(7),r_base_enable=>enable(7),r_jitter_enable=>enable(7),
       base_latency=>base_latency,base_beat_gap=>base_beat_gap,
       ar_valid=>ar_valid(7),ar_ready=>ar_ready(7),
       ar_id=>s_ar_id,ar_addr=>s_ar_addr,ar_len=>s_ar_len,
