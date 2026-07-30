@@ -200,8 +200,8 @@ if {$CREATE_PROJECT} {
   set mpf_fix_fh [open $proj_file r]
   set mpf_fix_data [read $mpf_fix_fh]
   close $mpf_fix_fh
-  regsub -all {VHDL93 = 2019} $mpf_fix_data {VHDL93 = 2008} mpf_fix_data
-  regsub -all {vhdl_use93 2019} $mpf_fix_data {vhdl_use93 2008} mpf_fix_data
+  regsub -all {VHDL93 = \d+} $mpf_fix_data {VHDL93 = 2008} mpf_fix_data
+  regsub -all {vhdl_use93 \d+} $mpf_fix_data {vhdl_use93 2008} mpf_fix_data
   set mpf_fix_fh [open $proj_file w]
   puts -nonewline $mpf_fix_fh $mpf_fix_data
   close $mpf_fix_fh
