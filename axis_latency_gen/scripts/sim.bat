@@ -13,4 +13,5 @@ REM ===========================================================================
 cd /d "%~dp0"
 set NAME=%~n1
 if "%NAME%"=="" set NAME=vhdl
+if "%NAME:~0,1%"=="-" set NAME=vhdl
 if "%2"=="-gui" (call ..\..\run %NAME% modelsim gui) else (call ..\..\run %NAME% modelsim)
