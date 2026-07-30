@@ -15,4 +15,6 @@ for %%I in ("%~dp0..") do set "IP=%%~nxI"
 set NAME=%~n1
 if "%NAME%"=="" set NAME=vhdl
 if "%NAME:~0,1%"=="-" set NAME=vhdl
-if "%2"=="-gui" (vsim -do "set files %NAME%.f; do sim.do") else (vsim -c -do "set files %NAME%.f; do sim.do")
+set GUIFLAG=%~2
+if "%1"=="-gui" set GUIFLAG=-gui
+if "%GUIFLAG%"=="-gui" (vsim -do "set files %NAME%.f; do sim.do") else (vsim -c -do "set files %NAME%.f; do sim.do")
