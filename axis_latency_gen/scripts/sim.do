@@ -1,33 +1,7 @@
 # =============================================================================
-# sim.do — Generic simulation wrapper (copy to any IP's scripts/)
+# sim.do — Thin wrapper delegating to sim_modelsim.do
 # =============================================================================
 
-set ip    [file tail [file dirname [pwd]]]
-set tb    "${ip}_tb"
-set std   "-2008"
-
-file mkdir ../sim/sim01
-cd ../sim/sim01
-
-do ../../../common/scripts/compile.do
-
-# In GUI mode, add top-level signals to wave before running
-if {![batch_mode]} {
-    catch { delete wave * }
-    add wave -divider "Default System Waves"
-    add wave /*
-}
-
-run -all
-if {![batch_mode]} { wave zoom full }
-catch { write format wave $wave_do }
-
-if {[batch_mode]} {
-    quit -f
-} else {
-    rename quit _tcl_quit
-    proc quit {args} {
-        catch { write format wave $::wave_do }
-        eval _tcl_quit $args
-    }
-}
+set ip [file tail [file dirname [pwd]]]
+if {![info exists files]} { set files "vhdl.f" }
+do ../../../common/scripts/sim_modelsim.do work.${ip}_tb $files
