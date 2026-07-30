@@ -11,10 +11,10 @@ REM
 REM Prerequisite: Initialize EDA tool first (see fpga-rules/README.md).
 REM ===========================================================================
 cd /d "%~dp0"
-for %%I in ("%~dp0..") do set "IP=%%~nxI"
-set NAME=%~n1
-if "%NAME%"=="" set NAME=vhdl
-if "%NAME:~0,1%"=="-" set NAME=vhdl
-set GUIFLAG=%~2
-if "%1"=="-gui" set GUIFLAG=-gui
+set NAME=vhdl
+set GUIFLAG=
+if /I "%1"=="-gui" set GUIFLAG=-gui
+if /I "%2"=="-gui" set GUIFLAG=-gui
+if /I "%~x1"==".f" set NAME=%~n1
+if /I "%~x2"==".f" set NAME=%~n2
 if "%GUIFLAG%"=="-gui" (vsim -do "set files %NAME%.f; do sim.do") else (vsim -c -do "set files %NAME%.f; do sim.do")
