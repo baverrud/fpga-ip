@@ -27,7 +27,6 @@ entity axi_read_tester is
 
     global_time : in  std_logic_vector(GC_TIME_WIDTH-1 downto 0);
 
-    enable_global : in  std_logic;
     enable_local  : in  std_logic;
     aperture      : in  std_logic;
 
@@ -60,18 +59,20 @@ entity axi_read_tester is
     stat_xactions             : out std_logic_vector(31 downto 0);
     stat_beats                : out std_logic_vector(31 downto 0);
     stat_latency_sum          : out std_logic_vector(GC_STAT_WIDTH-1 downto 0);
-    stat_latency_min          : out std_logic_vector(GC_STAT_WIDTH-1 downto 0);
-    stat_latency_max          : out std_logic_vector(GC_STAT_WIDTH-1 downto 0);
+    stat_latency_min          : out std_logic_vector(31 downto 0);
+    stat_latency_max          : out std_logic_vector(31 downto 0);
+    stat_first_latency_min    : out std_logic_vector(31 downto 0);
+    stat_first_latency_max    : out std_logic_vector(31 downto 0);
     stat_first_latency_sum    : out std_logic_vector(GC_STAT_WIDTH-1 downto 0);
-    stat_first_latency_min    : out std_logic_vector(GC_STAT_WIDTH-1 downto 0);
-    stat_first_latency_max    : out std_logic_vector(GC_STAT_WIDTH-1 downto 0);
     stat_interbeat_gap_sum    : out std_logic_vector(GC_STAT_WIDTH-1 downto 0);
+    stat_interbeat_gap_min    : out std_logic_vector(31 downto 0);
+    stat_interbeat_gap_max    : out std_logic_vector(31 downto 0);
     stat_ar_backpressure      : out std_logic_vector(31 downto 0);
     stat_sb_backpressure      : out std_logic_vector(31 downto 0);
     stat_ar_issued            : out std_logic_vector(31 downto 0);
     stat_cfg_errors           : out std_logic_vector(31 downto 0);
     stat_elapsed_cycles       : out std_logic_vector(31 downto 0);
-    stat_pipeline_busy        : out std_logic;
+    pipeline_busy             : out std_logic;
     stat_max_outstanding      : out std_logic_vector(31 downto 0);
     stat_data_errors          : out std_logic_vector(31 downto 0);
     stat_id_errors            : out std_logic_vector(31 downto 0);
@@ -130,7 +131,6 @@ begin
       aclk                    => aclk,
       aresetn                 => aresetn,
       global_time             => global_time,
-      enable_global           => enable_global,
       enable_local            => enable_local,
       aperture                => aperture,
       stat_rst                => stat_rst,
@@ -189,7 +189,6 @@ begin
       aclk                      => aclk,
       aresetn                   => aresetn,
       global_time               => global_time,
-      aperture                  => aperture,
       stat_rst                  => stat_rst,
       err_rst                   => err_rst,
       r_valid                   => r_valid,
@@ -210,8 +209,10 @@ begin
       stat_first_latency_min    => stat_first_latency_min,
       stat_first_latency_max    => stat_first_latency_max,
       stat_interbeat_gap_sum    => stat_interbeat_gap_sum,
+      stat_interbeat_gap_min    => stat_interbeat_gap_min,
+      stat_interbeat_gap_max    => stat_interbeat_gap_max,
       stat_elapsed_cycles       => stat_elapsed_cycles,
-      stat_pipeline_busy        => stat_pipeline_busy,
+      pipeline_busy             => pipeline_busy,
       stat_data_errors          => stat_data_errors,
       stat_id_errors            => stat_id_errors,
       stat_rlast_errors         => stat_rlast_errors,

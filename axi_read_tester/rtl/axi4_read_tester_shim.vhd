@@ -194,7 +194,7 @@ architecture rtl of axi4_read_tester_shim is
   signal stat_ar_issued           : std_logic_vector(31 downto 0);
   signal stat_cfg_errors          : std_logic_vector(31 downto 0);
   signal stat_elapsed_cycles      : std_logic_vector(31 downto 0);
-  signal stat_pipeline_busy       : std_logic;
+  signal pipeline_busy       : std_logic;
   signal stat_max_outstanding     : std_logic_vector(31 downto 0);
   signal stat_data_errors         : std_logic_vector(31 downto 0);
   signal stat_id_errors           : std_logic_vector(31 downto 0);
@@ -309,7 +309,7 @@ begin
   i_data(23) <= stat_rlast_errors;
   i_data(24) <= stat_resp_errors;
   i_data(25) <= stat_sb_underflow_errors;
-  i_data(26) <= (0 => stat_pipeline_busy, others => '0');
+  i_data(26) <= (0 => pipeline_busy, others => '0');
   i_data(27) <= stat_max_outstanding;
 
   --------------------------------------------------------------------
@@ -376,7 +376,7 @@ begin
       stat_ar_issued          => stat_ar_issued,            -- i_data[18]
       stat_cfg_errors         => stat_cfg_errors,           -- i_data[19]
       stat_elapsed_cycles     => stat_elapsed_cycles,       -- i_data[20]
-      stat_pipeline_busy      => stat_pipeline_busy,        -- i_data[26]
+      pipeline_busy      => pipeline_busy,        -- i_data[26]
       stat_max_outstanding    => stat_max_outstanding,      -- i_data[27]
       stat_data_errors        => stat_data_errors,          -- i_data[21]
       stat_id_errors          => stat_id_errors,            -- i_data[22]

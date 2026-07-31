@@ -29,7 +29,6 @@ entity axi_read_tester_ar_gen is
     aresetn     : in  std_logic;
     global_time : in  std_logic_vector(GC_TIME_WIDTH-1 downto 0);
 
-    enable_global : in  std_logic;
     enable_local  : in  std_logic;
     aperture      : in  std_logic;
 
@@ -138,7 +137,7 @@ begin
   --   r_in = latched next state (to p_reg)
   ---------------------------------------------------------------------
   p_comb : process(r, arid, burst_length, pace, pace_init, base_addr,
-                   addr_range, addr_mode, enable_global, enable_local,
+                   addr_range, addr_mode, enable_local,
                    aperture, global_time, ar_ready, sb_tready, stat_rst)
     variable v         : reg_t;
     variable v_enable  : std_logic;
@@ -167,8 +166,9 @@ begin
     stat_ar_issued       <= std_logic_vector(r.ar_cnt);
     stat_cfg_errors      <= std_logic_vector(r.cfg_err);
 
-    -- Combined enable:  both global and local must be asserted
-    v_enable := enable_global and enable_local;
+    -- Enable:  local enable only (global enable removed — top-level
+    --           wrapper or control logic ORs instances externally).
+    v_enable := enable_local;
 
     -- Stat reset — clears counters without disrupting state machine
     if stat_rst = '1' then
@@ -222,10 +222,26 @@ begin
 
       -- PACE_WAIT:  Count down pacing delay.  When zero, compute blen
       --             and proceed.  Return to IDLE if enable/aperture drops.
+      --
+      --             Burst is also clamped to the address window so the
+      --             last beat never exceeds base_addr + addr_range - 1.
       when S_PACE_WAIT =>
         if v_enable = '0' or aperture = '0' then
           v.state := S_IDLE;
         elsif r.pace_cnt = 0 then
+          -- Clamp burst to the remaining address window
+          -- If cur_addr is at or past the end, wrap to base_addr first.
+          if r.cur_addr >= unsigned(base_addr) + unsigned(addr_range) then
+            v.cur_addr := unsigned(base_addr);
+          end if;
+          -- Re-evaluate remaining window after potential wrap
+          if v_blen_i * GC_DATA_BYTES > unsigned(base_addr) + unsigned(addr_range) - r.cur_addr then
+            v_blen_i := resize(
+              (unsigned(base_addr) + unsigned(addr_range) - r.cur_addr) / GC_DATA_BYTES, 32);
+            if v_blen_i = 0 then
+              v_blen_i := to_unsigned(1, 32);
+            end if;
+          end if;
           v.blen := resize(v_blen_i - 1, 8);
           v.state := S_AR_ISSUE;
         else

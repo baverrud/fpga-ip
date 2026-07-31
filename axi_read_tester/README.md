@@ -105,11 +105,11 @@ axi_read_tester_tb (testbench)
 
 | Port | Direction | Description |
 |------|-----------|-------------|
-| `enable_global` | in | Master enable — gates all AR issue |
-| `enable_local` | in | Per-instance enable — combined with global via AND |
+| `enable_local` | in | Per-instance enable — gates AR issue when low |
 | `aperture` | in | Statistics gating window — stats only counted when high (in-flight bursts complete normally) |
 | `stat_rst` | in | Clear statistics counters |
 | `err_rst` | in | Clear error counters |
+| `pipeline_busy` | out | '1' when scoreboard has entries or burst is in-flight |
 
 ## Configuration (`axi_read_tester`)
 
@@ -139,19 +139,21 @@ AR generator.  `ar_len` = `burst_length - 1` (AXI convention).
 |------|-------|-------------|
 | `stat_xactions` | 32 | Completed transactions (bursts) |
 | `stat_beats` | 32 | Total R beats received |
-| `stat_latency_sum` | `GC_TIME_WIDTH` | Sum of all latencies (AR issue → last R beat) |
+| `stat_latency_sum` | `GC_STAT_WIDTH` | Sum of all latencies (AR issue → last R beat) |
 | `stat_latency_min` | 32 | Minimum latency observed |
 | `stat_latency_max` | 32 | Maximum latency observed |
-| `stat_first_latency_sum` | `GC_TIME_WIDTH` | Sum of first-beat latencies |
+| `stat_first_latency_sum` | `GC_STAT_WIDTH` | Sum of first-beat latencies |
 | `stat_first_latency_min` | 32 | Minimum first-beat latency |
 | `stat_first_latency_max` | 32 | Maximum first-beat latency |
-| `stat_interbeat_gap_sum` | `GC_TIME_WIDTH` | Sum of inter-beat gaps |
+| `stat_interbeat_gap_sum` | `GC_STAT_WIDTH` | Sum of inter-beat gaps |
+| `stat_interbeat_gap_min` | 32 | Minimum inter-beat gap observed |
+| `stat_interbeat_gap_max` | 32 | Maximum inter-beat gap observed |
 | `stat_ar_backpressure` | 32 | AR channel backpressure events |
 | `stat_sb_backpressure` | 32 | Scoreboard backpressure events |
 | `stat_ar_issued` | 32 | ARs successfully issued |
 | `stat_cfg_errors` | 32 | Configuration errors (burst_length > 256, 4 KB boundary) |
 | `stat_elapsed_cycles` | 32 | Elapsed clock cycles (gated by busy) |
-| `stat_pipeline_busy` | 1 | '1' when scoreboard has entries or burst is in-flight |
+| `stat_max_outstanding` | 32 | Peak outstanding AR count observed |
 
 ## Error Outputs (`axi_read_tester`)
 

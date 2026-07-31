@@ -25,15 +25,15 @@ architecture sim of axi_read_tester_tb is
   constant C_ADDR_WIDTH : natural := 32;
   constant C_ID_WIDTH   : natural := 4;
   constant C_TIME_WIDTH : natural := 48;
+  constant C_STAT_WIDTH : natural := 48;
 
   -- Clock and reset
-  signal clk           : std_logic := '0';
-  signal rst_n         : std_logic := '0';
+  signal aclk          : std_logic := '0';
+  signal aresetn       : std_logic := '0';
   signal sim_done      : boolean   := false;
-  signal global_time   : unsigned(C_TIME_WIDTH-1 downto 0) := (others => '0');
+  signal global_time   : std_logic_vector(C_TIME_WIDTH-1 downto 0) := (others => '0');
 
   -- Tester control
-  signal enable_global : std_logic := '0';
   signal enable_local  : std_logic := '0';
   signal aperture      : std_logic := '0';
   signal stat_rst      : std_logic := '0';
@@ -41,7 +41,7 @@ architecture sim of axi_read_tester_tb is
 
   -- AR generation configuration
   signal arid          : std_logic_vector(C_ID_WIDTH-1 downto 0) := X"1";
-  signal burst_len     : std_logic_vector(31 downto 0) := X"00000008";
+  signal burst_length  : std_logic_vector(31 downto 0) := X"00000008";
   signal pace          : std_logic_vector(31 downto 0) := (others => '0');
   signal pace_init     : std_logic_vector(31 downto 0) := (others => '0');
   signal base_addr     : std_logic_vector(C_ADDR_WIDTH-1 downto 0) := X"00001000";
@@ -49,9 +49,12 @@ architecture sim of axi_read_tester_tb is
   signal addr_mode     : std_logic := '0';
 
   -- Memory model configuration
-  signal mem_enable    : std_logic := '1';
-  signal mem_latency   : std_logic_vector(15 downto 0) := (others => '0');
-  signal mem_beat_gap  : std_logic_vector(15 downto 0) := (others => '0');
+  signal ar_base_enable   : std_logic := '1';
+  signal ar_jitter_enable : std_logic := '1';
+  signal r_base_enable    : std_logic := '1';
+  signal r_jitter_enable  : std_logic := '1';
+  signal base_latency     : std_logic_vector(15 downto 0) := (others => '0');
+  signal base_beat_gap    : std_logic_vector(15 downto 0) := (others => '0');
 
   -- AXI4 AR bus (tester → memory model)
   signal ar_valid : std_logic;
@@ -69,14 +72,29 @@ architecture sim of axi_read_tester_tb is
   signal r_last  : std_logic;
 
   -- Monitored statistics
-  signal stat_xact     : std_logic_vector(31 downto 0);
-  signal stat_beats    : std_logic_vector(31 downto 0);
-  signal stat_data_err : std_logic_vector(31 downto 0);
-  signal stat_id_err   : std_logic_vector(31 downto 0);
-  signal stat_rlast_err: std_logic_vector(31 downto 0);
-  signal stat_resp_err : std_logic_vector(31 downto 0);
-  signal stat_sb_uf_err: std_logic_vector(31 downto 0);
-  signal stat_busy     : std_logic;
+  signal stat_xactions           : std_logic_vector(31 downto 0);
+  signal stat_beats              : std_logic_vector(31 downto 0);
+  signal stat_data_errors        : std_logic_vector(31 downto 0);
+  signal stat_id_errors          : std_logic_vector(31 downto 0);
+  signal stat_rlast_errors       : std_logic_vector(31 downto 0);
+  signal stat_resp_errors        : std_logic_vector(31 downto 0);
+  signal stat_sb_underflow_errors: std_logic_vector(31 downto 0);
+  signal pipeline_busy      : std_logic;
+  signal stat_latency_sum        : std_logic_vector(C_STAT_WIDTH-1 downto 0);
+  signal stat_latency_min        : std_logic_vector(31 downto 0);
+  signal stat_latency_max        : std_logic_vector(31 downto 0);
+  signal stat_first_latency_min  : std_logic_vector(31 downto 0);
+  signal stat_first_latency_max  : std_logic_vector(31 downto 0);
+  signal stat_first_latency_sum  : std_logic_vector(C_STAT_WIDTH-1 downto 0);
+  signal stat_interbeat_gap_sum  : std_logic_vector(C_STAT_WIDTH-1 downto 0);
+  signal stat_interbeat_gap_min  : std_logic_vector(31 downto 0);
+  signal stat_interbeat_gap_max  : std_logic_vector(31 downto 0);
+  signal stat_ar_backpressure    : std_logic_vector(31 downto 0);
+  signal stat_sb_backpressure    : std_logic_vector(31 downto 0);
+  signal stat_ar_issued          : std_logic_vector(31 downto 0);
+  signal stat_cfg_errors         : std_logic_vector(31 downto 0);
+  signal stat_elapsed_cycles     : std_logic_vector(31 downto 0);
+  signal stat_max_outstanding    : std_logic_vector(31 downto 0);
 
   -- Helper functions
   function u32(n : natural) return std_logic_vector is
@@ -93,20 +111,20 @@ architecture sim of axi_read_tester_tb is
   procedure wait_cycles(n : natural) is
   begin
     for i in 1 to n loop
-      wait until rising_edge(clk);
+      wait until rising_edge(aclk);
     end loop;
   end procedure;
 
 begin
 
   -- Clock generator
-  clk <= not clk after C_CLK_PERIOD / 2 when not sim_done else '0';
+  aclk <= not aclk after C_CLK_PERIOD / 2 when not sim_done else '0';
 
   -- Global time counter
-  p_global_time : process(clk)
+  p_global_time : process(aclk)
   begin
-    if rising_edge(clk) and rst_n = '1' then
-      global_time <= global_time + 1;
+    if rising_edge(aclk) and aresetn = '1' then
+      global_time <= std_logic_vector(unsigned(global_time) + 1);
     end if;
   end process;
 
@@ -119,23 +137,23 @@ begin
       GC_ADDR_WIDTH    => C_ADDR_WIDTH,
       GC_ID_WIDTH      => C_ID_WIDTH,
       GC_TIME_WIDTH    => C_TIME_WIDTH,
-      GC_STAT_WIDTH    => C_TIME_WIDTH,
+      GC_STAT_WIDTH    => C_STAT_WIDTH,
       GC_SB_FIFO_DEPTH => 256,
       GC_MAX_BURST     => 256
     )
     port map (
-      aclk                      => clk,
-      aresetn                   => rst_n,
-      global_time               => std_logic_vector(global_time),
+      aclk                      => aclk,
+      aresetn                   => aresetn,
+      global_time               => global_time,
 
-      enable_global             => enable_global,
+
       enable_local              => enable_local,
       aperture                  => aperture,
       stat_rst                  => stat_rst,
       err_rst                   => err_rst,
 
       arid                      => arid,
-      burst_length              => burst_len,
+      burst_length              => burst_length,
       pace                      => pace,
       pace_init                 => pace_init,
       base_addr                 => base_addr,
@@ -158,27 +176,29 @@ begin
       r_last                    => r_last,
 
       -- Statistics
-      stat_xactions             => stat_xact,
+      stat_xactions             => stat_xactions,
       stat_beats                => stat_beats,
-      stat_latency_sum          => open,
-      stat_latency_min          => open,
-      stat_latency_max          => open,
-      stat_first_latency_sum    => open,
-      stat_first_latency_min    => open,
-      stat_first_latency_max    => open,
-      stat_interbeat_gap_sum    => open,
-      stat_ar_backpressure      => open,
-      stat_sb_backpressure      => open,
-      stat_ar_issued            => open,
-      stat_cfg_errors           => open,
-      stat_elapsed_cycles       => open,
-      stat_max_outstanding      => open,
-      stat_pipeline_busy        => stat_busy,
-      stat_data_errors          => stat_data_err,
-      stat_id_errors            => stat_id_err,
-      stat_rlast_errors         => stat_rlast_err,
-      stat_resp_errors          => stat_resp_err,
-      stat_sb_underflow_errors  => stat_sb_uf_err
+      stat_latency_sum          => stat_latency_sum,
+      stat_latency_min          => stat_latency_min,
+      stat_latency_max          => stat_latency_max,
+      stat_first_latency_sum    => stat_first_latency_sum,
+      stat_first_latency_min    => stat_first_latency_min,
+      stat_first_latency_max    => stat_first_latency_max,
+      stat_interbeat_gap_sum    => stat_interbeat_gap_sum,
+      stat_interbeat_gap_min    => stat_interbeat_gap_min,
+      stat_interbeat_gap_max    => stat_interbeat_gap_max,
+      stat_ar_backpressure      => stat_ar_backpressure,
+      stat_sb_backpressure      => stat_sb_backpressure,
+      stat_ar_issued            => stat_ar_issued,
+      stat_cfg_errors           => stat_cfg_errors,
+      stat_elapsed_cycles       => stat_elapsed_cycles,
+      pipeline_busy        => pipeline_busy,
+      stat_data_errors          => stat_data_errors,
+      stat_id_errors            => stat_id_errors,
+      stat_rlast_errors         => stat_rlast_errors,
+      stat_resp_errors          => stat_resp_errors,
+      stat_sb_underflow_errors  => stat_sb_underflow_errors,
+      stat_max_outstanding      => stat_max_outstanding
     );
 
   --------------------------------------------------------------------
@@ -194,22 +214,25 @@ begin
       GC_R_FIFO_DEPTH  => 8
     )
     port map (
-      aclk            => clk,
-      aresetn         => rst_n,
-      enable          => mem_enable,
-      base_latency    => mem_latency,
-      base_beat_gap   => mem_beat_gap,
-      ar_valid        => ar_valid,
-      ar_ready        => ar_ready,
-      ar_id           => ar_id,
-      ar_addr         => ar_addr,
-      ar_len          => ar_len,
-      r_valid         => r_valid,
-      r_ready         => r_ready,
-      r_id            => r_id,
-      r_data          => r_data,
-      r_resp          => r_resp,
-      r_last          => r_last
+      aclk             => aclk,
+      aresetn          => aresetn,
+      ar_base_enable   => ar_base_enable,
+      ar_jitter_enable => ar_jitter_enable,
+      r_base_enable    => r_base_enable,
+      r_jitter_enable  => r_jitter_enable,
+      base_latency     => base_latency,
+      base_beat_gap    => base_beat_gap,
+      ar_valid         => ar_valid,
+      ar_ready         => ar_ready,
+      ar_id            => ar_id,
+      ar_addr          => ar_addr,
+      ar_len           => ar_len,
+      r_valid          => r_valid,
+      r_ready          => r_ready,
+      r_id             => r_id,
+      r_data           => r_data,
+      r_resp           => r_resp,
+      r_last           => r_last
     );
 
   --------------------------------------------------------------------
@@ -228,22 +251,22 @@ begin
       write(l, string'("  beats="));
       write(l, to_integer(unsigned(stat_beats)));
       write(l, string'(" xact="));
-      write(l, to_integer(unsigned(stat_xact)));
+      write(l, to_integer(unsigned(stat_xactions)));
       write(l, string'(" data="));
-      write(l, to_integer(unsigned(stat_data_err)));
+      write(l, to_integer(unsigned(stat_data_errors)));
       write(l, string'(" id="));
-      write(l, to_integer(unsigned(stat_id_err)));
+      write(l, to_integer(unsigned(stat_id_errors)));
       write(l, string'(" rlast="));
-      write(l, to_integer(unsigned(stat_rlast_err)));
+      write(l, to_integer(unsigned(stat_rlast_errors)));
       write(l, string'(" sb_uf="));
-      write(l, to_integer(unsigned(stat_sb_uf_err)));
+      write(l, to_integer(unsigned(stat_sb_underflow_errors)));
       writeline(output, l);
 
-      errs := unsigned(stat_data_err)
-            + unsigned(stat_id_err)
-            + unsigned(stat_rlast_err)
-            + unsigned(stat_resp_err)
-            + unsigned(stat_sb_uf_err);
+      errs := unsigned(stat_data_errors)
+            + unsigned(stat_id_errors)
+            + unsigned(stat_rlast_errors)
+            + unsigned(stat_resp_errors)
+            + unsigned(stat_sb_underflow_errors);
       if errs > 0 then
         write(l, string'("  FAIL"));
         writeline(output, l);
@@ -267,13 +290,12 @@ begin
     ) is
     begin
       base_addr   <= phase_base_addr;
-      burst_len   <= phase_burst_len;
+      burst_length   <= phase_burst_len;
       addr_range  <= phase_addr_range;
       addr_mode   <= phase_addr_mode;
-      mem_latency <= phase_latency;
-      mem_beat_gap<= phase_gap;
+base_latency <= phase_latency;
+    base_beat_gap<= phase_gap;
 
-      enable_global <= '1';
       enable_local  <= '1';
 
       write(l, string'("=== "));
@@ -288,26 +310,25 @@ begin
 
       check_phase;
 
-      enable_global <= '0';
       enable_local  <= '0';
-      rst_n         <= '0';
+      aresetn         <= '0';
       wait_cycles(10);
-      rst_n         <= '1';
+      aresetn         <= '1';
       wait_cycles(5);
     end procedure;
 
   begin
     -- Power-on reset
-    rst_n <= '0';
-    wait_cycles(10);
-    rst_n <= '1';
+    aresetn <= '0';
+    wait_cycles(5);
+    aresetn <= '1';
     wait_cycles(5);
 
     -- P1: Standard 16-beat bursts
     run_phase(
       phase_name       => "P1: 16-beat",
       phase_base_addr  => X"00001000",
-      phase_burst_len  => u32(16),
+      phase_burst_len => u32(16),
       phase_addr_range => X"00004000",
       phase_addr_mode  => '0',
       phase_latency    => u16(5),
@@ -319,7 +340,7 @@ begin
     run_phase(
       phase_name       => "P2: Single-beat",
       phase_base_addr  => X"00010000",
-      phase_burst_len  => u32(1),
+      phase_burst_len => u32(1),
       phase_addr_range => X"00001000",
       phase_addr_mode  => '0',
       phase_latency    => u16(5),
@@ -331,7 +352,7 @@ begin
     run_phase(
       phase_name       => "P3: Max burst 256",
       phase_base_addr  => X"00020000",
-      phase_burst_len  => u32(256),
+      phase_burst_len => u32(256),
       phase_addr_range => X"00100000",
       phase_addr_mode  => '0',
       phase_latency    => u16(5),
@@ -343,7 +364,7 @@ begin
     run_phase(
       phase_name       => "P4: 4KB boundary",
       phase_base_addr  => X"00000FE0",
-      phase_burst_len  => u32(2),
+      phase_burst_len => u32(2),
       phase_addr_range => X"00001000",
       phase_addr_mode  => '0',
       phase_latency    => u16(5),
@@ -392,12 +413,11 @@ begin
     write(l, string'("=== P8: Aperture gating ==="));
     writeline(output, l);
     base_addr   <= X"00060000";
-    burst_len   <= u32(4);
+    burst_length   <= u32(4);
     addr_range  <= X"00004000";
     addr_mode   <= '0';
-    mem_latency <= u16(5);
-    mem_beat_gap<= u16(3);
-    enable_global <= '1';
+    base_latency <= u16(5);
+    base_beat_gap<= u16(3);
     enable_local  <= '1';
 
     aperture <= '0';
@@ -409,23 +429,21 @@ begin
 
     check_phase;
 
-    enable_global <= '0';
     enable_local  <= '0';
-    rst_n         <= '0';
+    aresetn         <= '0';
     wait_cycles(10);
-    rst_n         <= '1';
+    aresetn         <= '1';
     wait_cycles(5);
 
     -- P9: stat_rst and err_rst
     write(l, string'("=== P9: stat_rst/err_rst ==="));
     writeline(output, l);
     base_addr    <= X"00070000";
-    burst_len    <= u32(8);
+    burst_length    <= u32(8);
     addr_range   <= X"00004000";
     addr_mode    <= '0';
-    mem_latency  <= u16(5);
-    mem_beat_gap <= u16(3);
-    enable_global <= '1';
+    base_latency  <= u16(5);
+    base_beat_gap <= u16(3);
     enable_local  <= '1';
 
     aperture <= '1';
@@ -433,11 +451,10 @@ begin
 
     aperture <= '0';
     wait_cycles(C_DRAIN);
-    enable_global <= '0';
     enable_local  <= '0';
 
     for i in 1 to 2000 loop
-      exit when stat_busy = '0';
+      exit when pipeline_busy = '0';
       wait_cycles(1);
     end loop;
 
@@ -445,7 +462,7 @@ begin
     wait_cycles(1);
     stat_rst <= '0';
     wait_cycles(1);
-    if unsigned(stat_beats) /= 0 or unsigned(stat_xact) /= 0 then
+    if unsigned(stat_beats) /= 0 or unsigned(stat_xactions) /= 0 then
       write(l, string'("  FAIL: stat_rst did not clear beats/xact"));
       writeline(output, l);
       all_pass := false;
@@ -458,11 +475,11 @@ begin
     wait_cycles(1);
     err_rst <= '0';
     wait_cycles(1);
-    if unsigned(stat_data_err) /= 0 or
-       unsigned(stat_id_err) /= 0 or
-       unsigned(stat_rlast_err) /= 0 or
-       unsigned(stat_resp_err) /= 0 or
-       unsigned(stat_sb_uf_err) /= 0 then
+    if unsigned(stat_data_errors) /= 0 or
+      unsigned(stat_id_errors) /= 0 or
+      unsigned(stat_rlast_errors) /= 0 or
+      unsigned(stat_resp_errors) /= 0 or
+      unsigned(stat_sb_underflow_errors) /= 0 then
       write(l, string'("  FAIL: err_rst did not clear error counters"));
       writeline(output, l);
       all_pass := false;
@@ -473,28 +490,27 @@ begin
 
     check_phase;
 
-    rst_n         <= '0';
+    aresetn         <= '0';
     wait_cycles(10);
-    rst_n         <= '1';
+    aresetn         <= '1';
     wait_cycles(5);
 
     -- P10: Reset while transactions are in-flight
     write(l, string'("=== P10: Reset in-flight ==="));
     writeline(output, l);
     base_addr   <= X"00080000";
-    burst_len   <= u32(8);
+    burst_length   <= u32(8);
     addr_range  <= X"00004000";
     addr_mode   <= '0';
-    mem_latency <= u16(5);
-    mem_beat_gap<= u16(3);
-    enable_global <= '1';
+    base_latency <= u16(5);
+    base_beat_gap<= u16(3);
     enable_local  <= '1';
 
     aperture <= '1';
     wait_cycles(100);
-    rst_n    <= '0';
+    aresetn    <= '0';
     wait_cycles(10);
-    rst_n    <= '1';
+    aresetn    <= '1';
     wait_cycles(100);
     aperture <= '0';
     wait_cycles(C_DRAIN);

@@ -26,10 +26,10 @@ entity axi_read_tester_r_mon is
     aclk        : in  std_logic;
     aresetn     : in  std_logic;
     global_time : in  std_logic_vector(GC_TIME_WIDTH-1 downto 0);
-    aperture    : in  std_logic;
 
-    stat_rst : in  std_logic;
-    err_rst  : in  std_logic;
+    stat_rst     : in  std_logic;
+    err_rst      : in  std_logic;
+    pipeline_busy : out std_logic;
 
     r_valid : in  std_logic;
     r_ready : out std_logic;
@@ -45,14 +45,15 @@ entity axi_read_tester_r_mon is
     stat_xactions           : out std_logic_vector(31 downto 0);
     stat_beats              : out std_logic_vector(31 downto 0);
     stat_latency_sum        : out std_logic_vector(GC_STAT_WIDTH-1 downto 0);
-    stat_latency_min        : out std_logic_vector(GC_STAT_WIDTH-1 downto 0);
-    stat_latency_max        : out std_logic_vector(GC_STAT_WIDTH-1 downto 0);
+    stat_latency_min        : out std_logic_vector(31 downto 0);
+    stat_latency_max        : out std_logic_vector(31 downto 0);
+    stat_first_latency_min  : out std_logic_vector(31 downto 0);
+    stat_first_latency_max  : out std_logic_vector(31 downto 0);
     stat_first_latency_sum  : out std_logic_vector(GC_STAT_WIDTH-1 downto 0);
-    stat_first_latency_min  : out std_logic_vector(GC_STAT_WIDTH-1 downto 0);
-    stat_first_latency_max  : out std_logic_vector(GC_STAT_WIDTH-1 downto 0);
     stat_interbeat_gap_sum  : out std_logic_vector(GC_STAT_WIDTH-1 downto 0);
+    stat_interbeat_gap_min  : out std_logic_vector(31 downto 0);
+    stat_interbeat_gap_max  : out std_logic_vector(31 downto 0);
     stat_elapsed_cycles     : out std_logic_vector(31 downto 0);
-    stat_pipeline_busy      : out std_logic;
     stat_data_errors        : out std_logic_vector(31 downto 0);
     stat_id_errors          : out std_logic_vector(31 downto 0);
     stat_rlast_errors       : out std_logic_vector(31 downto 0);
@@ -91,12 +92,14 @@ architecture rtl of axi_read_tester_r_mon is
     xactions       : unsigned(31 downto 0);  -- completed transactions (bursts)
     beats          : unsigned(31 downto 0);  -- total R beats processed
     latency_sum    : unsigned(GC_STAT_WIDTH-1 downto 0);  -- sum of all latencies
-    latency_min    : unsigned(GC_STAT_WIDTH-1 downto 0);  -- minimum latency observed
-    latency_max    : unsigned(GC_STAT_WIDTH-1 downto 0);  -- maximum latency observed
+    latency_min    : unsigned(31 downto 0);  -- minimum latency observed
+    latency_max    : unsigned(31 downto 0);  -- maximum latency observed
     first_lat_sum  : unsigned(GC_STAT_WIDTH-1 downto 0);  -- sum of first-beat latencies
-    first_lat_min  : unsigned(GC_STAT_WIDTH-1 downto 0);
-    first_lat_max  : unsigned(GC_STAT_WIDTH-1 downto 0);
-    ib_gap_sum     : unsigned(GC_STAT_WIDTH-1 downto 0);  -- sum of inter-beat gaps
+    first_lat_min  : unsigned(31 downto 0);
+    first_lat_max  : unsigned(31 downto 0);
+    interbeat_gap_sum : unsigned(GC_STAT_WIDTH-1 downto 0);  -- sum of inter-beat gaps
+    interbeat_gap_min : unsigned(31 downto 0);  -- minimum inter-beat gap observed
+    interbeat_gap_max : unsigned(31 downto 0);  -- maximum inter-beat gap observed
     elapsed        : unsigned(31 downto 0);  -- elapsed clock cycles
     busy           : std_logic;              -- '1' = pipeline has in-flight work
 
@@ -126,7 +129,9 @@ architecture rtl of axi_read_tester_r_mon is
     first_lat_sum    => (others => '0'),
     first_lat_min    => (others => '1'),
     first_lat_max    => (others => '0'),
-    ib_gap_sum       => (others => '0'),
+    interbeat_gap_sum => (others => '0'),
+    interbeat_gap_min => (others => '1'),
+    interbeat_gap_max => (others => '0'),
     elapsed          => (others => '0'),
     busy             => '0',
     -- Error counters
@@ -159,7 +164,7 @@ begin
   -- Combinational process — computes all next-state values and outputs.
   ---------------------------------------------------------------------
   p_comb : process(r, r_valid, r_id, r_data, r_resp, r_last,
-                   sb_tdata, sb_tvalid, aperture, global_time,
+                   sb_tdata, sb_tvalid, global_time,
                    stat_rst, err_rst)
     variable v         : rec_t;
     variable v_gate    : std_logic;           -- stats gating flag
@@ -168,6 +173,7 @@ begin
     variable v_latency : unsigned(GC_TIME_WIDTH-1 downto 0);
     variable v_beat_addr : unsigned(GC_ADDR_WIDTH-1 downto 0);  -- expected addr
     variable v_ok      : boolean;
+    variable word_idx  : natural;
   begin
     v := r;  -- recover current state as default for all fields
 
@@ -181,7 +187,9 @@ begin
       v.first_lat_sum := (others => '0');
       v.first_lat_min := (others => '1');
       v.first_lat_max := (others => '0');
-      v.ib_gap_sum    := (others => '0');
+      v.interbeat_gap_sum := (others => '0');
+      v.interbeat_gap_min := (others => '1');
+      v.interbeat_gap_max := (others => '0');
       v.elapsed       := (others => '0');
     end if;
     if err_rst = '1' then
@@ -200,10 +208,9 @@ begin
       v.busy := '1';
     end if;
 
-    -- Gating:  count stats when aperture is high OR when pipeline has
-    -- in-flight work (so we don't clip stats for bursts that started
-    -- before aperture dropped).
-    v_gate := aperture or r.busy;
+    -- Gating:  count stats while pipeline has in-flight work.
+    -- Stats accumulate from first beat until scoreboard drains.
+    v_gate := r.busy;
     v_r_fire := '0';
     if r_valid = '1' and not (r.burst_beats = 0 and sb_tvalid = '0') then
       v_r_fire := '1';
@@ -274,10 +281,17 @@ begin
 
         -- Data check:  the memory model returns address-derived patterns.
         -- Expected data = burst_start_addr + (beat_idx-1) × data_bytes.
+        -- For buses ≥ 4 bytes, each 32-bit word in the beat is verified:
+        --   word0 = beat_addr, word1 = beat_addr + 4, word2 = beat_addr + 8, etc.
         v_beat_addr := v.burst_addr + (v.beat_idx - 1) * GC_DATA_BYTES;
+        v_ok := true;
         if GC_DATA_BYTES >= 4 then
-          v_ok := r_data(31 downto 0) = std_logic_vector(
-            resize(v_beat_addr, 32));
+          for word_idx in 0 to GC_DATA_BYTES / 4 - 1 loop
+            if r_data(32*word_idx+31 downto 32*word_idx) /=
+               std_logic_vector(resize(v_beat_addr + word_idx*4, 32)) then
+              v_ok := false;
+            end if;
+          end loop;
         elsif GC_DATA_BYTES = 2 then
           v_ok := r_data(15 downto 0) = std_logic_vector(
             resize(v_beat_addr, 16));
@@ -335,16 +349,22 @@ begin
             v.latency_sum := r.latency_sum + v_latency;
 
             if v_latency < r.latency_min then
-              v.latency_min := v_latency;
+              v.latency_min := v_latency(31 downto 0);
             end if;
             if v_latency > r.latency_max then
-              v.latency_max := v_latency;
+              v.latency_max := v_latency(31 downto 0);
             end if;
           end if;
 
           v_gap := unsigned(global_time) - r.ts_prev_beat;
           if v.beat_idx > 1 then
-            v.ib_gap_sum := r.ib_gap_sum + v_gap;
+            v.interbeat_gap_sum := r.interbeat_gap_sum + v_gap;
+            if v_gap < r.interbeat_gap_min then
+              v.interbeat_gap_min := v_gap(31 downto 0);
+            end if;
+            if v_gap > r.interbeat_gap_max then
+              v.interbeat_gap_max := v_gap(31 downto 0);
+            end if;
           end if;
 
           if v.beat_idx = 1 and v.latency_started = '1' then
@@ -352,10 +372,10 @@ begin
             v.first_lat_sum := r.first_lat_sum + v_latency;
 
             if v_latency < r.first_lat_min then
-              v.first_lat_min := v_latency;
+              v.first_lat_min := v_latency(31 downto 0);
             end if;
             if v_latency > r.first_lat_max then
-              v.first_lat_max := v_latency;
+              v.first_lat_max := v_latency(31 downto 0);
             end if;
           end if;
         end if;
@@ -399,9 +419,11 @@ begin
   stat_first_latency_sum  <= std_logic_vector(r.first_lat_sum);
   stat_first_latency_min  <= std_logic_vector(r.first_lat_min);
   stat_first_latency_max  <= std_logic_vector(r.first_lat_max);
-  stat_interbeat_gap_sum  <= std_logic_vector(r.ib_gap_sum);
+  stat_interbeat_gap_sum  <= std_logic_vector(r.interbeat_gap_sum);
+  stat_interbeat_gap_min  <= std_logic_vector(r.interbeat_gap_min);
+  stat_interbeat_gap_max  <= std_logic_vector(r.interbeat_gap_max);
   stat_elapsed_cycles     <= std_logic_vector(r.elapsed);
-  stat_pipeline_busy      <= r.busy;
+  pipeline_busy      <= r.busy;
   stat_data_errors        <= std_logic_vector(r.data_errs);
   stat_id_errors          <= std_logic_vector(r.id_errs);
   stat_rlast_errors       <= std_logic_vector(r.rlast_errs);

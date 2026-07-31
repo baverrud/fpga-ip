@@ -72,7 +72,7 @@ entity axi_read_tester_top is
     stat_ar_issued            : out std_logic_vector(31 downto 0);
     stat_cfg_errors           : out std_logic_vector(31 downto 0);
     stat_elapsed_cycles       : out std_logic_vector(31 downto 0);
-    stat_pipeline_busy        : out std_logic;
+    pipeline_busy             : out std_logic;
     stat_max_outstanding      : out std_logic_vector(31 downto 0);
     stat_data_errors          : out std_logic_vector(31 downto 0);
     stat_id_errors            : out std_logic_vector(31 downto 0);
@@ -141,7 +141,7 @@ begin
       stat_ar_issued            => stat_ar_issued,
       stat_cfg_errors           => stat_cfg_errors,
       stat_elapsed_cycles       => stat_elapsed_cycles,
-      stat_pipeline_busy        => stat_pipeline_busy,
+      pipeline_busy             => pipeline_busy,
       stat_max_outstanding      => stat_max_outstanding,
       stat_data_errors          => stat_data_errors,
       stat_id_errors            => stat_id_errors,
