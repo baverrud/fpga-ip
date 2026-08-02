@@ -31,7 +31,8 @@ end entity;
 
 architecture rtl of xorshift128 is
 
-  signal s0, s1 : unsigned(63 downto 0) := (others => '0');
+  signal s0 : unsigned(63 downto 0) := unsigned(GC_SEED0);
+  signal s1 : unsigned(63 downto 0) := unsigned(GC_SEED1);
 
   -- rotl(v, n) = v(63-n downto 0) & v(63 downto 64-n)
   pure function rotl(v : unsigned; n : natural) return unsigned is
@@ -41,9 +42,11 @@ architecture rtl of xorshift128 is
 
 begin
 
+  -- Live output, matching xorshift32: initial value is seed0 + seed1.
+  data <= std_logic_vector(s0 + s1);
+
   process(clk)
     variable v0, v1 : unsigned(63 downto 0);
-    variable result : unsigned(63 downto 0);
   begin
     if rising_edge(clk) then
       if rstn = '0' then
@@ -52,11 +55,9 @@ begin
       elsif step = '1' then
         v0     := s0;
         v1     := s1;
-        result := v0 + v1;
         v1     := v1 xor v0;
         s0     <= rotl(v0, 24) xor v1 xor (v1 sll 16);
         s1     <= rotl(v1, 37);
-        data   <= std_logic_vector(result);
       end if;
     end if;
   end process;

@@ -1,18 +1,19 @@
-# Parallel PRNG — Xorshift Pseudo-Random Number Generators
+# Parallel PRNG — Xorshift and xoroshiro Pseudo-Random Number Generators
 
 Collection of lightweight pseudo-random number generators (PRNGs) for FPGA
-implementation. All use the xorshift family of algorithms — pure XOR and shift
-operations, no multipliers needed. Single-clock iteration with `step` gating.
+implementation. The collection contains Marsaglia xorshift32 and xoroshiro128+.
+Both use XOR, shift/rotate, and addition operations only. Single-clock
+iteration with `step` gating.
 
 Licensed under Zero-Clause BSD (0BSD).
 
 ## Features
 
-- **Xorshift algorithms** — Pure XOR and shift, zero DSP blocks.
+- **Lightweight algorithms** — XOR, shift/rotate, and addition; zero DSP blocks.
 - **Single-cycle iteration** — New value every clock when `step` is tied high.
 - **No external dependencies** — Only IEEE standard libraries.
 - **Two implementations** — 32-bit xorshift32 (Marsaglia 2003) and 64-bit
-  xorshift128 (xoroshiro128+, Vigna 2016).
+  xoroshiro128+ (Blackman and Vigna).
 - **Synthesis top wrapper** — `prng_top` instantiates both with independent
   step controls.
 
@@ -26,7 +27,7 @@ Licensed under Zero-Clause BSD (0BSD).
 |---------|------|---------|-------------|
 | `GC_SEED` | `std_logic_vector(31 downto 0)` | `x"DEADBEEF"` | Reset seed value |
 
-#### xorshift128
+#### xoroshiro128+
 
 | Generic | Type | Default | Description |
 |---------|------|---------|-------------|
@@ -44,7 +45,7 @@ Licensed under Zero-Clause BSD (0BSD).
 | `step` | in | 1 | Pulse high to advance one iteration |
 | `data` | out | 32 | Current PRNG output value |
 
-#### xorshift128
+#### xoroshiro128+
 
 | Port | Direction | Width | Description |
 |------|-----------|-------|-------------|
@@ -53,8 +54,10 @@ Licensed under Zero-Clause BSD (0BSD).
 | `step` | in | 1 | Pulse high to advance one iteration |
 | `data` | out | 64 | Current PRNG output value |
 
-Tie `step` to `'1'` for free-running operation (new value every cycle).
-Drive `step` with a qualified enable for gated operation.
+For xoroshiro128+, `data` is the live `s0 + s1` sum modulo $2^{64}`;
+therefore the initial output is `GC_SEED0 + GC_SEED1` before the first step.
+Tie `step` to `'1'` for free-running operation, or drive it with a qualified
+enable for gated operation.
 
 ## Architecture
 
@@ -78,7 +81,7 @@ x ^= x << 5;
 Smallest PRNG in the collection. Suitable for simple addressing or basic
 randomization. Not suitable for cryptographic or numerical simulation use.
 
-### xorshift128
+### xoroshiro128+
 
 Single-clock process with two 64-bit state registers (s0, s1):
 
@@ -91,7 +94,7 @@ result = s0 + s1;
 
 | Property | Value |
 |----------|-------|
-| **Reference** | D. Blackman & S. Vigna, "Scrambled linear pseudorandom number generators", ACM Trans. Math. Soft., 2021 |
+| **Reference** | [Official xoroshiro128+ reference implementation](https://prng.di.unimi.it/xoroshiro128plus.c) |
 | **State** | 128-bit (2 × 64-bit registers) |
 | **Output** | 64-bit |
 | **DSP blocks** | 0 |
@@ -115,12 +118,12 @@ parallel_prng/
 ├── README.md
 ├── rtl/
 │   ├── xorshift32.vhd       # Marsaglia xorshift32 (2003), 32-bit
-│   ├── xorshift128.vhd      # xoroshiro128+ (Vigna 2016), 64-bit
+│   ├── xorshift128.vhd      # xoroshiro128+ (Blackman/Vigna), 64-bit
 │   └── prng_top.vhd         # Synthesis top — instantiates both
 ├── scripts/
 │   └── vhdl.f               # File list for sim/synth flows
 └── tb/
-    └── parallel_prng_tb.vhd # Testbench for both modules
+    └── parallel_prng_tb.vhd # Self-checking golden-sequence testbench
 ```
 
 ## Verification
