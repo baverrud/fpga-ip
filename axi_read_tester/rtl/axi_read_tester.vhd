@@ -29,6 +29,7 @@ entity axi_read_tester is
 
     enable_local  : in  std_logic;
     aperture      : in  std_logic;
+    pipeline_busy : out std_logic;
 
     stat_rst     : in  std_logic;
     err_rst      : in  std_logic;
@@ -72,7 +73,6 @@ entity axi_read_tester is
     stat_ar_issued            : out std_logic_vector(31 downto 0);
     stat_cfg_errors           : out std_logic_vector(31 downto 0);
     stat_elapsed_cycles       : out std_logic_vector(31 downto 0);
-    pipeline_busy             : out std_logic;
     stat_max_outstanding      : out std_logic_vector(31 downto 0);
     stat_data_errors          : out std_logic_vector(31 downto 0);
     stat_id_errors            : out std_logic_vector(31 downto 0);

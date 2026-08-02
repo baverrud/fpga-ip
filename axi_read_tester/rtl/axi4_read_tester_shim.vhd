@@ -59,7 +59,7 @@
 --  [23] stat_rlast_errors
 --  [24] stat_resp_errors
 --  [25] stat_sb_underflow_errors
---  [26] stat_pipeline_busy
+--  [26] pipeline_busy
 --  [27] stat_max_outstanding
 --  [28] stat_interbeat_gap_min
 --  [29] stat_interbeat_gap_max
