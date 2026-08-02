@@ -61,6 +61,8 @@
 --  [25] stat_sb_underflow_errors
 --  [26] stat_pipeline_busy
 --  [27] stat_max_outstanding
+--  [28] stat_interbeat_gap_min
+--  [29] stat_interbeat_gap_max
 -- =====================================================================
 -----------------------------------------------------------------------
 library ieee;
@@ -136,7 +138,7 @@ architecture rtl of axi4_read_tester_shim is
   --------------------------------------------------------------------
   -- Register counts — see header table for full register map.
   constant C_NUM_ODATA : natural := 32;
-  constant C_NUM_IDATA : natural := 32;
+  constant C_NUM_IDATA : natural := 34;
 
   signal o_data : t_slv32_array(0 to C_NUM_ODATA-1) := (others => (others => '0'));
   signal i_data : t_slv32_array(0 to C_NUM_IDATA-1) := (others => (others => '0'));
@@ -144,7 +146,8 @@ architecture rtl of axi4_read_tester_shim is
   --------------------------------------------------------------------
   -- Control signals (decoded from o_data registers)
   --------------------------------------------------------------------
-  signal enable_local : std_logic;
+  signal enable_local     : std_logic;
+  signal enable_effective : std_logic;
   signal addr_mode    : std_logic;
   signal arid         : std_logic_vector(GC_ID_WIDTH-1 downto 0);
   signal burst_length : std_logic_vector(31 downto 0);
@@ -190,6 +193,8 @@ architecture rtl of axi4_read_tester_shim is
   signal stat_first_latency_min   : std_logic_vector(31 downto 0);
   signal stat_first_latency_max   : std_logic_vector(31 downto 0);
   signal stat_interbeat_gap_sum   : std_logic_vector(GC_STAT_WIDTH-1 downto 0);
+  signal stat_interbeat_gap_min   : std_logic_vector(31 downto 0);
+  signal stat_interbeat_gap_max   : std_logic_vector(31 downto 0);
   signal stat_ar_backpressure     : std_logic_vector(31 downto 0);
   signal stat_sb_backpressure     : std_logic_vector(31 downto 0);
   signal stat_ar_issued           : std_logic_vector(31 downto 0);
@@ -312,6 +317,10 @@ begin
   i_data(25) <= stat_sb_underflow_errors;
   i_data(26) <= (0 => pipeline_busy, others => '0');
   i_data(27) <= stat_max_outstanding;
+  i_data(28) <= stat_interbeat_gap_min;
+  i_data(29) <= stat_interbeat_gap_max;
+
+  enable_effective <= enable_local and enable_global;
 
   --------------------------------------------------------------------
   -- axi_read_tester instantiation
@@ -332,7 +341,7 @@ begin
       global_time             => global_time,
 
       -- Tester control (direct top-level pass-through)
-      enable_local            => enable_local,    -- via o_data[0]
+      enable_local            => enable_effective, -- o_data[0] and enable_global
       aperture                => aperture,
       stat_rst                => stat_rst,
       err_rst                 => err_rst,
@@ -371,8 +380,8 @@ begin
       stat_first_latency_min  => stat_first_latency_min,    -- i_data[10..11]
       stat_first_latency_max  => stat_first_latency_max,    -- i_data[12..13]
       stat_interbeat_gap_sum  => stat_interbeat_gap_sum,    -- i_data[14..15]
-      stat_interbeat_gap_min  => open,
-      stat_interbeat_gap_max  => open,
+      stat_interbeat_gap_min  => stat_interbeat_gap_min,    -- i_data[28]
+      stat_interbeat_gap_max  => stat_interbeat_gap_max,    -- i_data[29]
       stat_ar_backpressure    => stat_ar_backpressure,      -- i_data[16]
       stat_sb_backpressure    => stat_sb_backpressure,      -- i_data[17]
       stat_ar_issued          => stat_ar_issued,            -- i_data[18]

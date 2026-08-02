@@ -172,6 +172,40 @@ AR generator.  `ar_len` = `burst_length - 1` (AXI convention).
 | `stat_resp_errors` | 32 | RRESP ≠ OKAY errors |
 | `stat_sb_underflow_errors` | 32 | R beat arrived with no scoreboard entry |
 
+The VHDL-2019 AXI4 shim exposes these statistics through its AXI4-Lite
+`i_data` register space at `0x8000 + index * 4`. The 48-bit sum values use
+two words; the 32-bit values occupy one word. The shim register indices are:
+
+| Index | Statistic |
+|------:|-----------|
+| 0 | `stat_xactions` |
+| 1 | `stat_beats` |
+| 2-3 | `stat_latency_sum` |
+| 4 | `stat_latency_min` |
+| 5 | Upper word of `stat_latency_min` (zero) |
+| 6 | `stat_latency_max` |
+| 7 | Upper word of `stat_latency_max` (zero) |
+| 8-9 | `stat_first_latency_sum` |
+| 10 | `stat_first_latency_min` |
+| 11 | Upper word of `stat_first_latency_min` (zero) |
+| 12 | `stat_first_latency_max` |
+| 13 | Upper word of `stat_first_latency_max` (zero) |
+| 14-15 | `stat_interbeat_gap_sum` |
+| 16 | `stat_ar_backpressure` |
+| 17 | `stat_sb_backpressure` |
+| 18 | `stat_ar_issued` |
+| 19 | `stat_cfg_errors` |
+| 20 | `stat_elapsed_cycles` |
+| 21 | `stat_data_errors` |
+| 22 | `stat_id_errors` |
+| 23 | `stat_rlast_errors` |
+| 24 | `stat_resp_errors` |
+| 25 | `stat_sb_underflow_errors` |
+| 26 | `pipeline_busy` |
+| 27 | `stat_max_outstanding` |
+| 28 | `stat_interbeat_gap_min` |
+| 29 | `stat_interbeat_gap_max` |
+
 ## Harness Ports (`axi_read_tester_harness`)
 
 Same as `axi_read_tester` plus:

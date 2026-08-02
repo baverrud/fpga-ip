@@ -161,6 +161,7 @@ begin
     variable l          : line;
     variable v_data     : std_logic_vector(31 downto 0);
     variable v_all_pass : boolean := true;
+    variable v_failed   : boolean := false;
 
     procedure axi_wr(
       constant index : in natural;
@@ -236,7 +237,7 @@ begin
 
     -- Now try reading all stat counters
     v_all_pass := true;
-    for i in 0 to 27 loop
+    for i in 0 to 29 loop
       axi_rd(i, v_data);
       -- stat_*_min fields reset to all ones; elapsed_cycles is expected
       -- to advance while the tester is out of reset.
@@ -251,12 +252,22 @@ begin
           v_all_pass := false;
         end if;
       elsif i = 5 or i = 11 then
-        if v_data /= X"0000FFFF" then
+        if v_data /= X"00000000" then
           write(l, string'("  FAIL: i_data["));
           write(l, i);
           write(l, string'("] = 0x"));
           hwrite(l, v_data);
-          write(l, string'(", expected 0x0000FFFF"));
+          write(l, string'(", expected 0x00000000"));
+          writeline(output, l);
+          v_all_pass := false;
+        end if;
+      elsif i = 28 then
+        if v_data /= X"FFFFFFFF" then
+          write(l, string'("  FAIL: i_data["));
+          write(l, i);
+          write(l, string'("] = 0x"));
+          hwrite(l, v_data);
+          write(l, string'(", expected 0xFFFFFFFF"));
           writeline(output, l);
           v_all_pass := false;
         end if;
@@ -275,7 +286,22 @@ begin
     if v_all_pass then
       write(l, string'("  PASS: all stat counters zero"));
       writeline(output, l);
+    else
+      v_failed := true;
     end if;
+
+    -- Global enable must gate a locally enabled tester.
+    aperture <= '1';
+    wait_cycles(20);
+    aperture <= '0';
+    axi_rd(0, v_data);
+    if v_data = u32(0) then
+      write(l, string'("  PASS: enable_global gates local traffic"));
+    else
+      write(l, string'("  FAIL: enable_global did not gate traffic"));
+      v_failed := true;
+    end if;
+    writeline(output, l);
 
     ------------------------------------------------------------------
     -- Test 2: Configure and run 16-beat bursts
@@ -323,6 +349,7 @@ begin
       write(l, string'("  PASS: no errors"));
     else
       write(l, string'("  FAIL: errors detected"));
+      v_failed := true;
     end if;
     writeline(output, l);
 
@@ -379,6 +406,7 @@ begin
       write(l, string'("  PASS: stat_rst cleared xactions"));
     else
       write(l, string'("  FAIL: stat_rst did not clear"));
+      v_failed := true;
     end if;
     writeline(output, l);
 
@@ -401,6 +429,7 @@ begin
       write(l, string'("  PASS: led = 1"));
     else
       write(l, string'("  FAIL: led expected 1"));
+      v_failed := true;
     end if;
     writeline(output, l);
 
@@ -410,6 +439,7 @@ begin
       write(l, string'("  PASS: led = 0"));
     else
       write(l, string'("  FAIL: led expected 0"));
+      v_failed := true;
     end if;
     writeline(output, l);
 
@@ -418,6 +448,9 @@ begin
     ------------------------------------------------------------------
     write(l, string'("=== Simulation complete ==="));
     writeline(output, l);
+    assert not v_failed
+      report "axi4_read_tester_shim_tb detected a failure"
+      severity failure;
     sim_done <= true;
     wait;
   end process;
