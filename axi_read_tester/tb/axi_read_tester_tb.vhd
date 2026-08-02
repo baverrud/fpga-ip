@@ -120,6 +120,25 @@ begin
   -- Clock generator
   aclk <= not aclk after C_CLK_PERIOD / 2 when not sim_done else '0';
 
+  -- Every issued burst must remain inside the configured address window.
+  p_ar_window_check : process(aclk)
+    variable burst_bytes : unsigned(C_ADDR_WIDTH downto 0);
+    variable burst_end   : unsigned(C_ADDR_WIDTH downto 0);
+    variable window_end  : unsigned(C_ADDR_WIDTH downto 0);
+  begin
+    if rising_edge(aclk) and aresetn = '1' and
+       ar_valid = '1' and ar_ready = '1' then
+      burst_bytes := to_unsigned(
+        (to_integer(unsigned(ar_len)) + 1) * C_DATA_BYTES,
+        C_ADDR_WIDTH + 1);
+      burst_end   := resize(unsigned(ar_addr), C_ADDR_WIDTH + 1) + burst_bytes;
+      window_end  := resize(unsigned(base_addr), C_ADDR_WIDTH + 1) +
+                     resize(unsigned(addr_range), C_ADDR_WIDTH + 1);
+      assert burst_end <= window_end
+        report "AR burst exceeds configured address window" severity error;
+    end if;
+  end process;
+
   -- Global time counter
   p_global_time : process(aclk)
   begin
@@ -243,7 +262,10 @@ begin
     variable all_pass  : boolean;
 
     -- Print stats and check for errors
-    procedure check_phase is
+    procedure check_phase(
+      expected_beats_per_xaction : natural := 0;
+      expect_cfg_error            : boolean := false
+    ) is
       variable errs : unsigned(31 downto 0);
     begin
       all_pass := true;
@@ -275,6 +297,23 @@ begin
         write(l, string'("  PASS"));
         writeline(output, l);
       end if;
+
+      if expected_beats_per_xaction > 0 and
+         unsigned(stat_beats) /=
+         to_unsigned(to_integer(unsigned(stat_xactions)) *
+                     expected_beats_per_xaction, 32) then
+        write(l, string'("  FAIL: beat/xaction count mismatch"));
+        writeline(output, l);
+        all_pass := false;
+      end if;
+
+      if expect_cfg_error and unsigned(stat_cfg_errors) = 0 then
+        write(l, string'("  FAIL: expected configuration error"));
+        writeline(output, l);
+        all_pass := false;
+      end if;
+
+      assert all_pass report "Test phase failed" severity error;
     end procedure;
 
     -- Run one test phase: configure, enable, run, drain, check, disable, reset
@@ -286,7 +325,9 @@ begin
       phase_addr_mode  : std_logic;
       phase_latency    : std_logic_vector(15 downto 0);
       phase_gap        : std_logic_vector(15 downto 0);
-      phase_cycles     : natural
+      phase_cycles     : natural;
+      expected_beats_per_xaction : natural := 0;
+      expect_cfg_error            : boolean := false
     ) is
     begin
       base_addr   <= phase_base_addr;
@@ -308,7 +349,15 @@ base_latency <= phase_latency;
       aperture <= '0';
       wait_cycles(C_DRAIN);
 
-      check_phase;
+      -- Drain all in-flight AR/R activity before checking statistics.
+      for i in 1 to 100000 loop
+        exit when pipeline_busy = '0';
+        wait_cycles(1);
+      end loop;
+      assert pipeline_busy = '0'
+        report "Pipeline did not drain before phase check" severity error;
+
+      check_phase(expected_beats_per_xaction, expect_cfg_error);
 
       enable_local  <= '0';
       aresetn         <= '0';
@@ -333,7 +382,8 @@ base_latency <= phase_latency;
       phase_addr_mode  => '0',
       phase_latency    => u16(5),
       phase_gap        => u16(3),
-      phase_cycles     => 800
+      phase_cycles     => 800,
+      expected_beats_per_xaction => 16
     );
 
     -- P2: Single-beat bursts (blen=0 → 1 beat)
@@ -345,7 +395,8 @@ base_latency <= phase_latency;
       phase_addr_mode  => '0',
       phase_latency    => u16(5),
       phase_gap        => u16(3),
-      phase_cycles     => 500
+      phase_cycles     => 500,
+      expected_beats_per_xaction => 1
     );
 
     -- P3: Maximum-length 256-beat bursts
@@ -357,7 +408,8 @@ base_latency <= phase_latency;
       phase_addr_mode  => '0',
       phase_latency    => u16(5),
       phase_gap        => u16(3),
-      phase_cycles     => 2000
+      phase_cycles     => 500,
+      expected_beats_per_xaction => 256
     );
 
     -- P4: 4 KB boundary crossing (base 0xFE0 + 2 beats × 64 B = over)
@@ -369,7 +421,8 @@ base_latency <= phase_latency;
       phase_addr_mode  => '0',
       phase_latency    => u16(5),
       phase_gap        => u16(3),
-      phase_cycles     => 500
+      phase_cycles     => 500,
+      expected_beats_per_xaction => 2
     );
 
     -- P5: Random addressing mode
@@ -381,7 +434,8 @@ base_latency <= phase_latency;
       phase_addr_mode  => '1',
       phase_latency    => u16(5),
       phase_gap        => u16(3),
-      phase_cycles     => 800
+      phase_cycles     => 800,
+      expected_beats_per_xaction => 8
     );
     addr_mode <= '0';
 
@@ -394,7 +448,8 @@ base_latency <= phase_latency;
       phase_addr_mode  => '0',
       phase_latency    => u16(0),
       phase_gap        => u16(0),
-      phase_cycles     => 500
+      phase_cycles     => 500,
+      expected_beats_per_xaction => 8
     );
 
     -- P7: High latency (30 cycle base, 10 cycle gap)
@@ -406,7 +461,8 @@ base_latency <= phase_latency;
       phase_addr_mode  => '0',
       phase_latency    => u16(30),
       phase_gap        => u16(10),
-      phase_cycles     => 3000
+      phase_cycles     => 500,
+      expected_beats_per_xaction => 8
     );
 
     -- P8: Aperture gating
@@ -427,7 +483,13 @@ base_latency <= phase_latency;
     aperture <= '0';
     wait_cycles(C_DRAIN);
 
-    check_phase;
+    for i in 1 to 100000 loop
+      exit when pipeline_busy = '0';
+      wait_cycles(1);
+    end loop;
+    assert pipeline_busy = '0'
+      report "P8 pipeline did not drain" severity error;
+    check_phase(4);
 
     enable_local  <= '0';
     aresetn         <= '0';
@@ -490,13 +552,41 @@ base_latency <= phase_latency;
 
     check_phase;
 
+    -- P11: burst_length=0 must clamp to a single beat.
+    run_phase(
+      phase_name       => "P11: Zero burst length",
+      phase_base_addr  => X"00090000",
+      phase_burst_len  => u32(0),
+      phase_addr_range => X"00004000",
+      phase_addr_mode  => '0',
+      phase_latency    => u16(0),
+      phase_gap        => u16(0),
+      phase_cycles     => 300,
+      expected_beats_per_xaction => 1
+    );
+
+    -- P12: burst_length above AXI4 maximum must clamp to 256 beats
+    -- and report a configuration error.
+    run_phase(
+      phase_name       => "P12: Burst length clamp",
+      phase_base_addr  => X"000A0000",
+      phase_burst_len  => u32(257),
+      phase_addr_range => X"00100000",
+      phase_addr_mode  => '0',
+      phase_latency    => u16(0),
+      phase_gap        => u16(0),
+      phase_cycles     => 5,
+      expected_beats_per_xaction => 256,
+      expect_cfg_error => true
+    );
+
     aresetn         <= '0';
     wait_cycles(10);
     aresetn         <= '1';
     wait_cycles(5);
 
-    -- P10: Reset while transactions are in-flight
-    write(l, string'("=== P10: Reset in-flight ==="));
+    -- P13: Reset while transactions are in-flight
+    write(l, string'("=== P13: Reset in-flight ==="));
     writeline(output, l);
     base_addr   <= X"00080000";
     burst_length   <= u32(8);
@@ -515,7 +605,13 @@ base_latency <= phase_latency;
     aperture <= '0';
     wait_cycles(C_DRAIN);
 
-    check_phase;
+    for i in 1 to 100000 loop
+      exit when pipeline_busy = '0';
+      wait_cycles(1);
+    end loop;
+    assert pipeline_busy = '0'
+      report "P13 pipeline did not drain" severity error;
+    check_phase(8);
 
     -- Simulation complete
     write(l, string'("=== Simulation complete ==="));

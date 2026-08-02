@@ -3,7 +3,7 @@
 --Description      : Multiple AXI4 read tester shims instantiated via
 --                   VHDL-2019 generate with individual scalar mode-view
 --                   ports per instance. An extra axilite_ctrl port
---                   drives an axilite_io_vhd register bank for multi-
+--                   drives an axilite_io register bank for multi-
 --                   level control (enable_global, aperture, stat_rst,
 --                   err_rst).
 --                   Some simulators do not support mode views on array
@@ -91,7 +91,7 @@ architecture rtl of axi4_read_tester_multi is
 begin
 
   --------------------------------------------------------------------
-  -- Multi-level control: axilite_io_vhd register bank on axilite_ctrl
+  -- Multi-level control: axilite_io register bank on axilite_ctrl
   --
   -- Register map (one function per register):
   --   o_data[0]  : enable_global
@@ -110,7 +110,7 @@ begin
   i_data(0) <= global_time(31 downto 0);
   i_data(1) <= (15 downto 0 => '0') & global_time(47 downto 32);
 
-  u_ctrl_io : entity work.axilite_io_vhd
+  u_ctrl_io : entity work.axilite_io
     generic map (
       GC_NUM_ODATA   => C_NUM_ODATA,
       GC_NUM_IDATA   => C_NUM_IDATA,
@@ -118,8 +118,8 @@ begin
       GC_NUM_ISTREAM => 1
     )
     port map (
-      s_axi_aclk    => aclk,
-      s_axi_aresetn => aresetn,
+      aclk          => aclk,
+      aresetn       => aresetn,
       s_axi_awaddr  => axilite_ctrl.awaddr(15 downto 0),
       s_axi_awprot  => axilite_ctrl.awprot,
       s_axi_awvalid => axilite_ctrl.awvalid,

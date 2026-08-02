@@ -31,7 +31,7 @@ axi_mem_model/rtl/axi_mem_model_core.vhd 2019
 axi_mem_model/rtl/axi_mem_model.vhd 2019
 
 # axilite_io register bridge
-axilite_io/rtl/axilite_io_vhd.vhd 2019
+axilite_io/rtl/axilite_io.vhd 2019
 
 # axi_read_tester core
 axi_read_tester/rtl/axi_read_tester_ar_gen.vhd 2019

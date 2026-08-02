@@ -1,4 +1,4 @@
-# sim_check.tcl — Quick compile & run for axi_read_tester_tb
+# sim_check.tcl - Compile and run axi_read_tester_tb.
 if {[file exists work]} { vdel -all }
 vlib work
 

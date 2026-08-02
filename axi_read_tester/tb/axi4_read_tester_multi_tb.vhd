@@ -120,7 +120,9 @@ begin
     )
     port map (
       aclk           => clk,          aresetn        => rst_n,
-      enable         => '1',          base_latency   => u32(5)(15 downto 0),
+      ar_base_enable   => '1',        ar_jitter_enable => '1',
+      r_base_enable    => '1',        r_jitter_enable  => '1',
+      base_latency     => u32(5)(15 downto 0),
       base_beat_gap  => u32(3)(15 downto 0),
       ar_valid       => ar_0.arvalid, ar_ready       => ar_0.arready,
       ar_id          => ar_0.arid,    ar_addr        => ar_0.araddr,
@@ -138,7 +140,9 @@ begin
     )
     port map (
       aclk           => clk,          aresetn        => rst_n,
-      enable         => '1',          base_latency   => u32(5)(15 downto 0),
+      ar_base_enable   => '1',        ar_jitter_enable => '1',
+      r_base_enable    => '1',        r_jitter_enable  => '1',
+      base_latency     => u32(5)(15 downto 0),
       base_beat_gap  => u32(3)(15 downto 0),
       ar_valid       => ar_1.arvalid, ar_ready       => ar_1.arready,
       ar_id          => ar_1.arid,    ar_addr        => ar_1.araddr,
@@ -156,7 +160,9 @@ begin
     )
     port map (
       aclk           => clk,          aresetn        => rst_n,
-      enable         => '1',          base_latency   => u32(5)(15 downto 0),
+      ar_base_enable   => '1',        ar_jitter_enable => '1',
+      r_base_enable    => '1',        r_jitter_enable  => '1',
+      base_latency     => u32(5)(15 downto 0),
       base_beat_gap  => u32(3)(15 downto 0),
       ar_valid       => ar_2.arvalid, ar_ready       => ar_2.arready,
       ar_id          => ar_2.arid,    ar_addr        => ar_2.araddr,
@@ -174,7 +180,9 @@ begin
     )
     port map (
       aclk           => clk,          aresetn        => rst_n,
-      enable         => '1',          base_latency   => u32(5)(15 downto 0),
+      ar_base_enable   => '1',        ar_jitter_enable => '1',
+      r_base_enable    => '1',        r_jitter_enable  => '1',
+      base_latency     => u32(5)(15 downto 0),
       base_beat_gap  => u32(3)(15 downto 0),
       ar_valid       => ar_3.arvalid, ar_ready       => ar_3.arready,
       ar_id          => ar_3.arid,    ar_addr        => ar_3.araddr,

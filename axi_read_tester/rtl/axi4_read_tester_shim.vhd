@@ -1,7 +1,7 @@
 -----------------------------------------------------------------------
 --Filename         : axi4_read_tester_shim.vhd
 --Description      : VHDL-2019 AXI4 wrapper for axi_read_tester with
---                   AXI4-Lite register interface via axilite_io_vhd.
+--                   AXI4-Lite register interface via axilite_io.
 --                   Exposes AR and R as VHDL-2019 mode-view AXI4
 --                   interfaces.  All stat_* outputs and control inputs
 --                   except enable_global/aperture/stat_rst/err_rst
@@ -69,9 +69,10 @@ use ieee.numeric_std.all;
 use work.util_pkg.all;
 use work.axi4_pkg.all;
 use work.axilite_pkg.all;
--- Note: axilite_io_pkg is not imported here — it re-exports util_pkg items
+-- Note: axilite_io uses util_pkg items directly; no separate package is
+-- imported here.
 -- (t_slv32_array, log2ceil) which would collide with the direct util_pkg import.
--- The axilite_io_vhd entity is referenced via work.axilite_io_vhd directly.
+-- The axilite_io entity is referenced via work.axilite_io directly.
 
 entity axi4_read_tester_shim is
   generic (
@@ -98,7 +99,7 @@ entity axi4_read_tester_shim is
 
     -- AXI4-Lite register interface (slave)
     -- axilite_m40_t provides 40-bit addresses; only lower 16 bits
-    -- are decoded by the internal axilite_io_vhd (16-bit address map).
+    -- are decoded by the internal axilite_io (16-bit address map).
     axilite : view slave_axilite of axilite_m40_t;
 
     -- AXI4 Read-Address channel (master) — HP subtype, ID=6, ADDR=49
@@ -183,11 +184,11 @@ architecture rtl of axi4_read_tester_shim is
   signal stat_xactions            : std_logic_vector(31 downto 0);
   signal stat_beats               : std_logic_vector(31 downto 0);
   signal stat_latency_sum         : std_logic_vector(GC_STAT_WIDTH-1 downto 0);
-  signal stat_latency_min         : std_logic_vector(GC_STAT_WIDTH-1 downto 0);
-  signal stat_latency_max         : std_logic_vector(GC_STAT_WIDTH-1 downto 0);
+  signal stat_latency_min         : std_logic_vector(31 downto 0);
+  signal stat_latency_max         : std_logic_vector(31 downto 0);
   signal stat_first_latency_sum   : std_logic_vector(GC_STAT_WIDTH-1 downto 0);
-  signal stat_first_latency_min   : std_logic_vector(GC_STAT_WIDTH-1 downto 0);
-  signal stat_first_latency_max   : std_logic_vector(GC_STAT_WIDTH-1 downto 0);
+  signal stat_first_latency_min   : std_logic_vector(31 downto 0);
+  signal stat_first_latency_max   : std_logic_vector(31 downto 0);
   signal stat_interbeat_gap_sum   : std_logic_vector(GC_STAT_WIDTH-1 downto 0);
   signal stat_ar_backpressure     : std_logic_vector(31 downto 0);
   signal stat_sb_backpressure     : std_logic_vector(31 downto 0);
@@ -205,9 +206,9 @@ architecture rtl of axi4_read_tester_shim is
 begin
 
   --------------------------------------------------------------------
-  -- Register interface (axilite_io_vhd)
+  -- Register interface (axilite_io)
   --------------------------------------------------------------------
-  u_axilite : entity work.axilite_io_vhd
+  u_axilite : entity work.axilite_io
     generic map (
       GC_NUM_ODATA   => C_NUM_ODATA,
       GC_NUM_IDATA   => C_NUM_IDATA,
@@ -215,10 +216,10 @@ begin
       GC_NUM_ISTREAM => 1
     )
     port map (
-      s_axi_aclk    => aclk,
-      s_axi_aresetn => aresetn,
+      aclk          => aclk,
+      aresetn       => aresetn,
 
-      -- axilite_m40_t uses 40-bit addresses; axilite_io_vhd decodes
+      -- axilite_m40_t uses 40-bit addresses; axilite_io decodes
       -- only the lower 16 bits (awaddr(15:14) for space select).
       s_axi_awaddr  => axilite.awaddr(15 downto 0),
       s_axi_awprot  => axilite.awprot,
@@ -331,7 +332,6 @@ begin
       global_time             => global_time,
 
       -- Tester control (direct top-level pass-through)
-      enable_global           => enable_global,
       enable_local            => enable_local,    -- via o_data[0]
       aperture                => aperture,
       stat_rst                => stat_rst,
@@ -371,6 +371,8 @@ begin
       stat_first_latency_min  => stat_first_latency_min,    -- i_data[10..11]
       stat_first_latency_max  => stat_first_latency_max,    -- i_data[12..13]
       stat_interbeat_gap_sum  => stat_interbeat_gap_sum,    -- i_data[14..15]
+      stat_interbeat_gap_min  => open,
+      stat_interbeat_gap_max  => open,
       stat_ar_backpressure    => stat_ar_backpressure,      -- i_data[16]
       stat_sb_backpressure    => stat_sb_backpressure,      -- i_data[17]
       stat_ar_issued          => stat_ar_issued,            -- i_data[18]

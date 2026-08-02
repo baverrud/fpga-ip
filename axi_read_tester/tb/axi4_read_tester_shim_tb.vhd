@@ -124,7 +124,10 @@ begin
     port map (
       aclk           => clk,
       aresetn        => rst_n,
-      enable         => '1',
+      ar_base_enable   => '1',
+      ar_jitter_enable => '1',
+      r_base_enable    => '1',
+      r_jitter_enable  => '1',
       base_latency   => u32(5)(15 downto 0),
       base_beat_gap  => u32(3)(15 downto 0),
       ar_valid       => ar.arvalid,

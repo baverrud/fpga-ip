@@ -1,5 +1,6 @@
 @echo off
-REM Prerequisite: simulator environment must be initialized by the user.
+REM Compile the VHDL-2019 AXI4 shim and its testbench.
+REM Run from a CMD shell initialized with q26.
 cd /d "%~dp0.."
 vlib work
 vcom -2019 -work work ../../common/rtl/axi4_pkg.vhd
@@ -22,9 +23,7 @@ vcom -2019 -work work ../axi_mem_model/rtl/axi_mem_model_core.vhd
 if errorlevel 1 exit /b
 vcom -2019 -work work ../axi_mem_model/rtl/axi_mem_model.vhd
 if errorlevel 1 exit /b
-vcom -2019 -work work ../axilite_io/rtl/axilite_io_pkg.vhd
-if errorlevel 1 exit /b
-vcom -2019 -work work ../axilite_io/rtl/axilite_io_vhd.vhd
+vcom -2019 -work work ../axilite_io/rtl/axilite_io.vhd
 if errorlevel 1 exit /b
 vcom -2019 -work work rtl/axi_read_tester_ar_gen.vhd
 if errorlevel 1 exit /b

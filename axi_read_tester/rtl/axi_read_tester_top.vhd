@@ -28,7 +28,6 @@ entity axi_read_tester_top is
 
     global_time : in  std_logic_vector(GC_TIME_WIDTH-1 downto 0);
 
-    enable_global : in  std_logic;
     enable_local  : in  std_logic;
     aperture      : in  std_logic;
     stat_rst      : in  std_logic;
@@ -61,12 +60,14 @@ entity axi_read_tester_top is
     stat_xactions             : out std_logic_vector(31 downto 0);
     stat_beats                : out std_logic_vector(31 downto 0);
     stat_latency_sum          : out std_logic_vector(GC_STAT_WIDTH-1 downto 0);
-    stat_latency_min          : out std_logic_vector(GC_STAT_WIDTH-1 downto 0);
-    stat_latency_max          : out std_logic_vector(GC_STAT_WIDTH-1 downto 0);
+    stat_latency_min          : out std_logic_vector(31 downto 0);
+    stat_latency_max          : out std_logic_vector(31 downto 0);
     stat_first_latency_sum    : out std_logic_vector(GC_STAT_WIDTH-1 downto 0);
-    stat_first_latency_min    : out std_logic_vector(GC_STAT_WIDTH-1 downto 0);
-    stat_first_latency_max    : out std_logic_vector(GC_STAT_WIDTH-1 downto 0);
+    stat_first_latency_min    : out std_logic_vector(31 downto 0);
+    stat_first_latency_max    : out std_logic_vector(31 downto 0);
     stat_interbeat_gap_sum    : out std_logic_vector(GC_STAT_WIDTH-1 downto 0);
+    stat_interbeat_gap_min    : out std_logic_vector(31 downto 0);
+    stat_interbeat_gap_max    : out std_logic_vector(31 downto 0);
     stat_ar_backpressure      : out std_logic_vector(31 downto 0);
     stat_sb_backpressure      : out std_logic_vector(31 downto 0);
     stat_ar_issued            : out std_logic_vector(31 downto 0);
@@ -100,7 +101,6 @@ begin
       aresetn                   => aresetn,
       global_time               => global_time,
 
-      enable_global             => enable_global,
       enable_local              => enable_local,
       aperture                  => aperture,
       stat_rst                  => stat_rst,
@@ -136,6 +136,8 @@ begin
       stat_first_latency_min    => stat_first_latency_min,
       stat_first_latency_max    => stat_first_latency_max,
       stat_interbeat_gap_sum    => stat_interbeat_gap_sum,
+      stat_interbeat_gap_min    => stat_interbeat_gap_min,
+      stat_interbeat_gap_max    => stat_interbeat_gap_max,
       stat_ar_backpressure      => stat_ar_backpressure,
       stat_sb_backpressure      => stat_sb_backpressure,
       stat_ar_issued            => stat_ar_issued,
