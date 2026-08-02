@@ -219,9 +219,10 @@ begin
       --   or return to S_WAIT_AR.
       -- =============================================================
       when S_SEND_BEATS =>
-        -- Look-ahead: assert ar_ready on the last beat so the next AR
-        -- can be accepted in the same cycle (zero-idle back-to-back).
-        if r.beat_idx = r.cur_len and r.r_valid = '1' then
+        -- Look-ahead: assert ar_ready only when the last beat is also
+        -- being consumed, so the next AR can be accepted back-to-back
+        -- without advertising an AR handshake while R is stalled.
+        if r.beat_idx = r.cur_len and r.r_valid = '1' and r_ready = '1' then
           ar_ready <= '1';
         end if;
 

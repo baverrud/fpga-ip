@@ -33,6 +33,10 @@ AR channel ──► axis_latency_gen ──► axi_mem_model_core ──► axi
 - **CDF-based jitter** — Internal to `axis_latency_gen`, default max
   7 cycles (suitable for LPDDR4 modelling)
 - **In-flight AR tracking** — AR-side FIFO depth limits concurrent requests
+- **Handshake-safe back-to-back ARs** — The core accepts the next AR on the
+  final R beat only when that R beat is actually being consumed (`r_ready=1`),
+  preventing an AR handshake from being advertised while the R channel is
+  stalled.
 - **Per-instance enable gating** — `ar_*_enable` / `r_*_enable` ports
   gate base delay and jitter independently for each gen.  Disabling all
   four produces near-zero-latency pass-through.
@@ -256,9 +260,16 @@ following phases:
 | P4 | Back-to-back AR requests |
 | P5 | Zero-latency mode (enable=0) |
 | P6 | Max burst (len=255, 256 beats) |
-| P7 | FIFO-full AR backpressure |
-| P8 | R-channel backpressure |
-| P9 | Reset during active burst |
+| P7 | AR-side FIFO-capacity stress with delayed responses |
+| P8 | Final-R backpressure with a pending AR, checking zero-idle lookahead safety |
+| P9 | R-channel backpressure and held-valid behavior |
+| P10 | Reset during an active burst |
+
+The testbench uses bounded handshake waits and a global simulation watchdog so
+that a missing `ARREADY` or `RVALID` response fails the test instead of
+leaving the simulator running indefinitely. Registered outputs are sampled
+after a small delta-settling delay. All supported widths are checked,
+including every 32-bit word for buses of 4 bytes and wider.
 
 To run (after environment/tool setup):
 

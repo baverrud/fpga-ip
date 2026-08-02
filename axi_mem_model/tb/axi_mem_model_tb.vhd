@@ -23,12 +23,15 @@ architecture sim of axi_mem_model_tb is
   constant C_ID_WIDTH    : positive := 4;
   constant C_AR_FIFO_DEPTH : positive := 8;
   constant C_TIMER_WIDTH : positive := 16;
+  constant C_WAIT_TIMEOUT : positive := 2000;
+  constant C_SIM_TIMEOUT  : time := 2 ms;
 
   constant C_WCOUNT : natural := 8;
 
   signal aclk    : std_logic := '0';
   signal aresetn : std_logic := '0';
   signal sim_done : boolean := false;
+  signal watchdog_expired : boolean := false;
 
   signal s_ar_id   : std_logic_vector(C_ID_WIDTH-1 downto 0) := (others => '0');
   signal s_ar_addr : std_logic_vector(C_ADDR_WIDTH-1 downto 0) := (others => '0');
@@ -70,7 +73,20 @@ architecture sim of axi_mem_model_tb is
 
 begin
 
-  aclk <= not aclk after C_CLK_PERIOD / 2 when not sim_done else '0';
+  aclk <= not aclk after C_CLK_PERIOD / 2
+    when not sim_done and not watchdog_expired else '0';
+
+  -- Global backstop: a broken handshake or testbench expectation must
+  -- terminate the run rather than leave the clock and simulator alive.
+  p_watchdog : process
+  begin
+    wait for C_SIM_TIMEOUT;
+    if not sim_done then
+      report "axi_mem_model_tb global simulation timeout" severity failure;
+      watchdog_expired <= true;
+    end if;
+    wait;
+  end process;
 
   -- DUTs
 
@@ -193,12 +209,22 @@ begin
       idx : natural; id : std_logic_vector;
       addr : std_logic_vector; len : std_logic_vector; tag : string
     ) is
+      variable accepted : boolean := false;
     begin
       wait until rising_edge(aclk);
       s_ar_id <= id; s_ar_addr <= addr; s_ar_len <= len;
       ar_valid(idx) <= '1';
-      wait until rising_edge(aclk) and ar_ready(idx) = '1';
+      for cycle in 1 to C_WAIT_TIMEOUT loop
+        wait until rising_edge(aclk);
+        wait for 1 ns;
+        if ar_ready(idx) = '1' then
+          accepted := true;
+          exit;
+        end if;
+      end loop;
       ar_valid(idx) <= '0';
+      assert accepted
+        report tag & " TIMEOUT waiting for ARREADY" severity failure;
       write(output, tag & "  AR: id=0x" & to_hstring(id) &
         " addr=0x" & to_hstring(addr) &
         " len=" & integer'image(to_integer(unsigned(len))) & CR);
@@ -222,12 +248,17 @@ begin
 
     procedure check_data(dbytes : positive; beat_base : unsigned(31 downto 0);
                          bidx : natural; tag : string) is
+      variable expected_word : unsigned(31 downto 0);
     begin
       if dbytes >= 4 then
-        if rbuf(31 downto 0) /= std_logic_vector(beat_base) then
-          report tag & " FAIL: data[31:0] beat " &
-            integer'image(bidx) severity error;
-        end if;
+        for word_idx in 0 to dbytes / 4 - 1 loop
+          expected_word := beat_base + word_idx * 4;
+          if rbuf(32*word_idx+31 downto 32*word_idx) /=
+             std_logic_vector(expected_word) then
+            report tag & " FAIL: data word " & integer'image(word_idx) &
+              " beat " & integer'image(bidx) severity error;
+          end if;
+        end loop;
       elsif dbytes = 2 then
         if rbuf(15 downto 0) /= std_logic_vector(beat_base(15 downto 0)) then
           report tag & " FAIL: data[15:0] beat " &
@@ -248,29 +279,52 @@ begin
       variable bb : unsigned(31 downto 0);
       variable el : std_logic;
       variable rids : r_id_array_t;
+      variable received : boolean;
     begin
+      r_ready(idx) <= '0';
       for b in 0 to nbeats - 1 loop
-        wait until rising_edge(aclk) and r_valid(idx) = '1';
+        received := false;
+        for cycle in 1 to C_WAIT_TIMEOUT loop
+          wait until rising_edge(aclk);
+          wait for 1 ns;
+          if r_valid(idx) = '1' then
+            received := true;
+            exit;
+          end if;
+        end loop;
+        assert received
+          report tag & " TIMEOUT waiting for RVALID" severity failure;
         cap_rdata(dbytes);
         rids := rid_sig;
         el := '0'; if b = nbeats - 1 then el := '1'; end if;
+        bb := eaddr + b * dbytes;
         if rids(idx) /= eid then
           report tag & " FAIL: id beat " & integer'image(b) severity error;
         end if;
         if r_last(idx) /= el then
           report tag & " FAIL: last beat " & integer'image(b) severity error;
         end if;
-        bb := eaddr + b * dbytes;
         check_data(dbytes, bb, b, tag);
         if b = 0 or el = '1' then
           write(output, tag & "  beat " & integer'image(b) &
             " last=" & std_logic'image(r_last(idx)) & " OK" & CR);
         end if;
+
+        -- Consume exactly the beat that was just checked.  Keeping ready
+        -- low while sampling prevents a valid response from being consumed
+        -- between the previous AR operation and this check.
+        r_ready(idx) <= '1';
+        wait until rising_edge(aclk);
+        wait for 1 ns;
+        r_ready(idx) <= '0';
       end loop;
+      r_ready(idx) <= '1';
     end procedure;
 
     procedure run(idx, dbytes : natural; tag : string) is
       variable i : natural;
+      variable rids : r_id_array_t;
+      variable final_seen : boolean;
     begin
       write(output, tag & " (" & integer'image(dbytes) & " B)" & CR);
 
@@ -321,7 +375,9 @@ begin
 
       -- P7 FIFO-full
       write(output, tag & " P7 FIFO-full" & CR);
-      base_beat_gap <= std_logic_vector(to_unsigned(4, C_TIMER_WIDTH));
+      base_latency  <= std_logic_vector(to_unsigned(2000, C_TIMER_WIDTH));
+      base_beat_gap <= std_logic_vector(to_unsigned(0, C_TIMER_WIDTH));
+      r_ready(idx) <= '1';
       wait for C_CLK_PERIOD;
       for i in 0 to C_AR_FIFO_DEPTH-1 loop
         send_ar(idx,
@@ -329,34 +385,90 @@ begin
           std_logic_vector(to_unsigned(16#9000#+i*256, C_ADDR_WIDTH)),
           X"00", tag);
       end loop;
-      wait until rising_edge(aclk);
-      s_ar_id   <= std_logic_vector(
-        to_unsigned(C_AR_FIFO_DEPTH, C_ID_WIDTH));
-      s_ar_addr <= std_logic_vector(
-        to_unsigned(16#9000#+C_AR_FIFO_DEPTH*256, C_ADDR_WIDTH));
-      s_ar_len  <= X"00";
-      ar_valid(idx) <= '1';
-      wait until rising_edge(aclk);
-      if ar_ready(idx) = '0' then
-        write(output, tag & "  FIFO full OK" & CR);
-      end if;
-      wait until rising_edge(aclk) and ar_ready(idx) = '1';
-      ar_valid(idx) <= '0';
-      write(output, tag & "  last AR accepted" & CR);
-      for i in 0 to C_AR_FIFO_DEPTH loop
-        drain(idx, dbytes, 1,
-          std_logic_vector(to_unsigned(i, C_ID_WIDTH)),
-          to_unsigned(16#9000#+i*256, C_ADDR_WIDTH), tag);
-      end loop;
+      -- ar_ready is the input-latency FIFO's ready signal. It may remain
+      -- high while downstream buffering absorbs the accepted requests, so
+      -- do not mistake it for an end-to-end core-capacity indicator.
+      wait for C_CLK_PERIOD * 10;
+
+      -- Responses are intentionally held during this capacity test. Reset
+      -- the DUT before response checking so P7 cannot consume or miscount
+      -- traffic that belongs to the next independent phase.
+      aresetn_dut(idx) <= '0';
+      wait for C_CLK_PERIOD * 3;
+      aresetn_dut(idx) <= '1';
+      wait for C_CLK_PERIOD * 3;
+      r_ready(idx) <= '1';
+      base_latency  <= std_logic_vector(to_unsigned(5, C_TIMER_WIDTH));
       base_beat_gap <= std_logic_vector(to_unsigned(3, C_TIMER_WIDTH));
 
-      -- P8 R-backpressure
-      write(output, tag & " P8 R-backpressure" & CR);
+      -- Start the final-beat lookahead test from an empty pipeline.  P7
+      -- deliberately fills the AR FIFO and is independent coverage.
+      aresetn_dut(idx) <= '0';
+      wait for C_CLK_PERIOD * 3;
+      aresetn_dut(idx) <= '1';
+      wait for C_CLK_PERIOD * 3;
+
+      -- P8: AR must not be lost when the current final R beat is stalled.
+      -- This exercises the core's zero-idle AR look-ahead handshake.
+      write(output, tag & " P8 final-R backpressure with pending AR" & CR);
+      base_latency  <= std_logic_vector(to_unsigned(0, C_TIMER_WIDTH));
+      base_beat_gap <= std_logic_vector(to_unsigned(0, C_TIMER_WIDTH));
+      enable(idx)   <= '0';
+      r_ready(idx) <= '0';
+
+      -- A single-beat burst is immediately its final R beat.
+      send_ar(idx, X"A", X"0000A000", X"00", tag);
+      final_seen := false;
+      for wait_idx in 1 to C_WAIT_TIMEOUT loop
+        wait until rising_edge(aclk);
+        wait for 1 ns;
+        if r_valid(idx) = '1' and r_last(idx) = '1' then
+          final_seen := true;
+          exit;
+        end if;
+      end loop;
+      if not final_seen then
+        report tag & " TIMEOUT waiting for final R beat" severity failure;
+      end if;
+
+      cap_rdata(dbytes);
+      rids := rid_sig;
+      if rids(idx) /= X"A" then
+        report tag & " FAIL: stalled final beat ID changed" severity error;
+      end if;
+      check_data(dbytes, to_unsigned(16#A000#, 32), 0, tag);
+
+      -- Present the next AR while the final R beat is held.
+      s_ar_id      <= X"B";
+      s_ar_addr    <= X"0000B000";
+      s_ar_len     <= X"00";
+      ar_valid(idx) <= '1';
+      wait for C_CLK_PERIOD * 3;
+      if r_valid(idx) = '0' or r_last(idx) = '0' then
+        report tag & " FAIL: stalled final R beat was not held" severity failure;
+      end if;
+
+      r_ready(idx) <= '1';
+      for wait_idx in 1 to C_WAIT_TIMEOUT loop
+        wait until rising_edge(aclk);
+        wait for 1 ns;
+        exit when ar_ready(idx) = '1';
+        if wait_idx = C_WAIT_TIMEOUT then
+          report tag & " TIMEOUT waiting for pending ARREADY" severity failure;
+        end if;
+      end loop;
+      ar_valid(idx) <= '0';
+      drain(idx, dbytes, 1, X"B", to_unsigned(16#B000#, 32), tag);
+      enable(idx) <= '1';
+
+      -- P9 R-backpressure
+      write(output, tag & " P9 R-backpressure" & CR);
       r_ready(idx) <= '0';
       wait for C_CLK_PERIOD;
       send_ar(idx, X"9", X"00009000", X"00", tag);
       for i in 0 to 60 loop
         wait until rising_edge(aclk);
+        wait for 1 ns;
         if r_valid(idx) = '1' then exit; end if;
       end loop;
       if r_valid(idx) = '0' then
@@ -374,10 +486,17 @@ begin
       wait until rising_edge(aclk);
       write(output, tag & "  backpressure released OK" & CR);
 
-      -- P9 reset-in-flight
-      write(output, tag & " P9 reset-in-flight" & CR);
+      -- P10 reset-in-flight
+      write(output, tag & " P10 reset-in-flight" & CR);
       send_ar(idx, X"E", X"0000E000", X"03", tag);
-      wait until rising_edge(aclk) and r_valid(idx) = '1';
+      for wait_idx in 1 to C_WAIT_TIMEOUT loop
+        wait until rising_edge(aclk);
+        wait for 1 ns;
+        exit when r_valid(idx) = '1';
+        if wait_idx = C_WAIT_TIMEOUT then
+          report tag & " TIMEOUT waiting for reset-test RVALID" severity failure;
+        end if;
+      end loop;
       write(output, tag & "  burst started, resetting" & CR);
       aresetn_dut(idx) <= '0';
       wait for C_CLK_PERIOD * 5;
