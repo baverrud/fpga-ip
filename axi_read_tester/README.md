@@ -58,7 +58,7 @@ axi_read_tester_tb                      -- testbench
 | **Scoreboard FIFO** | FWFT `axis_fifo` decoupling AR issue from R completion.  Descriptors flow through with 1-cycle registered-output latency.  `tf_` = to-FIFO (slave side), `ff_` = from-FIFO (master side). |
 | **R Monitor** | Pops scoreboard entry on each new burst's first R beat.  Verifies data (address-derived pattern), RID, RLAST, and RRESP.  Accumulates latency / gap / error statistics gated by `aperture`.  Backpressures R channel when waiting for a scoreboard entry. |
 | **Memory Model** | Responds to AR beats with address-derived data after configurable latency.  AR-side and R-side each have independent latency generators.  Instantiated in the testbench alongside the tester. |
-| **Testbench** | 10-phase corner-case testbench.  Instantiates `axi_read_tester` and `axi_mem_model` directly, connects AR/R buses internally.  Configures the tester, runs each phase, drains, and checks all error counters are zero. |
+| **Testbench** | `axi_read_tester_tb.vhd` instantiates `axi_read_tester` and `axi_mem_model` directly. It exercises latency, address-window, random, reset, backpressure, configuration-clamp, and statistics-reset cases. |
 
 ## File Structure
 
@@ -69,7 +69,10 @@ axi_read_tester/
 │   ├── axi_read_tester_ar_gen.vhd     # AR burst generator (4-state FSM)
 │   └── axi_read_tester_r_mon.vhd      # R-channel data monitor + statistics
 ├── tb/
-│   └── axi_read_tester_tb.vhd         # 10-phase corner-case testbench
+│   ├── axi_read_tester_tb.vhd         # Core 13-phase corner-case testbench
+│   ├── axi_read_tester_simple_tb.vhd  # Minimal smoke-test skeleton
+│   ├── axi4_read_tester_shim_tb.vhd   # VHDL-2019 shim testbench
+│   └── axi4_read_tester_multi_tb.vhd  # VHDL-2019 multi-instance testbench
 ├── scripts/
 │   └── vhdl.f                         # File list for sim / synth
 └── README.md
@@ -88,8 +91,12 @@ axi_read_tester_tb (testbench)
 
 - **`axi_read_tester`** — The reusable IP block.  Exposes AR and R buses
   externally so a real design connects them to an AXI interconnect / DUT.
-- **`axi_read_tester_tb`** — 10-phase corner-case testbench.  Instantiates
+- **`axi_read_tester_tb`** — Core corner-case testbench. Instantiates
   `axi_mem_model` directly on the AR/R buses for self-contained testing.
+- **`axi_read_tester_simple_tb`** — Minimal smoke-test skeleton for custom
+  stimulus development.
+- **`axi4_read_tester_shim_tb` / `axi4_read_tester_multi_tb`** — VHDL-2019
+  integration testbenches for the AXI4-Lite shim and multi-instance wrapper.
 
 ## Generics (`axi_read_tester`)
 
@@ -178,9 +185,10 @@ Same as `axi_read_tester` plus:
 
 AR and R buses are **internal** in the harness — not exposed as entity ports.
 
-## Testbench
+## Core Testbench
 
-`axi_read_tester_harness_tb.vhd` runs 10 phases with full reset between each:
+`axi_read_tester_tb.vhd` runs the following phases with reset between the
+independent configuration phases:
 
 | Phase | Description | Key Parameters |
 |-------|-------------|----------------|
@@ -193,11 +201,19 @@ AR and R buses are **internal** in the harness — not exposed as entity ports.
 | P7 | High latency stress | `lat=30`, `gap=10` |
 | P8 | Aperture gating | aperture low → high |
 | P9 | stat_rst / err_rst | reset during operation |
-| P10 | In-flight reset | `aresetn` while bursts are active |
+| P11 | Zero burst length | `burst_length=0` clamps to one beat |
+| P12 | Burst length clamp | `burst_length=257` clamps to 256 and reports config error |
+| P13 | In-flight reset | `aresetn` while bursts are active |
 
 All phases are zero-error by design.  The `check_phase` procedure verifies
 that `data`, `id`, `rlast`, `resp`, and `sb_underflow` error counters are
-all zero after each phase.
+zero after each phase. It also checks exact beat/xaction counts, verifies
+that accepted bursts stay inside the configured address window, and drains
+the pipeline with bounded waits.
+
+The shim and multi-instance testbenches are VHDL-2019 integration benches.
+They are compile-checked with Questa 2025.3; runtime simulation is a separate
+follow-up because they depend on the local VHDL-2019 simulator license.
 
 ## Scoreboard Format
 
