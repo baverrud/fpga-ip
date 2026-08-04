@@ -11,7 +11,7 @@
 //                 :    downstream transaction domains (maximum Fmax).
 //                 :  - Ports conforming strictly to AMBA AXI4-Stream specifications.
 //                 :  - Fully synchronous active-low reset logic (aresetn).
-//Author           : Rune Bæverrud (Translated to SystemVerilog)
+//Author           : Rune Baeverrud (Translated to SystemVerilog)
 //Current Revision : 1.00
 //Licensing        : Zero-Clause BSD (0BSD)
 //-----------------------------------------------------------------------

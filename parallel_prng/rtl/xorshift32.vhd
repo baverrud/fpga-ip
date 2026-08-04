@@ -5,8 +5,8 @@
 --                 : Full period 2^32-1.
 --                 : Ref: G. Marsaglia, "Xorshift RNGs", J. Stat. Soft. 2003.
 --                 :
---                 : Zero DSP — pure XOR + shift. 32-bit state, 32-bit output.
---Author           : Rune Bæverrud
+--                 : Zero DSP -- pure XOR + shift. 32-bit state, 32-bit output.
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;

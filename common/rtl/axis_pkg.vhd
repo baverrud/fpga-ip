@@ -2,8 +2,8 @@
 -- axis_pkg.vhd - AXI-Stream record + VHDL-2019 mode views
 -- =====================================================================
 -- All sideband signals (except tlast) are unconstrained std_logic_vector.
--- 1-bit safe-width stubs when unused — NEVER null ranges (crash Vivado GUI).
--- aclk/aresetn are NOT in the record — they remain as separate ports
+-- 1-bit safe-width stubs when unused -- NEVER null ranges (crash Vivado GUI).
+-- aclk/aresetn are NOT in the record -- they remain as separate ports
 -- in VHDL (unlike the SV version which puts them in the interface).
 --
 -- Signal declaration:
@@ -77,7 +77,7 @@ package axis_pkg is
   -- ===================================================================
   -- Option A: Fully constrained 32-bit record (no per-signal constraints)
   -- ===================================================================
-  -- All vector widths are fixed in the type — signal declarations need
+  -- All vector widths are fixed in the type -- signal declarations need
   -- NO record constraint syntax.  Trade-off: one type per width combo.
   -- ===================================================================
   type axis_32b_t is record

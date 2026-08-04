@@ -2,14 +2,14 @@
 --Filename         : axilite_io_th.vhd
 --Description      : Test harness with stream loopback FIFOs and
 --                 : FIFO-status i_data.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Current Revision : 1.00
 --Licensing        : Zero-Clause BSD (0BSD)
 --                 : Permission to use, copy, modify, and/or distribute this
 --                 : software for any purpose with or without fee is hereby granted.
 -----------------------------------------------------------------------
 -- =====================================================================
--- axilite_io_th.vhd — Test harness with stream loopback FIFOs
+-- axilite_io_th.vhd -- Test harness with stream loopback FIFOs
 -- =====================================================================
 -- Wraps axilite_io_harness and adds AXI-Stream loopback FIFOs
 -- between the DUT's stream outputs and inputs.  FIFO status is
@@ -22,10 +22,10 @@
 --
 -- Instantiation chain:
 --   axilite_io_th               (ports: t_slv32_array)
---     ├── axis_fifo [0..N-1]    (m_axis → s_axis loopback)
---     └── axilite_io_harness    (ports: t_slv32_array)
---           └── axilite_io_wrap  (ports: flattened slv)
---                 └── axilite_io_vhd or axilite_io.sv
+--     +-- axis_fifo [0..N-1]    (m_axis -> s_axis loopback)
+--     +-- axilite_io_harness    (ports: t_slv32_array)
+--           +-- axilite_io_wrap  (ports: flattened slv)
+--                 +-- axilite_io_vhd or axilite_io.sv
 -- =====================================================================
 library ieee;
 use ieee.std_logic_1164.all;
@@ -83,9 +83,9 @@ end entity;
 
 architecture rtl of axilite_io_th is
 
-  -- (no intermediate stream signals — harness ports connect directly to TH ports)
+  -- (no intermediate stream signals -- harness ports connect directly to TH ports)
 
-  -- Extended i_data: external + FIFO status slots (4 slots = 2 FIFOs × 2 signals)
+  -- Extended i_data: external + FIFO status slots (4 slots = 2 FIFOs x 2 signals)
   signal i_data      : t_slv32_array(0 to GC_NUM_EXT_IDATA + 4 - 1);
 
   -- FIFO control
@@ -144,7 +144,7 @@ begin
   -- Stream inputs: FIFO loopback feeds the DUT's s_axis (via harness) and TH output.
 
   -- ================================================================
-  --  AXI-Stream loopback FIFOs: DUT m_axis → FIFO → DUT s_axis
+  --  AXI-Stream loopback FIFOs: DUT m_axis -> FIFO -> DUT s_axis
   -- ================================================================
   -- FIFO 0: m_axis[0] -> s_axis[0] loopback
   fifo_0 : entity work.axis_fifo

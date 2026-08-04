@@ -4,7 +4,7 @@
 --                   Passes all AR/R bus and control ports through
 --                   to the entity boundary for connection to AXI
 --                   interconnect / DUT in a real design.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;
@@ -41,14 +41,14 @@ entity axi_read_tester_top is
     addr_range   : in  std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
     addr_mode    : in  std_logic;
 
-    -- AXI Read-Address Channel (master → DUT)
+    -- AXI Read-Address Channel (master -> DUT)
     ar_valid : out std_logic;
     ar_ready : in  std_logic;
     ar_id    : out std_logic_vector(GC_ID_WIDTH-1 downto 0);
     ar_addr  : out std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
     ar_len   : out std_logic_vector(7 downto 0);
 
-    -- AXI Read-Data Channel (DUT → monitor)
+    -- AXI Read-Data Channel (DUT -> monitor)
     r_valid : in  std_logic;
     r_ready : out std_logic;
     r_id    : in  std_logic_vector(GC_ID_WIDTH-1 downto 0);

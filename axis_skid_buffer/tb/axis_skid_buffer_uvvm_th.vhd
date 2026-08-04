@@ -5,7 +5,7 @@
 --                 : and encapsulates all physical port mapping.
 --                 : No test sequencer processes or high-level stimulus
 --                 : loops are permitted in this file (structural only).
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Current Revision : 1.0
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
@@ -116,7 +116,7 @@ begin
   dbg_m_axis_tvalid <= m_axis_tvalid;
 
   --------------------------------------------------------------------
-  -- VVC Master (Instance 0) — TX side
+  -- VVC Master (Instance 0) -- TX side
   --------------------------------------------------------------------
   i_tx_vvc : entity bitvis_vip_axistream.axistream_vvc
     generic map (
@@ -133,7 +133,7 @@ begin
     );
 
   --------------------------------------------------------------------
-  -- VVC Slave (Instance 1) — RX side
+  -- VVC Slave (Instance 1) -- RX side
   --------------------------------------------------------------------
   i_rx_vvc : entity bitvis_vip_axistream.axistream_vvc
     generic map (

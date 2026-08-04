@@ -1,12 +1,12 @@
 # ============================================================================
-# uvvm.f — UVVM Verification File List for axilite_io
+# uvvm.f -- UVVM Verification File List for axilite_io
 #
 # Used by:
 #   run axilite_io uvvm modelsim      (simulation, all sections)
 #
 # Section reference:
-#   [rtl]   — RTL sources
-#   [tb]    — UVVM test harness + sequencer
+#   [rtl]   -- RTL sources
+#   [tb]    -- UVVM test harness + sequencer
 #
 # Notes:
 #   - Basename "uvvm" triggers auto-detection in sim_modelsim.do:

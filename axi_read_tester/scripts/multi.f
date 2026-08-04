@@ -1,14 +1,14 @@
 # ============================================================================
-# multi.f — VHDL-2019 multi-shim + testbench file list
+# multi.f -- VHDL-2019 multi-shim + testbench file list
 #
 # Used by:
 #   run axi_read_tester modelsim multi     (simulation, all sections)
 #   run axi_read_tester vivado multi       (synthesis: [rtl] + [top] only)
 #
 # Section reference:
-#   [rtl]   — RTL sources always compiled
-#   [top]   — Top wrapper (synthesis only, not used in sim)
-#   [tb]    — Testbench (simulation only, skipped in synthesis)
+#   [rtl]   -- RTL sources always compiled
+#   [top]   -- Top wrapper (synthesis only, not used in sim)
+#   [tb]    -- Testbench (simulation only, skipped in synthesis)
 #
 # Each line: <relative_path_from_sub_fpga_ip> [vhdl_std]
 #   vhdl_std defaults to 2008 if omitted; set explicitly with "93", "2008", etc.

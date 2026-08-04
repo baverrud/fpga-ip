@@ -6,7 +6,7 @@
 --                 : occupancy count metrics directly.
 --                 :
 --                 : Depends on common/rtl/util_pkg for the log2ceil function
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Current Revision : 1.00
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------

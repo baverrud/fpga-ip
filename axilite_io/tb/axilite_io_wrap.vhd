@@ -1,7 +1,7 @@
 -----------------------------------------------------------------------
 --Filename         : axilite_io_wrap.vhd
 --Description      : VHDL flattened-port wrapper for axilite_io.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Current Revision : 1.00
 --Licensing        : Zero-Clause BSD (0BSD)
 --                 : Permission to use, copy, modify, and/or distribute this
@@ -113,7 +113,7 @@ begin
       s_axis_tready => s_axis_tready
     );
 
-  -- Array ↔ flattened conversion
+  -- Array <-> flattened conversion
   gen_o : for i in 0 to NUM_ODATA-1 generate
     o_data((i+1)*32-1 downto i*32) <= o_data_arr(i);
   end generate;

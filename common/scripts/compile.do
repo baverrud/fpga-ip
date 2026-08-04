@@ -54,7 +54,7 @@ quit -sim
 
 # 3. Create the work library. vlib handles modelsim.ini automatically;
 #    no vmap needed (it would try to write to UVVM's read-only ini
-#    pointed to by $MODELSIM — see fpga-rules/questa_modelsim_guide.md).
+#    pointed to by $MODELSIM -- see fpga-rules/questa_modelsim_guide.md).
 file delete -force $work_dir
 file mkdir [file dirname $work_dir]
 vlib $work_dir

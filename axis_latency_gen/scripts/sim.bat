@@ -1,6 +1,6 @@
 @echo off
 REM ===========================================================================
-REM sim.bat — Thin wrapper delegating to run.bat
+REM sim.bat -- Thin wrapper delegating to run.bat
 REM
 REM Usage:
 REM   sim                Batch, vhdl.f (default)

@@ -2,7 +2,7 @@
 --Filename         : util_pkg.vhd
 --Description      : Shared utility package for fpga-ip cores.
 --                 : Provides log2ceil and common array types.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Current Revision : 1.00
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
@@ -14,7 +14,7 @@ package util_pkg is
 
   -- Generic array of std_logic_vectors, each element arbitrarily wide.
   -- Signal declaration example:
-  --   signal my_sig : t_slv_array(0 to 7)(31 downto 0);  -- 8× 32-bit
+  --   signal my_sig : t_slv_array(0 to 7)(31 downto 0);  -- 8x 32-bit
   type t_slv_array is array(natural range <>) of std_logic_vector;
 
   -- Convenience subtype: array of 32-bit words.

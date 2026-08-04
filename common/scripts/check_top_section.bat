@@ -1,6 +1,6 @@
 @echo off
 REM ===========================================================================
-REM check_top_section.bat — Check if a .f file has files in its [top] section
+REM check_top_section.bat -- Check if a .f file has files in its [top] section
 REM
 REM Usage:   call check_top_section.bat <file_list.f>
 REM Sets:    HAS_TOP=1 if [top] section has at least one file, else 0
@@ -14,7 +14,7 @@ REM --- Section-tracking state machine ---
 REM Walks the .f file looking for a [top] section. If we find one and
 REM it contains at least one non-blank, non-comment line (i.e. a file
 REM path), then HAS_TOP=1. An empty [top] header with no files below
-REM it does NOT count — synthesis needs actual source files to build.
+REM it does NOT count -- synthesis needs actual source files to build.
 REM This is more precise than a simple grep for "[top]".
 set "IN_TOP=0"
 

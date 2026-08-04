@@ -1,6 +1,6 @@
 @echo off
 REM ===========================================================================
-REM sim.bat — Launch vsim with sim.do
+REM sim.bat -- Launch vsim with sim.do
 REM
 REM Prerequisite: Initialize EDA tool first (see fpga-rules/README.md).
 REM

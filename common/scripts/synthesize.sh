@@ -1,6 +1,6 @@
 #!/bin/bash
 # ===========================================================================
-# synthesize.sh — Generic Vivado synthesis & project launcher (common/Linux)
+# synthesize.sh -- Generic Vivado synthesis & project launcher (common/Linux)
 #
 # Called from run.sh or directly. Reads a .f file list and runs Vivado in
 # non-project (batch) or project (GUI) mode. Uses section-filtered parsing
@@ -11,8 +11,8 @@
 #   $2  File list name (without .f extension)
 #         Examples: vhdl, sv, uvvm
 #   $3  Optional flag:
-#         gui   — Create a Vivado project and open the GUI
-#         clean — Delete the vivado/ working directory and .Xil/ cache
+#         gui   -- Create a Vivado project and open the GUI
+#         clean -- Delete the vivado/ working directory and .Xil/ cache
 #
 # Behaviour:
 #   - Derives IP name from the scripts directory parent folder.
@@ -64,7 +64,7 @@ COMMON_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # --- Create clean working directory ---
 # Remove and recreate the vivado/ working directory so each synthesis
-# run starts fresh — no stale project files, logs, or checkpoints.
+# run starts fresh -- no stale project files, logs, or checkpoints.
 rm -rf "$SCRIPTS_DIR/../vivado" 2>/dev/null
 mkdir -p "$SCRIPTS_DIR/../vivado"
 cd "$SCRIPTS_DIR/../vivado"

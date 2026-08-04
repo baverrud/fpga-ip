@@ -2,7 +2,7 @@
 -- axilite_pkg.vhd - AXI4-Lite unified record + VHDL-2019 mode views
 -- =====================================================================
 -- ARM IHI 0022E, Appendix A.  Single-beat register-access subset of
--- AXI4.  Only the generic axilite_t type is provided here — use record
+-- AXI4.  Only the generic axilite_t type is provided here -- use record
 -- constraints at the signal declaration site to set vector widths.
 --
 -- The unified axilite_t record has 5 unconstrained std_logic_vector
@@ -15,7 +15,7 @@ use ieee.std_logic_1164.all;
 package axilite_pkg is
 
   -- ===================================================================
-  -- Unified record — 5 unconstrained elements (awaddr, wdata, wstrb,
+  -- Unified record -- 5 unconstrained elements (awaddr, wdata, wstrb,
   -- araddr, rdata).
   -- ===================================================================
 
@@ -66,7 +66,7 @@ package axilite_pkg is
   alias slave_axilite is master_axilite'converse;
 
   -- ===================================================================
-  -- Constrained subtype — Zynq MPSoC AXI4-Lite (40-bit addr, 32-bit data)
+  -- Constrained subtype -- Zynq MPSoC AXI4-Lite (40-bit addr, 32-bit data)
   -- ===================================================================
 
   subtype axilite_m40_t is axilite_t (

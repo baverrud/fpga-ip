@@ -1,7 +1,7 @@
 -----------------------------------------------------------------------
 --Filename         : axi_mem_model_simple_tb.vhd
 --Description      : Minimal smoke-test bench for axi_mem_model.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;
@@ -123,12 +123,12 @@ begin
       ar_jitter_enable => ar_jitter_enable,-- AR-side: enables CDF-based jitter on first beat
       r_base_enable    => r_base_enable,   -- R-side: enables the inter-beat gap counter
       r_jitter_enable  => r_jitter_enable, -- R-side: enables CDF-based jitter on each beat
-      base_latency     => base_latency,    -- AR→first-beat delay = 5 cycles
+      base_latency     => base_latency,    -- AR->first-beat delay = 5 cycles
       base_beat_gap    => base_beat_gap,   -- Inter-beat spacing = 3 cycles
 
       ar_id            => ar_id,           -- Read transaction ID (checked on R channel)
       ar_addr          => ar_addr,         -- Start address for address-derived data
-      ar_len           => ar_len,          -- Burst length = 0 → single-beat read
+      ar_len           => ar_len,          -- Burst length = 0 -> single-beat read
       ar_valid         => ar_valid,        -- Driven high for 1 cycle to launch AR
       ar_ready         => ar_ready,        -- DUT accepts when internal FIFO not full
 
@@ -137,7 +137,7 @@ begin
       r_resp           => r_resp,          -- Expected OKAY (00) for valid reads
       r_last           => r_last,          -- Must be high for single-beat burst
       r_valid          => r_valid,         -- DUT asserts when R beat is available
-      r_ready          => r_ready          -- Held high → accept beats immediately
+      r_ready          => r_ready          -- Held high -> accept beats immediately
     );
 
   -- =================================================================

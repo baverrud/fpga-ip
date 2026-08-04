@@ -3,18 +3,18 @@
 -- Description      : UVVM VVC-based Testbench Sequencer for axilite_io.
 --                    Communicates via AXI4-Lite VVC commands to the
 --                    axilite_io_th harness (FIFO loopback + status i_data).
--- Author           : Rune Bæverrud
+-- Author           : Rune Baeverrud
 -- Current Revision : 1.00
 -- Licensing        : Zero-Clause BSD (0BSD)
 ---------------------------------------------------------------------------------------------------
 --
 -- UVVM TOPOLOGY:
 --
---   SEQUENCER (this file)  ──VVC commands──>  HARNESS (uvvm_th)
---     portless, abstract                         ├── AXI4-Lite VVC (master, idx 1)
---                                                 └── axilite_io_th (FIFO loopback)
---                                                       ├── axilite_io_harness
---                                                       └── axis_fifo x2
+--   SEQUENCER (this file)  --VVC commands-->  HARNESS (uvvm_th)
+--     portless, abstract                         +-- AXI4-Lite VVC (master, idx 1)
+--                                                 +-- axilite_io_th (FIFO loopback)
+--                                                       +-- axilite_io_harness
+--                                                       +-- axis_fifo x2
 --
 ---------------------------------------------------------------------------------------------------
 
@@ -255,9 +255,9 @@ begin
       rv_delay.set_rand_seeds(seed_num * 5, seed_num * 13 + 1);
 
       -- Configure VVC with seed-dependent pipeline depth.
-      -- Seed 1:  minimal pipeline (1 stage each) — baseline timing.
-      -- Seed 2:  moderate pipeline (3-4 stages) — exercises write/read state machine.
-      -- Seed 3:  deep pipeline (6-8 stages) — stresses response buffering and
+      -- Seed 1:  minimal pipeline (1 stage each) -- baseline timing.
+      -- Seed 2:  moderate pipeline (3-4 stages) -- exercises write/read state machine.
+      -- Seed 3:  deep pipeline (6-8 stages) -- stresses response buffering and
       --          back-to-back transaction tolerance.
       if seed_num = 1 then
         apply_vvc_config(seed_num, 1, 1, 1, 1, 1);
@@ -278,7 +278,7 @@ begin
       -- ==========================================================================================
       -- Test 1: Write/Read o_data[0]
       --   Verifies basic register write and readback on the first output slot.
-      --   This is the simplest smoke test — if this fails, the AXI4-Lite slave
+      --   This is the simplest smoke test -- if this fails, the AXI4-Lite slave
       --   interface or the address decoder is broken.
       -- ==========================================================================================
       log(ID_SEQUENCER, "=== Test 1: Write/Read o_data[0] ===");
@@ -348,7 +348,7 @@ begin
       -- Test 7-8: Stream pop (read back from FIFO loopback)
       --   Reading from the stream-pop region (0xC000+) asserts s_axis_tready, consuming
       --   one beat from the FIFO.  The returned data should match what was pushed in
-      --   tests 5-6, verifying the complete m_axis → FIFO → s_axis loopback path.
+      --   tests 5-6, verifying the complete m_axis -> FIFO -> s_axis loopback path.
       -- ==========================================================================================
       log(ID_SEQUENCER, "=== Test 7: Stream pop [0] ===");
       vvc_check(C_ADDR_POP0, x"AABBCCDD", "pop[0]");
@@ -470,7 +470,7 @@ begin
 
       -- Strobe byte3 only (wstrb = x"8"): write 0xFF to byte lane 3 of o_data[1]
       -- o_data[1] currently has byte1 = 0xFF, other lanes = 0.  After byte3 strobe,
-      -- byte1 stays 0xFF and byte3 becomes 0xFF → result x"FF00FF00".
+      -- byte1 stays 0xFF and byte3 becomes 0xFF -> result x"FF00FF00".
       axilite_write(AXILITE_VVCT, 1, C_ADDR_ODATA1, x"FF000000", std_logic_vector'(x"8"), "strobe byte3");
       vvc_await("wait strobe byte3");
       check_value(dbg_o_data(1), x"FF00FF00", ERROR, "o_data[1] byte3");
@@ -479,7 +479,7 @@ begin
       random_delay(3);
 
       -- ==========================================================================================
-      -- Test 16: FIFO ordering — multiple stream pushes to same channel
+      -- Test 16: FIFO ordering -- multiple stream pushes to same channel
       --   Pushes three items (AAA00001, BBB00002, CCC00003) to channel 0, then pops
       --   them in order.  The axis_fifo preserves push order, so pops must return
       --   AAA, then BBB, then CCC.  This validates that the FIFO loopback does not

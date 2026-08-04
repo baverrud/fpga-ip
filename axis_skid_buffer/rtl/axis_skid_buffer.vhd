@@ -3,8 +3,8 @@
 --Description      : AXI4-Stream Skid Buffer with:
 --                 :  - Two-stage pipeline (pipeline register + skid
 --                 :    register) for backpressure absorption.
---                 :  - Bypass path — when no stall occurs, data flows
---                 :    pipeline-reg → output with zero combinational
+--                 :  - Bypass path -- when no stall occurs, data flows
+--                 :    pipeline-reg -> output with zero combinational
 --                 :    delay beyond the register Q output.
 --                 :  - Three-state FSM control (EMPTY / ONE / TWO) for
 --                 :    cycle-accurate handshake management.
@@ -16,7 +16,7 @@
 --                 :  - Ports conforming strictly to AMBA AXI4-Stream
 --                 :    specifications.
 --                 :  - Fully synchronous active-low reset logic (aresetn).
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Current Revision : 1.00
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
@@ -78,7 +78,7 @@ begin
   m_axis_tvalid <= r.state(0);
   m_axis_tdata  <= r.pipe_data;
 
-  -- Combinational process — next-state logic
+  -- Combinational process -- next-state logic
   p_comb : process(r, s_axis_tdata, s_axis_tvalid, m_axis_tready)
     variable v : t_rec;
   begin
@@ -97,11 +97,11 @@ begin
         if m_axis_tready = '1' then
           -- Downstream accepted the output
           if s_axis_tvalid = '1' then
-            -- New data arrives in the same cycle — reload pipeline
+            -- New data arrives in the same cycle -- reload pipeline
             v.pipe_data := s_axis_tdata;
             -- State stays ONE
           else
-            -- No new data — pipeline drains
+            -- No new data -- pipeline drains
             v.state := EMPTY;
           end if;
         else
@@ -118,7 +118,7 @@ begin
 
       when TWO =>
         if m_axis_tready = '1' then
-          -- Downstream accepted — shift skid into pipeline
+          -- Downstream accepted -- shift skid into pipeline
           v.pipe_data := r.skid_data;
           v.state     := ONE;
         end if;
@@ -133,7 +133,7 @@ begin
     r_in <= v;
   end process;
 
-  -- Registered process — state update
+  -- Registered process -- state update
   p_reg : process(aclk)
   begin
     if rising_edge(aclk) then

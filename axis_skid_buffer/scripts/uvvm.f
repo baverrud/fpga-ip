@@ -1,12 +1,12 @@
 # ============================================================================
-# uvvm.f — UVVM Verification File List (VHDL core)
+# uvvm.f -- UVVM Verification File List (VHDL core)
 #
 # Used by:
 #   run axis_skid_buffer modelsim uvvm    (simulation, all sections)
 #
 # Section reference:
-#   [rtl]   — RTL sources
-#   [tb]    — UVVM test harness + sequencer
+#   [rtl]   -- RTL sources
+#   [tb]    -- UVVM test harness + sequencer
 #
 # Notes:
 #   - Basename "uvvm" triggers auto-detection in sim_modelsim.do:

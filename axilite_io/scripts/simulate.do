@@ -1,4 +1,4 @@
-# axilite_io/simulate.do — ModelSim/Questa simulation script
+# axilite_io/simulate.do -- ModelSim/Questa simulation script
 # Usage: vsim -do simulate.do
 # or from the fpga-ip repo root: run axilite_io vhdl modelsim
 

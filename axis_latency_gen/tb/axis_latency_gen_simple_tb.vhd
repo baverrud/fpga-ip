@@ -1,7 +1,7 @@
 -----------------------------------------------------------------------
 --Filename         : axis_latency_gen_simple_tb.vhd
 --Description      : Simple testbench for axis_latency_gen.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;

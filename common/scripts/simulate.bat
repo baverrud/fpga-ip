@@ -1,6 +1,6 @@
 @echo off
 REM ===========================================================================
-REM simulate.bat — Generic ModelSim/Questa simulation launcher (common/Windows)
+REM simulate.bat -- Generic ModelSim/Questa simulation launcher (common/Windows)
 REM
 REM Called from run.bat or directly. Compiles sources from a .f file list,
 REM then runs the simulation. Supports auto-detection of UVVM testbenches.
@@ -10,11 +10,11 @@ REM   %1  Scripts directory (absolute path to per-IP scripts/ folder)
 REM   %2  File list name (without .f extension)
 REM         Examples: vhdl, uvvm, sv
 REM   %3  Optional flag:
-REM         gui     — Launch ModelSim GUI with waveform viewer
-REM         clean   — Delete the modelsim/ working directory
-REM         project — Launch GUI + create ModelSim project file (.mpf)
+REM         gui     -- Launch ModelSim GUI with waveform viewer
+REM         clean   -- Delete the modelsim/ working directory
+REM         project -- Launch GUI + create ModelSim project file (.mpf)
 REM   %4  Additional modifier (only when %3=gui):
-REM         project — Also create ModelSim project file (.mpf)
+REM         project -- Also create ModelSim project file (.mpf)
 REM
 REM Behaviour:
 REM   - Derives IP name from the scripts directory parent folder.
@@ -23,7 +23,7 @@ REM   - Creates a modelsim/ working directory alongside scripts/.
 REM   - Auto-detects top testbench entity from [tb] section of .f file.
 REM     Falls back to <ip_name>_tb if not found.
 REM   - Invokes sim_modelsim.do with the resolved top entity.
-REM   - UVVM auto-detection: content-based — scans [tb] files listed in
+REM   - UVVM auto-detection: content-based -- scans [tb] files listed in
 REM     the .f for "uvvm_vvc_framework" (handles any .f filename).
 REM   - In GUI mode, wave.do is auto-loaded if present.
 REM
@@ -97,7 +97,7 @@ set "TIMING="
 REM --- Create clean working directory ---
 REM The modelsim/ directory holds compiled libraries, transcripts, and
 REM artifacts. We remove and recreate it so every run starts
-REM fresh — no stale object files from previous compiles.
+REM fresh -- no stale object files from previous compiles.
 REM Project mode uses a separate modelsim_proj/ directory so it can
 REM coexist with non-project simulation runs. Since *_proj/ is ignored
 REM in git/VS Code, naming it modelsim_proj/ prevents IDE file-scanning

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ===========================================================================
-# run.sh — Repository root FPGA IP tool launcher (Linux)
+# run.sh -- Repository root FPGA IP tool launcher (Linux)
 #
 # Usage:
 #   run.sh <ip> <tool> <name> [gui]   Run tool on IP configuration
@@ -11,8 +11,8 @@
 #   <ip>     IP block directory name (e.g., axis_fifo)
 #   <tool>   EDA tool: modelsim | vivado | xsim | all
 #   <name>   File list name (without .f). Examples: vhdl, uvvm, sv
-#   [gui]    Optional — launch GUI with waveforms
-#   clean    Replaces <tool> <name> — removes modelsim/, vivado/, xsim/
+#   [gui]    Optional -- launch GUI with waveforms
+#   clean    Replaces <tool> <name> -- removes modelsim/, vivado/, xsim/
 #
 # Examples:
 #   run.sh axis_fifo modelsim vhdl        # ModelSim VHDL (batch)
@@ -83,13 +83,13 @@ if [ "$TOOL" = "all" ]; then
 
   # --- Pre-compute metadata for every .f file ---
   # We scan all file lists ONCE and cache the results in three parallel arrays:
-  #   FILE_NAMES[]   — basename of each .f file (e.g. "vhdl", "uvvm", "sv")
-  #   UVVM_FLAGS[]   — 1 if [tb] files reference "uvvm_vvc_framework", else 0
-  #   HAS_TOP_FLAGS[] — 1 if [top] section has at least one file entry, else 0
+  #   FILE_NAMES[]   -- basename of each .f file (e.g. "vhdl", "uvvm", "sv")
+  #   UVVM_FLAGS[]   -- 1 if [tb] files reference "uvvm_vvc_framework", else 0
+  #   HAS_TOP_FLAGS[] -- 1 if [top] section has at least one file entry, else 0
   #
   # Caching avoids re-running detect_uvvm.sh and check_top_section.sh for
-  # every tool permutation of the same file list. For N files × M tools,
-  # this reduces detection calls from N×M to N.
+  # every tool permutation of the same file list. For N files x M tools,
+  # this reduces detection calls from NxM to N.
   FILE_LISTS=("$SCRIPT_DIR"/*.f)
   if [ ! -e "${FILE_LISTS[0]}" ]; then
     echo "[run] ERROR: No .f file lists found under $SCRIPT_DIR"

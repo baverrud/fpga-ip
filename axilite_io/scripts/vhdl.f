@@ -1,5 +1,5 @@
 # ============================================================================
-# vhdl.f — VHDL Design & Simple Testbench File List
+# vhdl.f -- VHDL Design & Simple Testbench File List
 #
 # Used by:
 #   run axilite_io vhdl modelsim     (simulation, all sections)
@@ -7,9 +7,9 @@
 #   run axilite_io vhdl xsim         (XSim simulation)
 #
 # Section reference:
-#   [rtl]   — RTL sources always compiled
-#   [tb]    — Testbench (simulation only, skipped in synthesis)
-#   [top]   — Synthesis wrapper (none defined here)
+#   [rtl]   -- RTL sources always compiled
+#   [tb]    -- Testbench (simulation only, skipped in synthesis)
+#   [top]   -- Synthesis wrapper (none defined here)
 #
 # Each line: <relative_path_from_sub_fpga_ip> [vhdl_std]
 #   vhdl_std defaults to 2008 if omitted; set explicitly with "93", "2008", etc.

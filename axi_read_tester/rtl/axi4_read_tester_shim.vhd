@@ -6,7 +6,7 @@
 --                   interfaces.  All stat_* outputs and control inputs
 --                   except enable_global/aperture/stat_rst/err_rst
 --                   are connected to the axilite register bank.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 --
 -- =====================================================================
@@ -30,9 +30,9 @@
 --  [14]  arqos
 --  [15]  arregion
 --  [16]  aruser
---  [17]  led (bit 0) — diagnostic GPIO
+--  [17]  led (bit 0) -- diagnostic GPIO
 --
--- i_data (read-only) — GC_STAT_WIDTH ≤ 63 → max 2 words per wide signal:
+-- i_data (read-only) -- GC_STAT_WIDTH <= 63 -> max 2 words per wide signal:
 --  [0]  stat_xactions                 
 --  [1]  stat_beats                    
 --  [2]  stat_latency_sum (lo)         
@@ -82,7 +82,7 @@ entity axi4_read_tester_shim is
     GC_ADDR_WIDTH     : positive := 49;   -- matches axi4_hp_ar_t (48:0)
     GC_ID_WIDTH       : positive := 6;    -- matches axi4_hp_ar/r_t (5:0)
     GC_TIME_WIDTH     : positive := 48;
-    GC_STAT_WIDTH     : positive := 48;   -- matches i_data split below (2 × 32-bit words)
+    GC_STAT_WIDTH     : positive := 48;   -- matches i_data split below (2 x 32-bit words)
     GC_SB_FIFO_DEPTH  : positive := 256
   );
   port (
@@ -104,10 +104,10 @@ entity axi4_read_tester_shim is
     -- are decoded by the internal axilite_io (16-bit address map).
     axilite : view slave_axilite of axilite_m40_t;
 
-    -- AXI4 Read-Address channel (master) — HP subtype, ID=6, ADDR=49
+    -- AXI4 Read-Address channel (master) -- HP subtype, ID=6, ADDR=49
     ar : view master_ar of axi4_hp_ar_t;
 
-    -- AXI4 Read-Data channel (slave) — HP subtype, ID=6, DATA=128
+    -- AXI4 Read-Data channel (slave) -- HP subtype, ID=6, DATA=128
     -- NOTE: master_r view because the wrapper IS the AXI master on R
     -- (reads data from the downstream DUT/slave).
     r : view master_r of axi4_hp_r_t
@@ -119,7 +119,7 @@ architecture rtl of axi4_read_tester_shim is
   --------------------------------------------------------------------
   -- Helper: extract 32-bit word 'w' from a std_logic_vector.
   -- Word 0 = bits 31:0, word 1 = bits 63:32, etc.
-  -- Out-of-range bits return '0'; supports STAT_WIDTH ≤ 63.
+  -- Out-of-range bits return '0'; supports STAT_WIDTH <= 63.
   --------------------------------------------------------------------
   function word32(constant slv : std_logic_vector;
                   constant w   : natural) return std_logic_vector is
@@ -136,7 +136,7 @@ architecture rtl of axi4_read_tester_shim is
   --------------------------------------------------------------------
   -- Register interface signals
   --------------------------------------------------------------------
-  -- Register counts — see header table for full register map.
+  -- Register counts -- see header table for full register map.
   constant C_NUM_ODATA : natural := 32;
   constant C_NUM_IDATA : natural := 34;
 
@@ -255,7 +255,7 @@ begin
     );
 
   --------------------------------------------------------------------
-  -- Register decode — o_data (writable) to control signals
+  -- Register decode -- o_data (writable) to control signals
   --------------------------------------------------------------------
   enable_local    <= o_data(0)(0);
   addr_mode       <= o_data(1)(0);
@@ -273,7 +273,7 @@ begin
   addr_range(48 downto 32) <= o_data(9)(16 downto 0);
 
   -- AR AXI configuration fields
-  -- arsize is not a register — derived from GC_DATA_BYTES in the
+  -- arsize is not a register -- derived from GC_DATA_BYTES in the
   -- AR channel connection block below.
   ar_burst_reg   <= o_data(10)(1 downto 0);
   ar_lock_reg    <= o_data(11)(0);
@@ -287,7 +287,7 @@ begin
   led <= o_data(17)(0);
 
   --------------------------------------------------------------------
-  -- Register decode — stat signals to i_data (read-only)
+  -- Register decode -- stat signals to i_data (read-only)
   --------------------------------------------------------------------
   i_data(0)  <= stat_xactions;
   i_data(1)  <= stat_beats;
@@ -355,14 +355,14 @@ begin
       addr_range              => addr_range,      -- o_data[8..9]
       addr_mode               => addr_mode,       -- o_data[1]
 
-      -- AXI Read-Address channel → DUT
+      -- AXI Read-Address channel -> DUT
       ar_valid                => ar_valid,
       ar_ready                => ar_ready,
       ar_id                   => ar_id,
       ar_addr                 => ar_addr,
       ar_len                  => ar_len,
 
-      -- AXI Read-Data channel ← DUT
+      -- AXI Read-Data channel <- DUT
       r_valid                 => r_valid,
       r_ready                 => r_ready,
       r_id                    => r_id,
@@ -370,7 +370,7 @@ begin
       r_resp                  => r_resp,
       r_last                  => r_last,
 
-      -- Statistics outputs → i_data (readable via axilite)
+      -- Statistics outputs -> i_data (readable via axilite)
       stat_xactions           => stat_xactions,             -- i_data[0]
       stat_beats              => stat_beats,                -- i_data[1]
       stat_latency_sum        => stat_latency_sum,          -- i_data[2..3]
@@ -397,7 +397,7 @@ begin
     );
 
   --------------------------------------------------------------------
-  -- AXI4 AR channel — master-side connections
+  -- AXI4 AR channel -- master-side connections
   --
   -- Driven from tester: arid, araddr, arlen, arvalid.
   -- Driven from axilite registers: arburst, arlock, arcache,
@@ -420,11 +420,11 @@ begin
   ar_ready    <= ar.arready;
 
   --------------------------------------------------------------------
-  -- AXI4 R channel — master-side connections (master_r view).
+  -- AXI4 R channel -- master-side connections (master_r view).
   --
   -- Read from slave: rid, rdata, rresp, rlast, rvalid.
   -- ruser is available but not checked by the tester (undriven input
-  -- at the boundary — left unconnected in the architecture).
+  -- at the boundary -- left unconnected in the architecture).
   -- Driven to slave: rready.
   --------------------------------------------------------------------
   r_valid <= r.rvalid;
@@ -433,6 +433,6 @@ begin
   r_data  <= r.rdata;
   r_resp  <= r.rresp;
   r_last  <= r.rlast;
-  -- r.ruser — not used by this tester
+  -- r.ruser -- not used by this tester
 
 end architecture;

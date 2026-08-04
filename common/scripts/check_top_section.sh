@@ -1,6 +1,6 @@
 #!/bin/bash
 # ===========================================================================
-# check_top_section.sh — Check if a .f file has files in its [top] section
+# check_top_section.sh -- Check if a .f file has files in its [top] section
 #
 # Usage:   source check_top_section.sh <file_list.f>
 # Sets:    HAS_TOP=1 if [top] section has at least one file, else 0
@@ -12,7 +12,7 @@ if [ -z "$1" ]; then return; fi
 
 # --- Section-tracking state machine ---
 # Walks the .f file looking for a [top] section. An empty [top] header
-# with no file entries below it does NOT count — synthesis needs actual
+# with no file entries below it does NOT count -- synthesis needs actual
 # source files. This is more precise than a simple grep for "[top]".
 IN_TOP=0
 

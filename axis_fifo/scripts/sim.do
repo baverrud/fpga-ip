@@ -1,5 +1,5 @@
 # =============================================================================
-# sim.do — Generic simulation wrapper (copy to any IP's scripts/)
+# sim.do -- Generic simulation wrapper (copy to any IP's scripts/)
 # =============================================================================
 
 set ip    [file tail [file dirname [pwd]]]

@@ -5,7 +5,7 @@
 --                 : FIFO full, in-flight reset, data ordering, enable-gate
 --                 : paths (jitter toggle, base_delay=0, both low), simultaneous
 --                 : push/pop, min-delay observation, and full-rate verification.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;
@@ -164,7 +164,7 @@ begin
   -- =================================================================
   -- Wrap DUT: 8-bit timer width. Used only in Phase 4 to verify the
   -- timer wrap-around logic. With a 32-bit timer the wrap would take
-  -- 2^32 cycles (~43 s at 100 MHz) — impractical for simulation.
+  -- 2^32 cycles (~43 s at 100 MHz) -- impractical for simulation.
   -- The 8-bit timer wraps every 256 cycles, proving the signed-
   -- modular subtraction releases entries correctly through rollover.
   -- =================================================================
@@ -230,7 +230,7 @@ begin
     write(l, string'("  OK: reset complete")); writeline(output, l);
 
     -- ============================================================
-    -- Phase 1: Single transfer — verify delay >= base_delay
+    -- Phase 1: Single transfer -- verify delay >= base_delay
     -- ============================================================
     write(l, string'("=== Phase 1: Single transfer ===")); writeline(output, l);
 
@@ -310,7 +310,7 @@ begin
     write(l, string'("  OK: all 4 words received")); writeline(output, l);
 
     -- ============================================================
-    -- Phase 3: Idle — verify no spurious output
+    -- Phase 3: Idle -- verify no spurious output
     -- ============================================================
     write(l, string'("=== Phase 3: Idle check ===")); writeline(output, l);
     s_axis_tvalid <= '0';
@@ -359,7 +359,7 @@ begin
     writeline(output, l);
 
     -- ============================================================
-    -- Phase 5: FIFO full — verify backpressure
+    -- Phase 5: FIFO full -- verify backpressure
     -- ============================================================
     write(l, string'("=== Phase 5: FIFO full backpressure ===")); writeline(output, l);
     base_delay <= to_unsigned(200, 32);
@@ -471,7 +471,7 @@ begin
     enable_jitter <= '0';
     wait for C_CLK_PERIOD * 3;
 
-    -- Write an entry while jitter is disabled — jg_jitter forced to 0
+    -- Write an entry while jitter is disabled -- jg_jitter forced to 0
     t_sent := now;
     axis_write(aclk, s_axis_tdata, s_axis_tvalid, s_axis_tready, X"CAFE0000");
     axis_read(aclk, m_axis_tready, m_axis_tvalid, m_axis_tdata, v_rx_data);
@@ -603,7 +603,7 @@ begin
     --   Pushes entries with enable_base_delay='0', enable_jitter='0'
     --   and m_axis_tready='1' so there is no backpressure. This
     --   exercises the absolute minimum delay path (FIFO floor only).
-    --   No assertions — purely for GUI waveform observation.
+    --   No assertions -- purely for GUI waveform observation.
     -- ============================================================
     write(l, string'("=== Phase 12: Min-delay observation (GUI) ===")); writeline(output, l);
     base_delay <= to_unsigned(0, 32);

@@ -1,12 +1,12 @@
 # ============================================================================
-# sv-uvvm.f — SystemVerilog + UVVM Verification File List
+# sv-uvvm.f -- SystemVerilog + UVVM Verification File List
 #
 # Used by:
 #   run axis_fifo modelsim sv-uvvm   (simulation, all sections)
 #
 # Section reference:
-#   [rtl]   — RTL sources (util_pkg + axis_fifo.sv)
-#   [tb]    — UVVM test harness + sequencer
+#   [rtl]   -- RTL sources (util_pkg + axis_fifo.sv)
+#   [tb]    -- UVVM test harness + sequencer
 #
 # Notes:
 #   - util_pkg (common/rtl/util_pkg.vhd) provides log2ceil for all VHDL cores.

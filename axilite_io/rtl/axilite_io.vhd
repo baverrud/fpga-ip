@@ -2,16 +2,16 @@
 --Filename         : axilite_io.vhd
 --Description      : AXI4-Lite Slave to Register & Stream Bridge with:
 --                 :  - Single-beat AXI4-Lite slave, 16-bit addr, 32-bit data.
---                 :  - Output registers (NUM_ODATA × 32-bit) writable via
+--                 :  - Output registers (NUM_ODATA x 32-bit) writable via
 --                 :    AXI4-Lite with byte-enable support (wstrb).
---                 :  - Input ports (NUM_IDATA × 32-bit) readable from bus.
+--                 :  - Input ports (NUM_IDATA x 32-bit) readable from bus.
 --                 :  - AXI-Stream output channels (NUM_OSTREAM): write to
 --                 :    address region 0x4000+ to push data.
 --                 :  - AXI-Stream input channels (NUM_ISTREAM): read from
 --                 :    address region 0xC000+ to pop data.
 --                 :  - Address map: o_data at 0x0000, stream push at 0x4000,
 --                 :    i_data at 0x8000, stream pop at 0xC000.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Current Revision : 1.00
 --Licensing        : Zero-Clause BSD (0BSD)
 --                 : Permission to use, copy, modify, and/or distribute this

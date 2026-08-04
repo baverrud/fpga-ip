@@ -5,10 +5,10 @@
 --                 : decoupled from R completion.  Linear sweep and
 --                 : pseudo-random (XOR-shift) addressing within a
 --                 : configurable window.  Pushes one scoreboard
---                 : entry per burst — {addr, id, timestamp, beats}.
+--                 : entry per burst -- {addr, id, timestamp, beats}.
 --                 : Includes 4KB boundary guard and config-error
 --                 : detection.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;
@@ -67,12 +67,12 @@ architecture rtl of axi_read_tester_ar_gen is
 
   ---------------------------------------------------------------------
   -- 4-state FSM:
-  --   S_IDLE      → wait for enable + aperture; init address & pace
-  --   S_PACE_WAIT → count down inter-burst pacing delay
-  --   S_AR_ISSUE  → drive AR valid; wait for ar_ready handshake
-  --   S_SB_PUSH   → push scoreboard descriptor; advance to next addr
+  --   S_IDLE      -> wait for enable + aperture; init address & pace
+  --   S_PACE_WAIT -> count down inter-burst pacing delay
+  --   S_AR_ISSUE  -> drive AR valid; wait for ar_ready handshake
+  --   S_SB_PUSH   -> push scoreboard descriptor; advance to next addr
   --
-  -- Flow:  IDLE → PACE_WAIT → AR_ISSUE → SB_PUSH → PACE_WAIT → ...
+  -- Flow:  IDLE -> PACE_WAIT -> AR_ISSUE -> SB_PUSH -> PACE_WAIT -> ...
   -- Returns to IDLE if enable or aperture drops.
   ---------------------------------------------------------------------
   type state_t is (S_IDLE, S_PACE_WAIT, S_AR_ISSUE, S_SB_PUSH);
@@ -114,7 +114,7 @@ architecture rtl of axi_read_tester_ar_gen is
   constant C_ADDR_LOW    : natural := C_ID_HIGH + 1;
   constant C_ADDR_HIGH   : natural := C_ADDR_LOW + GC_ADDR_WIDTH - 1;
 
-  -- xoroshiro128+ PRNG — provides 64-bit pseudo-random values for
+  -- xoroshiro128+ PRNG -- provides 64-bit pseudo-random values for
   -- random addressing mode.  Stepped once per burst when addr_mode='1'.
   signal prng_data : std_logic_vector(63 downto 0);
   signal prng_step : std_logic;
@@ -131,7 +131,7 @@ begin
     );
 
   ---------------------------------------------------------------------
-  -- Combinational process — two-process register-transfer pattern.
+  -- Combinational process -- two-process register-transfer pattern.
   --   r    = current state (from p_reg)
   --   v    = next-state variable (computed here)
   --   r_in = latched next state (to p_reg)
@@ -148,7 +148,7 @@ begin
   begin
     v := r;  -- recover current state as default for all fields
 
-    -- Default outputs — all de-asserted, overridden in specific states
+    -- Default outputs -- all de-asserted, overridden in specific states
 
     ar_valid   <= '0';
     ar_id_out  <= arid;
@@ -160,17 +160,17 @@ begin
     sb_tvalid  <= '0';
     prng_step  <= '0';
 
-    -- Statistics are direct register reads — no pipeline latency
+    -- Statistics are direct register reads -- no pipeline latency
     stat_ar_backpressure <= std_logic_vector(r.ar_bp_cnt);
     stat_sb_backpressure <= std_logic_vector(r.sb_bp_cnt);
     stat_ar_issued       <= std_logic_vector(r.ar_cnt);
     stat_cfg_errors      <= std_logic_vector(r.cfg_err);
 
-    -- Enable:  local enable only (global enable removed — top-level
+    -- Enable:  local enable only (global enable removed -- top-level
     --           wrapper or control logic ORs instances externally).
     v_enable := enable_local;
 
-    -- Stat reset — clears counters without disrupting state machine
+    -- Stat reset -- clears counters without disrupting state machine
     if stat_rst = '1' then
       v.ar_bp_cnt := (others => '0');
       v.sb_bp_cnt := (others => '0');
@@ -179,11 +179,11 @@ begin
     end if;
 
     ------------------------------------------------------------------
-    -- Configuration clamping — evaluated every cycle.
+    -- Configuration clamping -- evaluated every cycle.
     -- Errors logged only when idle so they don't repeat mid-burst.
     ------------------------------------------------------------------
 
-    -- Clamp burst_length:  0→1, >GC_MAX_BURST→GC_MAX_BURST
+    -- Clamp burst_length:  0->1, >GC_MAX_BURST->GC_MAX_BURST
     -- GC_MAX_BURST defaults to 256 (AXI4 max).  Set to 16 for AXI3
     -- (the ARLEN field is only 4 bits in AXI3; 256-beat bursts would
     --  alias and corrupt the downstream address decode).
@@ -311,7 +311,7 @@ begin
   end process p_comb;
 
   ---------------------------------------------------------------------
-  -- Register process — updates state on rising clock edge.
+  -- Register process -- updates state on rising clock edge.
   -- Synchronous reset (active-low) restores defaults.
   ---------------------------------------------------------------------
   p_reg : process(aclk)

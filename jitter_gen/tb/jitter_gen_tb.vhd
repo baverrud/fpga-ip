@@ -1,8 +1,8 @@
 -----------------------------------------------------------------------
 --Filename         : jitter_gen_tb.vhd
---Description      : Testbench for jitter_gen — covers reset, enable
+--Description      : Testbench for jitter_gen -- covers reset, enable
 --                 : gating, step/hold, and all 4 output buckets.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;
@@ -100,7 +100,7 @@ begin
     variable cnt0, cnt1, cnt2, cnt3 : natural := 0;
   begin
     -- ============================================================
-    -- Phase 1: Reset — output must be 0
+    -- Phase 1: Reset -- output must be 0
     -- ============================================================
     write(l, string'("=== Phase 1: Reset check ===")); writeline(output, l);
     rstn <= '0'; enable <= '0'; step <= '0';
@@ -112,7 +112,7 @@ begin
     write(l, string'("  OK: output=0 after reset")); writeline(output, l);
 
     -- ============================================================
-    -- Phase 2: Enable low — output stays 0 even with step
+    -- Phase 2: Enable low -- output stays 0 even with step
     -- ============================================================
     write(l, string'("=== Phase 2: Enable low + step -> output=0 ===")); writeline(output, l);
     rstn <= '1'; enable <= '0';
@@ -126,7 +126,7 @@ begin
     write(l, string'("  OK: output held at 0 with enable=0")); writeline(output, l);
 
     -- ============================================================
-    -- Phase 3: Enable high + no step — output holds
+    -- Phase 3: Enable high + no step -- output holds
     -- ============================================================
     write(l, string'("=== Phase 3: Enable high, no step -> hold ===")); writeline(output, l);
     enable <= '1';
@@ -139,10 +139,10 @@ begin
     -- ============================================================
     -- Phase 4: Run 1M samples and report bucket distribution
     -- Expected distribution with GC_TH_0=128, GC_TH_1=192, GC_TH_2=240:
-    --   Bucket 0 (0):       128/256 = 50.00%  → ~500000
-    --   Bucket 1 (1):        64/256 = 25.00%  → ~250000
-    --   Bucket 2 (3):        48/256 = 18.75%  → ~187500
-    --   Bucket 3 (7):        16/256 =  6.25%  → ~62500
+    --   Bucket 0 (0):       128/256 = 50.00%  -> ~500000
+    --   Bucket 1 (1):        64/256 = 25.00%  -> ~250000
+    --   Bucket 2 (3):        48/256 = 18.75%  -> ~187500
+    --   Bucket 3 (7):        16/256 =  6.25%  -> ~62500
     -- ============================================================
     write(l, string'("=== Phase 4: 1M iterations ===")); writeline(output, l);
     enable <= '1';
@@ -189,7 +189,7 @@ begin
 
     -- ============================================================
     -- Final bucket report (1M samples from Phase 4)
-    -- Expected: 50% → ~500000, 25% → ~250000, 18.75% → ~187500, 6.25% → ~62500
+    -- Expected: 50% -> ~500000, 25% -> ~250000, 18.75% -> ~187500, 6.25% -> ~62500
     -- ============================================================
     write(l, string'("Bucket report (1M samples):")); writeline(output, l);
     write(l, string'("  GC_VAL_0 (0):  ")); write(l, cnt0);

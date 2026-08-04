@@ -1,5 +1,5 @@
 # ============================================================================
-# synth_vivado.tcl — Generic Vivado batch synthesis (Non-Project Mode)
+# synth_vivado.tcl -- Generic Vivado batch synthesis (Non-Project Mode)
 #
 # This script runs a full non-project synthesis flow. It is invoked by
 # synthesize.bat/sh (via run.bat/run.sh) for headless batch builds.
@@ -15,7 +15,7 @@
 #
 # Arguments:
 #   argv 0: Top-level entity name (e.g. axis_fifo_top)
-#   argv 1: File list path (.f) — only [rtl], [top], [default] sections
+#   argv 1: File list path (.f) -- only [rtl], [top], [default] sections
 #   argv 2: (Optional) Target part number (default: xc7a35tftg256-1)
 #
 # Examples:

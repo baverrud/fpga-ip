@@ -1,5 +1,5 @@
 # ============================================================================
-# wave.do — Default Wave window setup for axis_fifo simulation
+# wave.do -- Default Wave window setup for axis_fifo simulation
 #
 # Auto-loaded by sim_modelsim.do when ModelSim runs in GUI mode.
 # Detects which testbench hierarchy is loaded (simple vs UVVM)

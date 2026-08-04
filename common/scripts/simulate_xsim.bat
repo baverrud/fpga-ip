@@ -92,7 +92,7 @@ for /F "usebackq tokens=* delims=" %%L in ("%FILE_LIST%") do (
         REM
         REM Note: .vhd and .vhdl are handled in separate blocks because
         REM CMD's for-loop structure forces us to check extensions inside
-        REM nested else-if chains — there's no clean way to consolidate
+        REM nested else-if chains -- there's no clean way to consolidate
         REM the VHDL standard logic across both extensions in batch.
         REM
         REM The `call` prefix before xvhdl/xvlog is REQUIRED: these are

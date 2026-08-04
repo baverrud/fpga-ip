@@ -1,4 +1,4 @@
-﻿# axilite_io_tb wave.do - group signals by interface
+# axilite_io_tb wave.do - group signals by interface
 onerror {resume}
 quietly WaveActivateNextPane {} 0
 

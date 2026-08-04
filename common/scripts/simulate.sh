@@ -1,6 +1,6 @@
 #!/bin/bash
 # ===========================================================================
-# simulate.sh — Generic ModelSim/Questa simulation launcher (common/Linux)
+# simulate.sh -- Generic ModelSim/Questa simulation launcher (common/Linux)
 #
 # Called from run.sh or directly. Compiles sources from a .f file list,
 # then runs the simulation. Supports auto-detection of UVVM testbenches.
@@ -10,15 +10,15 @@
 #   $2  File list name (without .f extension)
 #         Examples: vhdl, uvvm, sv
 #   $3  Optional flag:
-#         gui   — Launch ModelSim GUI with waveform viewer
-#         clean — Delete the modelsim/ working directory
+#         gui   -- Launch ModelSim GUI with waveform viewer
+#         clean -- Delete the modelsim/ working directory
 #
 # Behaviour:
 #   - Derives IP name from the scripts directory parent folder.
 #   - Resolves $NAME.f as the source file list.
 #   - Creates a modelsim/ working directory alongside scripts/.
 #   - Invokes sim_modelsim.do with top entity work.<ip>_tb.
-#   - UVVM auto-detection: content-based — scans [tb] files listed in
+#   - UVVM auto-detection: content-based -- scans [tb] files listed in
 #     the .f for "uvvm_vvc_framework" (handles any .f filename).
 #   - In GUI mode, wave.do is auto-loaded if present.
 #

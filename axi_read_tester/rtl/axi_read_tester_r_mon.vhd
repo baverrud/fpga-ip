@@ -6,7 +6,7 @@
 --                 : accumulates latency / throughput statistics.
 --                 : Statistics are gated on aperture but in-flight
 --                 : beats are counted via the scoreboard valid flag.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;
@@ -67,7 +67,7 @@ architecture rtl of axi_read_tester_r_mon is
   constant C_SB_WIDTH   : positive := GC_ADDR_WIDTH + GC_ID_WIDTH + GC_TIME_WIDTH + 8;
   constant C_RESP_OKAY  : std_logic_vector(1 downto 0) := "00";
 
-  -- Scoreboard field positions — must match AR gen packing order.
+  -- Scoreboard field positions -- must match AR gen packing order.
   -- Entry format (MSB to LSB):  {araddr, arid, timestamp, blen}
   constant C_BEATS_LOW  : natural := 0;
   constant C_BEATS_HIGH : natural := 7;
@@ -79,7 +79,7 @@ architecture rtl of axi_read_tester_r_mon is
   constant C_ADDR_HIGH  : natural := C_ADDR_LOW + GC_ADDR_WIDTH - 1;
 
   type rec_t is record
-    -- Burst tracking — per-burst state loaded from scoreboard
+    -- Burst tracking -- per-burst state loaded from scoreboard
     burst_beats  : unsigned(7 downto 0);              -- remaining beats (arlen)
     burst_addr   : unsigned(GC_ADDR_WIDTH-1 downto 0);-- start address for data check
     burst_id     : std_logic_vector(GC_ID_WIDTH-1 downto 0);
@@ -88,7 +88,7 @@ architecture rtl of axi_read_tester_r_mon is
     ts_prev_beat : unsigned(GC_TIME_WIDTH-1 downto 0);-- timestamp of previous R beat
     latency_started : std_logic;                      -- '1' = first-beat latency pending
 
-    -- Statistics — accumulated over the measurement window
+    -- Statistics -- accumulated over the measurement window
     xactions       : unsigned(31 downto 0);  -- completed transactions (bursts)
     beats          : unsigned(31 downto 0);  -- total R beats processed
     latency_sum    : unsigned(GC_STAT_WIDTH-1 downto 0);  -- sum of all latencies
@@ -107,7 +107,7 @@ architecture rtl of axi_read_tester_r_mon is
     data_errs      : unsigned(31 downto 0);  -- data mismatch errors
     id_errs        : unsigned(31 downto 0);  -- RID mismatch errors
     rlast_errs     : unsigned(31 downto 0);  -- RLAST protocol errors
-    resp_errs      : unsigned(31 downto 0);  -- RRESP ≠ OKAY errors
+    resp_errs      : unsigned(31 downto 0);  -- RRESP != OKAY errors
     sb_uf_errs     : unsigned(31 downto 0);  -- scoreboard underflow (beat without entry)
   end record;
 
@@ -161,7 +161,7 @@ begin
   r_ready <= '0' when (r.burst_beats = 0 and sb_tvalid = '0' and r_valid = '1') else '1';
 
   ---------------------------------------------------------------------
-  -- Combinational process — computes all next-state values and outputs.
+  -- Combinational process -- computes all next-state values and outputs.
   ---------------------------------------------------------------------
   p_comb : process(r, r_valid, r_id, r_data, r_resp, r_last,
                    sb_tdata, sb_tvalid, global_time,
@@ -177,7 +177,7 @@ begin
   begin
     v := r;  -- recover current state as default for all fields
 
-    -- Stat/error reset — clears counters without disrupting burst progress
+    -- Stat/error reset -- clears counters without disrupting burst progress
     if stat_rst = '1' then
       v.xactions      := (others => '0');
       v.beats         := (others => '0');
@@ -219,7 +219,7 @@ begin
     sb_tready <= '0';
 
     ------------------------------------------------------------------
-    -- R beat processing — only on accepted AXI handshakes.
+    -- R beat processing -- only on accepted AXI handshakes.
     --
     -- A transfer is accepted when r_valid and r_ready are both '1'.
     -- Here, r_ready de-asserts only for "need scoreboard entry first",
@@ -232,7 +232,7 @@ begin
       --
       -- Two RLAST checks exist in this module:
       --   1.  HERE (line ~198):  r_last='1' with no active burst AND
-      --       no scoreboard entry ready → spurious r_last (error).
+      --       no scoreboard entry ready -> spurious r_last (error).
       --       Must check sb_tvalid to avoid false positives for
       --       single-beat bursts where r.burst_beats=0 is correct.
       --   2.  Inside processing block (line ~240):  per-beat RLAST
@@ -261,7 +261,7 @@ begin
       end if;
 
       ------------------------------------------------------------------
-      -- Beat processing — active if we have a burst in progress
+      -- Beat processing -- active if we have a burst in progress
       -- (r.burst_beats>0) or just popped a new entry (r.burst_beats=0
       -- and sb_tvalid='1' from this same cycle).
       --
@@ -272,7 +272,7 @@ begin
         v.beats := v.beats + 1;
         v.beat_idx := v.beat_idx + 1;
 
-        -- Decrement remaining beats — but NOT on the pop cycle
+        -- Decrement remaining beats -- but NOT on the pop cycle
         -- (the pop cycle loaded the entry, we haven't consumed a beat yet).
         -- Only decrement when we had an active burst coming into this cycle.
         if r.burst_beats > 0 then
@@ -280,8 +280,8 @@ begin
         end if;
 
         -- Data check:  the memory model returns address-derived patterns.
-        -- Expected data = burst_start_addr + (beat_idx-1) × data_bytes.
-        -- For buses ≥ 4 bytes, each 32-bit word in the beat is verified:
+        -- Expected data = burst_start_addr + (beat_idx-1) x data_bytes.
+        -- For buses >= 4 bytes, each 32-bit word in the beat is verified:
         --   word0 = beat_addr, word1 = beat_addr + 4, word2 = beat_addr + 8, etc.
         v_beat_addr := v.burst_addr + (v.beat_idx - 1) * GC_DATA_BYTES;
         v_ok := true;
@@ -312,12 +312,12 @@ begin
         -- RLAST checks (per-beat, using v.burst_beats = after-decrement).
         --
         -- RLAST_EARLY:  r_last asserted but more beats expected.
-        --   v.burst_beats > 0  →  burst not yet finished, r_last came early.
+        --   v.burst_beats > 0  ->  burst not yet finished, r_last came early.
         -- RLAST_MISS:   r_last NOT asserted but this was the last beat.
-        --   v.burst_beats = 0  →  all beats consumed, r_last should be '1'.
+        --   v.burst_beats = 0  ->  all beats consumed, r_last should be '1'.
         --
         -- For single-beat bursts (blen=0):  v.burst_beats stays 0 from
-        -- the pop, r_last='1' expected.  Neither condition fires.  ✓
+        -- the pop, r_last='1' expected.  Neither condition fires.  [x]
         ------------------------------------------------------------------
         if r_last = '1' and v.burst_beats > 0 then
           v.rlast_errs := r.rlast_errs + 1;
@@ -332,7 +332,7 @@ begin
         end if;
 
         ------------------------------------------------------------------
-        -- Statistics accumulation — gated by aperture.
+        -- Statistics accumulation -- gated by aperture.
         --
         -- Latency:  measured as global_time difference between AR issue
         -- (timestamp from scoreboard) and the LAST R beat of the burst.
@@ -382,7 +382,7 @@ begin
 
         v.ts_prev_beat := unsigned(global_time);
 
-        -- Transaction completed — count it and clear latency flag
+        -- Transaction completed -- count it and clear latency flag
         if v.burst_beats = 0 then
           v.xactions := r.xactions + 1;
           v.latency_started := '0';
@@ -394,7 +394,7 @@ begin
   end process p_comb;
 
   ---------------------------------------------------------------------
-  -- Register process — updates state on rising clock edge.
+  -- Register process -- updates state on rising clock edge.
   -- Synchronous reset (active-low) restores defaults.
   ---------------------------------------------------------------------
   p_reg : process(aclk)
@@ -408,7 +408,7 @@ begin
     end if;
   end process p_reg;
 
-  -- Stat output assignments — direct reads from registered state.
+  -- Stat output assignments -- direct reads from registered state.
   -- No pipeline latency; these update on the clock edge after the
   -- event occurs.
   stat_xactions           <= std_logic_vector(r.xactions);

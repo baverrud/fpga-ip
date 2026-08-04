@@ -8,7 +8,7 @@
 --                 : the DUT, the VVC wrappers, and managing physical
 --                 : clocks/resets. No test sequencer processes or
 --                 : high-level stimulus loops are permitted in this file.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Current Revision : 1.0
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------

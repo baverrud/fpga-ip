@@ -50,7 +50,7 @@ while IFS= read -r LINE; do
   # Extract the first whitespace-delimited token as the file path.
   # If that file contains "uvvm_vvc_framework" or a "library uvvm_util"
   # declaration (case-insensitive), we set IS_UVVM=1 and return
-  # immediately — no need to scan further.
+  # immediately -- no need to scan further.
   if [ "$IN_TB" = "1" ]; then
     TB_FILE="$(echo "$LINE" | awk '{print $1}')"
     if [ -f "$F_DIR/$TB_FILE" ] && grep -iqE "uvvm_vvc_framework|library[[:space:]]+uvvm_util" "$F_DIR/$TB_FILE" 2>/dev/null; then

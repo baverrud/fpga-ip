@@ -4,9 +4,9 @@
 --                 : latency and per-beat inter-beat gaps.
 --                 :
 --                 : Top wrapper that instantiates:
---                 :   1. AR-side  axis_latency_gen  — AR latency + jitter
---                 :   2. axi_mem_model_core         — beat sequencing
---                 :   3. R-side  axis_latency_gen   — beat-gap + jitter
+--                 :   1. AR-side  axis_latency_gen  -- AR latency + jitter
+--                 :   2. axi_mem_model_core         -- beat sequencing
+--                 :   3. R-side  axis_latency_gen   -- beat-gap + jitter
 --                 :
 --                 : Per-instance enable ports (ar_base_enable,
 --                 : ar_jitter_enable, r_base_enable, r_jitter_enable)
@@ -17,7 +17,7 @@
 --                 : Uses default axis_latency_gen jitter configuration
 --                 : (CDF-based, default max 7 cycles) suitable for LPDDR4
 --                 : modelling.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;

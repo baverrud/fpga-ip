@@ -4,7 +4,7 @@
 --                 : axis_skid_buffer.
 --                 : Parameterized with GC_TDATA_WIDTH generic to
 --                 : dynamically expose port width configurations.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Current Revision : 1.00
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------

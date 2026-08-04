@@ -3,8 +3,8 @@
 --Description      : Core beat-sequencing engine for axi_mem_model.
 --
 --                 Sits between two axis_latency_gen instances:
---                   IN:  delayed AR info   ← AR-side gen
---                   OUT: per-beat response → R-side (beat-gap) gen
+--                   IN:  delayed AR info   <- AR-side gen
+--                   OUT: per-beat response -> R-side (beat-gap) gen
 --
 --                 On each AR it generates (cur_len+1) beats at maximum
 --                 rate (1 per cycle), pushing them into the R-side gen.
@@ -20,7 +20,7 @@
 --
 --                 Two-process register-transfer style (Gaisler).
 --
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;
@@ -38,14 +38,14 @@ entity axi_mem_model_core is
     aclk    : in  std_logic;
     aresetn : in  std_logic;
 
-    -- AXI4 AR channel — receives delayed ARs from the AR-side gen
+    -- AXI4 AR channel -- receives delayed ARs from the AR-side gen
     ar_id    : in  std_logic_vector(GC_ID_WIDTH-1 downto 0);
     ar_addr  : in  std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
     ar_len   : in  std_logic_vector(7 downto 0);
     ar_valid : in  std_logic;
     ar_ready : out std_logic;
 
-    -- AXI4 R channel — drives beats into the R-side (beat-gap) gen
+    -- AXI4 R channel -- drives beats into the R-side (beat-gap) gen
     r_id    : out std_logic_vector(GC_ID_WIDTH-1 downto 0);
     r_data  : out std_logic_vector(8*GC_DATA_BYTES-1 downto 0);
     r_resp  : out std_logic_vector(1 downto 0);
@@ -79,7 +79,7 @@ architecture rtl of axi_mem_model_core is
   -- =================================================================
   -- Helper: compute beat address within a burst
   --   AXI INCR semantics: each consecutive beat advances by
-  --   GC_DATA_BYTES.  beat_idx=0 → base_addr, beat_idx=1 → +DATA_BYTES.
+  --   GC_DATA_BYTES.  beat_idx=0 -> base_addr, beat_idx=1 -> +DATA_BYTES.
   -- =================================================================
   function beat_addr(base_addr : ar_addr_t; beat_idx : ar_len_t) return ar_addr_t is
   begin
@@ -89,8 +89,8 @@ architecture rtl of axi_mem_model_core is
   -- =================================================================
   -- Helper: deterministic address-derived data pattern
   --   Sized to bus width:
-  --     ≥4 bytes : each 32-bit word slot holds its byte address
-  --                e.g. addr=0x1000 → word0=0x1000, word1=0x1004...
+  --     >=4 bytes : each 32-bit word slot holds its byte address
+  --                e.g. addr=0x1000 -> word0=0x1000, word1=0x1004...
   --     2 bytes  : 16-bit address value
   --     1 byte   : 8-bit address value
   -- =================================================================
@@ -114,8 +114,8 @@ architecture rtl of axi_mem_model_core is
 
   -- =================================================================
   -- State machine
-  --   S_WAIT_AR    — idle, waiting for the next AR
-  --   S_SEND_BEATS — pushing beats at 1/cycle into the R-side gen
+  --   S_WAIT_AR    -- idle, waiting for the next AR
+  --   S_SEND_BEATS -- pushing beats at 1/cycle into the R-side gen
   --
   --   The R-side gen's FIFO absorbs pipeline bubbles; its internal
   --   timer enforces the actual inter-beat gap.  This core just
@@ -165,7 +165,7 @@ begin
   --   Reads:  current register (r), AR inputs, r_ready
   --   Writes: next register (r_in), AR/R output ports
   --
-  --   All R-channel outputs are registered — they reflect r.* and get
+  --   All R-channel outputs are registered -- they reflect r.* and get
   --   updated on the next clock edge via p_reg.
   -- =================================================================
   p_comb : process(r, ar_id, ar_addr, ar_len, ar_valid, r_ready)
@@ -185,7 +185,7 @@ begin
       -- S_WAIT_AR : wait for the next AR to arrive
       --
       --   ar_ready is always asserted.  The AR-side gen's FIFO
-      --   handles backpressure — we can accept whenever we're not
+      --   handles backpressure -- we can accept whenever we're not
       --   actively pushing beats.
       -- =============================================================
       when S_WAIT_AR =>
@@ -233,8 +233,8 @@ begin
             -- Last beat of current burst just consumed.
 
             if ar_valid = '1' then
-              -- Next AR already waiting → start next transaction
-              -- immediately.  r_valid stays high — zero idle cycles.
+              -- Next AR already waiting -> start next transaction
+              -- immediately.  r_valid stays high -- zero idle cycles.
               v.cur_id   := ar_id;
               v.cur_addr := unsigned(ar_addr);
               v.cur_len  := unsigned(ar_len);
@@ -247,7 +247,7 @@ begin
               -- r_valid remains '1'
 
             else
-              -- No next AR yet → return to WAIT_AR.
+              -- No next AR yet -> return to WAIT_AR.
               -- r_valid goes low; ar_ready will be asserted next cycle.
               v.r_valid := '0';
               v.state   := S_WAIT_AR;
@@ -268,7 +268,7 @@ begin
           end if;
 
         end if;
-        -- No handshake this cycle → hold all register state.
+        -- No handshake this cycle -> hold all register state.
 
     end case;
 

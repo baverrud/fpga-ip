@@ -1,13 +1,13 @@
 # ============================================================================
-# sv-uvvm.f — SystemVerilog + UVVM Verification File List
+# sv-uvvm.f -- SystemVerilog + UVVM Verification File List
 #
 # Used by:
 #   run axis_skid_buffer modelsim sv-uvvm  (simulation, all sections)
 #
 # Section reference:
-#   [rtl]   — RTL sources
-#   [top]   — Empty (synthesis gracefully skips)
-#   [tb]    — UVVM test harness + sequencer
+#   [rtl]   -- RTL sources
+#   [top]   -- Empty (synthesis gracefully skips)
+#   [tb]    -- UVVM test harness + sequencer
 #
 # Notes:
 #   - Uses SystemVerilog core (axis_skid_buffer.sv) instead of VHDL.

@@ -4,7 +4,7 @@
 --                 : GC_USE_XORSHIFT128 selects xorshift32 (false) or
 --                 : xorshift128 (true). Takes the lowest 8 bits of the
 --                 : PRNG output and compares against cumulative thresholds.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;
@@ -91,10 +91,10 @@ begin
 
   -- Core jitter sampling process.
   -- Priority (highest to lowest):
-  --   1. Reset (rstn=0)           → force output to zero
-  --   2. Enable low (enable=0)     → force output to zero (gating)
-  --   3. Step pulse (step=1)      → sample PRNG output, apply CDF mapping
-  --   4. Otherwise                → hold current r_jitter value
+  --   1. Reset (rstn=0)           -> force output to zero
+  --   2. Enable low (enable=0)     -> force output to zero (gating)
+  --   3. Step pulse (step=1)      -> sample PRNG output, apply CDF mapping
+  --   4. Otherwise                -> hold current r_jitter value
   process(clk)
     variable v_slice : unsigned(7 downto 0);
   begin
@@ -111,10 +111,10 @@ begin
         -- thresholds. Each threshold defines the upper bound of a probability
         -- bucket. The thresholds are strictly ascending and span 0-255.
         --
-        --   Bucket 0: [0,       GC_TH_0)  → GC_VAL_0  (~50%  at defaults)
-        --   Bucket 1: [GC_TH_0, GC_TH_1)  → GC_VAL_1  (~25%  at defaults)
-        --   Bucket 2: [GC_TH_1, GC_TH_2)  → GC_VAL_2  (~19%  at defaults)
-        --   Bucket 3: [GC_TH_2, 256)      → GC_VAL_3  (~6%   at defaults)
+        --   Bucket 0: [0,       GC_TH_0)  -> GC_VAL_0  (~50%  at defaults)
+        --   Bucket 1: [GC_TH_0, GC_TH_1)  -> GC_VAL_1  (~25%  at defaults)
+        --   Bucket 2: [GC_TH_1, GC_TH_2)  -> GC_VAL_2  (~19%  at defaults)
+        --   Bucket 3: [GC_TH_2, 256)      -> GC_VAL_3  (~6%   at defaults)
         if    v_slice < to_unsigned(GC_TH_0, 8) then
           r_jitter <= to_unsigned(GC_VAL_0, GC_JITTER_WIDTH);
         elsif v_slice < to_unsigned(GC_TH_1, 8) then

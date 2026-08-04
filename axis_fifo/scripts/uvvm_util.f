@@ -1,13 +1,13 @@
 # ============================================================================
-# uvvm_util.f — Direct axis_fifo testbench using uvvm_util only
+# uvvm_util.f -- Direct axis_fifo testbench using uvvm_util only
 #
 # Used by:
 #   run axis_fifo modelsim uvvm_util   (simulation, all sections)
 #   run axis_fifo xsim uvvm_util       (simulation, all sections)
 #
 # Section reference:
-#   [rtl]   — RTL sources shared with the standard VHDL flow
-#   [tb]    — Direct DUT testbench using uvvm_util only
+#   [rtl]   -- RTL sources shared with the standard VHDL flow
+#   [tb]    -- Direct DUT testbench using uvvm_util only
 #
 # Notes:
 #   - This flow intentionally does NOT reference uvvm_vvc_framework.

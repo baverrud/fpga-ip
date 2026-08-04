@@ -1,5 +1,5 @@
 # ============================================================================
-# shim.f — VHDL-2019 AXI4 mode-view shim + testbench file list
+# shim.f -- VHDL-2019 AXI4 mode-view shim + testbench file list
 #
 # NOTE: The run.bat / simulate.bat flow does not support VHDL-2019 files.
 #       Compile and simulate manually with a simulator that supports
@@ -25,8 +25,8 @@
 # All paths are relative to sub/fpga-ip/
 #
 # Section reference:
-#   [rtl]   — RTL sources always compiled
-#   [tb]    — Testbench (simulation only, defines top entity)
+#   [rtl]   -- RTL sources always compiled
+#   [tb]    -- Testbench (simulation only, defines top entity)
 #
 # Note: compile all listed files as VHDL-2019 to avoid mixed-standard
 # elaboration issues in simulators that reject mixed versions.

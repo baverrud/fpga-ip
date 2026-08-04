@@ -1,15 +1,15 @@
 -----------------------------------------------------------------------
 --Filename         : axilite_io_harness.vhd
---Description      : Array-port wrapper for axilite_io (t_slv32_array ↔
+--Description      : Array-port wrapper for axilite_io (t_slv32_array <->
 --                 : flattened conversion).
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Current Revision : 1.00
 --Licensing        : Zero-Clause BSD (0BSD)
 --                 : Permission to use, copy, modify, and/or distribute this
 --                 : software for any purpose with or without fee is hereby granted.
 -----------------------------------------------------------------------
 -- =====================================================================
--- axilite_io_harness.vhd — Array-port wrapper
+-- axilite_io_harness.vhd -- Array-port wrapper
 -- =====================================================================
 -- WHY THIS EXISTS
 -- ---------------
@@ -19,8 +19,8 @@
 --
 -- Instantiation chain:
 --   axilite_io_harness         (ports: t_slv32_array)
---     └── axilite_io_wrap      (ports: flattened slv — VHDL or SV)
---           └── axilite_io_vhd or axilite_io.sv  (actual DUT)
+--     +-- axilite_io_wrap      (ports: flattened slv -- VHDL or SV)
+--           +-- axilite_io_vhd or axilite_io.sv  (actual DUT)
 --
 -- FIFO loopback is in axilite_io_th, one level above this wrapper.
 -- =====================================================================
@@ -127,12 +127,12 @@ begin
       s_axis_tready => s_axis_tready_int
     );
 
-  -- o_data: flattened → array
+  -- o_data: flattened -> array
   gen_o : for i in 0 to GC_NUM_ODATA-1 generate
     o_data(i) <= o_data_flat((i+1)*32-1 downto i*32);
   end generate;
 
-  -- i_data: array → flattened
+  -- i_data: array -> flattened
   gen_i : for i in 0 to GC_NUM_IDATA-1 generate
     i_data_flat((i+1)*32-1 downto i*32) <= i_data(i);
   end generate;
@@ -140,12 +140,12 @@ begin
   -- Stream ports: direct pass-through
   m_axis_tdata  <= m_axis_tdata_int;
   m_axis_tvalid <= m_axis_tvalid_int;
-  -- s_axis_tdata: array → flattened
+  -- s_axis_tdata: array -> flattened
   gen_s : for i in 0 to GC_NUM_ISTREAM-1 generate
     s_axis_tdata_int((i+1)*32-1 downto i*32) <= s_axis_tdata(i);
   end generate;
 
-  -- s_axis_tready: flattened → array (pass-through)
+  -- s_axis_tready: flattened -> array (pass-through)
   gen_srdy : for i in 0 to GC_NUM_ISTREAM-1 generate
     s_axis_tready(i) <= s_axis_tready_int(i);
   end generate;

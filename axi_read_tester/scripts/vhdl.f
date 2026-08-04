@@ -1,5 +1,5 @@
 # ============================================================================
-# vhdl.f — VHDL RTL & Simple Testbench File List
+# vhdl.f -- VHDL RTL & Simple Testbench File List
 #
 # Used by:
 #   run axi_read_tester vhdl modelsim     (simulation, all sections)
@@ -7,9 +7,9 @@
 #   run axi_read_tester vhdl xsim         (XSim simulation)
 #
 # Section reference:
-#   [rtl]   — RTL sources always compiled
-#   [top]   — Top wrapper (synthesis only)
-#   [tb]    — Testbench (simulation only)
+#   [rtl]   -- RTL sources always compiled
+#   [top]   -- Top wrapper (synthesis only)
+#   [tb]    -- Testbench (simulation only)
 #
 # Each line: <relative_path_from_sub_fpga_ip> [vhdl_std]
 #   vhdl_std defaults to 2008 if omitted.
@@ -30,8 +30,8 @@ axi_read_tester/rtl/axi_read_tester_ar_gen.vhd
 axi_read_tester/rtl/axi_read_tester_r_mon.vhd
 axi_read_tester/rtl/axi_read_tester.vhd
 
-# [top]  — synthesis wrapper
+# [top]  -- synthesis wrapper
 axi_read_tester/rtl/axi_read_tester_top.vhd
 
-# [tb]  — 10-phase corner-case testbench
+# [tb]  -- 10-phase corner-case testbench
 axi_read_tester/tb/axi_read_tester_tb.vhd

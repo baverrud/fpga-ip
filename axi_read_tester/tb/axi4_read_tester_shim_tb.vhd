@@ -5,7 +5,7 @@
 --                   procedures, instantiates axi_mem_model on the
 --                   AR/R AXI4 bus, and runs simple configuration /
 --                   run / verify sequences.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;
@@ -110,7 +110,7 @@ begin
     );
 
   --------------------------------------------------------------------
-  -- Memory model — responds to AR beats with address-derived data.
+  -- Memory model -- responds to AR beats with address-derived data.
   --------------------------------------------------------------------
   u_mem : entity work.axi_mem_model
     generic map (
@@ -144,11 +144,11 @@ begin
     );
 
   --------------------------------------------------------------------
-  -- AXI4 fill signals — drive only what the shim doesn't drive.
+  -- AXI4 fill signals -- drive only what the shim doesn't drive.
   --
-  -- ar = master_ar view → shim drives arid..arvalid, arready is IN.
+  -- ar = master_ar view -> shim drives arid..arvalid, arready is IN.
   --     The mem_model's ar_ready output connects to ar.arready.
-  -- r  = master_r  view → shim drives rready, all other R fields are IN.
+  -- r  = master_r  view -> shim drives rready, all other R fields are IN.
   --     The mem_model drives rid, rdata, rresp, rlast, rvalid.
   --     ruser is not used by mem_model; drive it to zero here.
   --------------------------------------------------------------------

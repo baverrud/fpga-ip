@@ -1,6 +1,6 @@
 @echo off
 REM ===========================================================================
-REM synthesize.bat — Generic Vivado synthesis & project launcher (common/Windows)
+REM synthesize.bat -- Generic Vivado synthesis & project launcher (common/Windows)
 REM
 REM Called from run.bat or directly. Reads a .f file list and runs Vivado in
 REM non-project (batch) or project (GUI) mode. Uses section-filtered parsing
@@ -11,8 +11,8 @@ REM   %1  Scripts directory (absolute path to per-IP scripts/ folder)
 REM   %2  File list name (without .f extension)
 REM         Examples: vhdl, sv, uvvm (simulation-only lists work too)
 REM   %3  Optional flag:
-REM         gui   — Create a Vivado project and open the GUI
-REM         clean — Delete the vivado/ working directory and .Xil/ cache
+REM         gui   -- Create a Vivado project and open the GUI
+REM         clean -- Delete the vivado/ working directory and .Xil/ cache
 REM
 REM Behaviour:
 REM   - Derives IP name from the scripts directory parent folder.
@@ -98,7 +98,7 @@ echo [synthesize] Top entity: !TOP_ENTITY!
 
 REM --- Create clean working directory ---
 REM Remove and recreate the vivado/ working directory so each synthesis
-REM run starts fresh — no stale project files, logs, or checkpoints.
+REM run starts fresh -- no stale project files, logs, or checkpoints.
 set "SYNTH_DIR=%SCRIPTS_DIR%\..\vivado"
 if exist "%SYNTH_DIR%" rmdir /s /q "%SYNTH_DIR%" 2>nul
 mkdir "%SYNTH_DIR%" 2>nul

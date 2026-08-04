@@ -15,7 +15,7 @@
 --                 :    block design tools and strict simulation environments.
 --                 :  - Fully synchronous active-low reset logic (aresetn conforms
 --                 :    to standard AXI clock-domain naming conventions).
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Current Revision : 1.00
 --Licensing        : Zero-Clause BSD (0BSD)
 --                 : Permission to use, copy, modify, and/or distribute this 

@@ -3,8 +3,8 @@
 //Description      : AXI4-Stream Skid Buffer with:
 //                 :  - Two-stage pipeline (pipeline register + skid
 //                 :    register) for backpressure absorption.
-//                 :  - Bypass path — when no stall occurs, data flows
-//                 :    pipeline-reg → output with zero combinational
+//                 :  - Bypass path -- when no stall occurs, data flows
+//                 :    pipeline-reg -> output with zero combinational
 //                 :    delay beyond the register Q output.
 //                 :  - Three-state FSM control (EMPTY / ONE / TWO) for
 //                 :    cycle-accurate handshake management.
@@ -16,7 +16,7 @@
 //                 :  - Ports conforming strictly to AMBA AXI4-Stream
 //                 :    specifications.
 //                 :  - Fully synchronous active-low reset logic (aresetn).
-//Author           : Rune Bæverrud
+//Author           : Rune Baeverrud
 //Current Revision : 1.00
 //Licensing        : Zero-Clause BSD (0BSD)
 //-----------------------------------------------------------------------
@@ -79,7 +79,7 @@ module axis_skid_buffer #(
   assign m_axis_tdata  = r.pipe_data;
 
   // -------------------------------------------------------------------
-  // Combinational process — next-state logic
+  // Combinational process -- next-state logic
   // -------------------------------------------------------------------
   always_comb begin
     t_rec v;
@@ -97,11 +97,11 @@ module axis_skid_buffer #(
         if (m_axis_tready) begin
           // Downstream accepted the output
           if (s_axis_tvalid) begin
-            // New data arrives in the same cycle — reload pipeline
+            // New data arrives in the same cycle -- reload pipeline
             v.pipe_data = s_axis_tdata;
             // State stays ONE
           end else begin
-            // No new data — pipeline drains
+            // No new data -- pipeline drains
             v.state = EMPTY;
           end
         end else begin
@@ -119,7 +119,7 @@ module axis_skid_buffer #(
 
       TWO: begin
         if (m_axis_tready) begin
-          // Downstream accepted — shift skid into pipeline
+          // Downstream accepted -- shift skid into pipeline
           v.pipe_data = r.skid_data;
           v.state     = ONE;
         end
@@ -130,7 +130,7 @@ module axis_skid_buffer #(
   end
 
   // -------------------------------------------------------------------
-  // Registered process — state update
+  // Registered process -- state update
   // -------------------------------------------------------------------
   always_ff @(posedge aclk) begin
     if (!aresetn) begin

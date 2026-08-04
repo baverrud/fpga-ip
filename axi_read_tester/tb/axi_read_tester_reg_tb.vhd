@@ -4,7 +4,7 @@
 --                   Drives the flat AXI4-Lite port with axilite_bfm_pkg,
 --                   connects axi_mem_model to the flat AXI4 AR/R ports,
 --                   and runs a realistic 1000-cycle traffic window.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;

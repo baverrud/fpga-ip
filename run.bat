@@ -1,6 +1,6 @@
 @echo off
 REM ===========================================================================
-REM run.bat — Repository root FPGA IP tool launcher (Windows)
+REM run.bat -- Repository root FPGA IP tool launcher (Windows)
 REM
 REM Usage:
 REM   run <ip> <name> <tool> [gui]     Run tool on IP configuration
@@ -11,15 +11,15 @@ REM Arguments:
 REM   <ip>     IP block directory name (e.g., axis_fifo)
 REM   <name>   File list name (without .f extension). Determines which
 REM            sources are compiled. Examples:
-REM              vhdl    — VHDL simple testbench (vhdl.f)
-REM              uvvm    — UVVM verification (uvvm.f)
-REM              sv      — SystemVerilog simple testbench (sv.f)
-REM              all     — Run all .f files (see 'all [tool]' above)
-REM              clean   — Remove modelsim/, vivado/ and xsim/ artifacts
+REM              vhdl    -- VHDL simple testbench (vhdl.f)
+REM              uvvm    -- UVVM verification (uvvm.f)
+REM              sv      -- SystemVerilog simple testbench (sv.f)
+REM              all     -- Run all .f files (see 'all [tool]' above)
+REM              clean   -- Remove modelsim/, vivado/ and xsim/ artifacts
 REM   <tool>   EDA tool to run:
-REM              modelsim  — ModelSim/Questa simulation (via simulate.bat)
-REM              vivado    — Vivado synthesis (via synthesize.bat)
-REM              xsim      — Xilinx XSim simulation (via simulate_xsim.bat)
+REM              modelsim  -- ModelSim/Questa simulation (via simulate.bat)
+REM              vivado    -- Vivado synthesis (via synthesize.bat)
+REM              xsim      -- Xilinx XSim simulation (via simulate_xsim.bat)
 REM   [gui]    Optional flag to launch GUI mode with waveform viewer.
 REM            Omit for batch/headless mode. Not valid with 'all'.
 REM   [project] Optional flag to create a ModelSim project file (.mpf).
@@ -47,12 +47,12 @@ REM	b) %VAR% in for /F 'command' strings is expanded at parse-time.
 REM	   If the variable is SET inside the same parenthesized block it
 REM	   won't be visible. Use a literal or set it before the block.
 REM	c) `call :sub` from within a for-loop body is safe, but errorlevel
-REM	   set inside the subroutine persists after return — always check
+REM	   set inside the subroutine persists after return -- always check
 REM	   errorlevel immediately after the command that sets it.
 REM	d) PIPE DEADLOCK: for /F with pipes inside redirected batch stderr
 REM	   deadlocks. Use temporary files or if-based filtering instead.
 REM	e) Labels with `goto :label` work. `call :label` pushes a new scope
-REM	   — use `exit /b` to return, not `goto :eof`.
+REM	   -- use `exit /b` to return, not `goto :eof`.
 REM ===========================================================================
 setlocal enabledelayedexpansion
 
@@ -130,7 +130,7 @@ echo =======================================================================
 echo  Running file list '%NAME%' for IP: %IP%
 echo =======================================================================
 
-REM Warn if GUI flag is set — not valid with multi-tool mode
+REM Warn if GUI flag is set -- not valid with multi-tool mode
 if not "%GUI%"=="" (
   echo   [WARN] GUI flag ignored: multi-tool mode runs batch only
 )
@@ -178,7 +178,7 @@ call "%~dp0common\scripts\detect_uvvm.bat" "%FILE_LIST%"
 set "META_UVVM_%NAME%=!IS_UVVM!"
 call "%~dp0common\scripts\check_top_section.bat" "%FILE_LIST%"
 set "META_TOP_%NAME%=!HAS_TOP!"
-REM Detect VHDL-2019 files — xsim (Vivado 2023.2) does not support -2019
+REM Detect VHDL-2019 files -- xsim (Vivado 2023.2) does not support -2019
 set "META_V2019_%NAME%=0"
 findstr /C:" 2019" "%FILE_LIST%" >nul 2>&1
 if not errorlevel 1 set "META_V2019_%NAME%=1"
@@ -194,7 +194,7 @@ REM ===========================================================================
 REM Run all batch (non-GUI) permutations.
 REM
 REM Strategy:
-REM   1. Scan available EDA tools on PATH — only iterate over found tools.
+REM   1. Scan available EDA tools on PATH -- only iterate over found tools.
 REM   2. Pre-compute UVVM and [top] metadata for EVERY .f file in one pass,
 REM      storing results in environment variables (META_UVVM_<name> and
 REM      META_TOP_<name>). This avoids re-running detect_uvvm.bat and
@@ -204,9 +204,9 @@ REM      This separation is required because CMD's for-loop + call + delayed
 REM      expansion has known bugs with nested parenthesized if blocks.
 REM
 REM Tool exclusions:
-REM   xsim  — skips file lists whose [tb] section references "uvvm" (UVVM
+REM   xsim  -- skips file lists whose [tb] section references "uvvm" (UVVM
 REM           libraries are not available in the XSim toolchain).
-REM   vivado — skips .f files without a [top] section (simulation-only lists).
+REM   vivado -- skips .f files without a [top] section (simulation-only lists).
 REM ===========================================================================
 :run_all
 set "IP_DIR=%~dp0%IP%\scripts"
@@ -224,7 +224,7 @@ echo =======================================================================
 echo  Running all batch permutations for IP: %IP%
 echo =======================================================================
 
-REM Warn if GUI flag is set — not valid with 'all'
+REM Warn if GUI flag is set -- not valid with 'all'
 if not "%GUI%"=="" (
   echo   [WARN] GUI flag ignored: 'all' mode runs batch only
 )
@@ -288,7 +288,7 @@ for %%F in ("%IP_DIR%\*.f") do (
   set "META_UVVM_%%~nF=!IS_UVVM!"
   call "%~dp0common\scripts\check_top_section.bat" "%%~fF"
   set "META_TOP_%%~nF=!HAS_TOP!"
-  REM Detect VHDL-2019 files — xsim (Vivado 2023.2) does not support -2019
+  REM Detect VHDL-2019 files -- xsim (Vivado 2023.2) does not support -2019
   set "META_V2019_%%~nF=0"
   findstr /C:" 2019" "%%~fF" >nul 2>&1
   if not errorlevel 1 set "META_V2019_%%~nF=1"
@@ -308,7 +308,7 @@ echo.
 goto :run_summary
 
 REM ===========================================================================
-REM Summary report — shared by :run_name_all and :run_all
+REM Summary report -- shared by :run_name_all and :run_all
 REM ===========================================================================
 :run_summary
 echo.
@@ -373,7 +373,7 @@ REM --- vivado [top] skip ---
 REM Synthesis requires a top-level wrapper in the [top] section.
 REM Simulation-only file lists (e.g. uvvm.f) have no [top] section
 REM and must be skipped here to avoid Vivado compile errors.
-REM Same CMD bug avoidance applies — flat if statements only.
+REM Same CMD bug avoidance applies -- flat if statements only.
 if /I "%TOOL_NAME%"=="vivado" if not "%HAS_TOP_CACHED%"=="1" echo !PREF![SKIP] (no [top] section)
 if /I "%TOOL_NAME%"=="vivado" if not "%HAS_TOP_CACHED%"=="1" set /a SKIPPED+=1
 if /I "%TOOL_NAME%"=="vivado" if not "%HAS_TOP_CACHED%"=="1" goto :eof

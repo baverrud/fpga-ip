@@ -3,7 +3,7 @@
 -- Description      : UVVM VVC-based Testbench Sequencer for axis_fifo.
 --                    Communicates strictly using abstract VVC command interfaces,
 --                    keeping the sequencer process completely free of physical port dependencies.
--- Author           : Rune Bæverrud
+-- Author           : Rune Baeverrud
 -- Current Revision : 1.0
 -- Licensing        : Zero-Clause BSD (0BSD)
 ---------------------------------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 # ============================================================================
-# sim_modelsim.do — Generic ModelSim/Questa compile & run engine
+# sim_modelsim.do -- Generic ModelSim/Questa compile & run engine
 #
 # This script is the core simulation engine shared by all IP blocks. It is
 # invoked by simulate.bat/sh via the unified run.bat/run.sh launcher.
@@ -15,7 +15,7 @@
 #
 # Arguments:
 #   $1: Top-level module/entity (e.g. work.axis_fifo_tb)
-#   $2: File list path (.f) — sections [rtl], [tb], [top] all compiled
+#   $2: File list path (.f) -- sections [rtl], [tb], [top] all compiled
 #   $3: (Optional) Simulator time resolution (e.g. "fs" for -t fs)
 #
 # File list format (.f):
@@ -277,7 +277,7 @@ eval vsim $VSIM_ARGS $TB_TOP
 # Suppress ModelSim Intel FPGA Starter Edition database browser dialog bug.
 # The free/Starter Edition lacks SrcCommon::LoadDBSDialog which the GUI
 # tries to invoke on wave refresh. Disabling the DB preference avoids this.
-# Apply unconditionally — the async Tk after script can fire even in -c mode.
+# Apply unconditionally -- the async Tk after script can fire even in -c mode.
 catch { set PrefMain(EnableDB) 0 }
 
 # Setup Wave configuration if we are in GUI mode and custom wave macro script exists

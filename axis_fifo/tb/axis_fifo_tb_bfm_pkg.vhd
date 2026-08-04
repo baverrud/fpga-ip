@@ -3,7 +3,7 @@
 --Description      : Shared AXI-Stream BFMs for axis_fifo testbenches.
 --                 : Encapsulates protocol-correct valid/ready handshakes
 --                 : for write, read, and pop helper operations.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Current Revision : 1.0
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------

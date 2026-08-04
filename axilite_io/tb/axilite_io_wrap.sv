@@ -1,7 +1,7 @@
 //-----------------------------------------------------------------------
 //Filename         : axilite_io_wrap.sv
 //Description      : SV flattened-port wrapper for axilite_io.
-//Author           : Rune Bæverrud
+//Author           : Rune Baeverrud
 //Current Revision : 1.00
 //Licensing        : Zero-Clause BSD (0BSD)
 //-----------------------------------------------------------------------

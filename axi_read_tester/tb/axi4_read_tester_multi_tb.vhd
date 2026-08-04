@@ -1,11 +1,11 @@
 -----------------------------------------------------------------------
 --Filename         : axi4_read_tester_multi_tb.vhd
 --Description      : Testbench for axi4_read_tester_multi.
---                   Instantiates 4 × axi_mem_model on the AR/R buses,
+--                   Instantiates 4 x axi_mem_model on the AR/R buses,
 --                   drives axilite_ctrl + per-shim axilite buses via
 --                   package-level AXI4-Lite BFM procedures, and runs
 --                   a simple configure / run / verify sequence.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;
@@ -33,7 +33,7 @@ architecture sim of axi4_read_tester_multi_tb is
 
   signal led : std_logic_vector(4 downto 0);
 
-  -- AXI4-Lite buses — one per shim instance
+  -- AXI4-Lite buses -- one per shim instance
   signal axilite_0 : axilite_m40_t;
   signal axilite_1 : axilite_m40_t;
   signal axilite_2 : axilite_m40_t;
@@ -42,7 +42,7 @@ architecture sim of axi4_read_tester_multi_tb is
   -- AXI4-Lite control bus for multi-level registers
   signal axilite_ctrl : axilite_m40_t;
 
-  -- AXI4 AR/R buses — one per shim instance
+  -- AXI4 AR/R buses -- one per shim instance
   signal ar_0 : axi4_hp_ar_t;
   signal ar_1 : axi4_hp_ar_t;
   signal ar_2 : axi4_hp_ar_t;
@@ -107,7 +107,7 @@ begin
     );
 
   --------------------------------------------------------------------
-  -- Memory models — one per AR/R pair
+  -- Memory models -- one per AR/R pair
   --------------------------------------------------------------------
   u_mem_0 : entity work.axi_mem_model
     generic map (
@@ -193,7 +193,7 @@ begin
     );
 
   --------------------------------------------------------------------
-  -- AXI4 fill signals — drive unused fields to zero
+  -- AXI4 fill signals -- drive unused fields to zero
   --------------------------------------------------------------------
   r_0.ruser <= (others => '0');
   r_1.ruser <= (others => '0');

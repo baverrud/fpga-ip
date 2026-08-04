@@ -2,8 +2,8 @@
 --Filename         : axi_read_tester_simple_tb.vhd
 --Description      : Minimal smoke-test bench for axi_read_tester.
 --                   Connects tester to axi_mem_model.  Stimulus process
---                   is a skeleton — populate your own test sequence.
---Author           : Rune Bæverrud
+--                   is a skeleton -- populate your own test sequence.
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;
@@ -64,7 +64,7 @@ architecture sim of axi_read_tester_simple_tb is
   signal base_beat_gap    : std_logic_vector(15 downto 0) := (others => '0');
 
   -- =================================================================
-  -- AXI4 AR bus (tester → memory model)
+  -- AXI4 AR bus (tester -> memory model)
   -- =================================================================
   signal ar_valid : std_logic;
   signal ar_ready : std_logic;
@@ -73,7 +73,7 @@ architecture sim of axi_read_tester_simple_tb is
   signal ar_len   : std_logic_vector(7 downto 0);
 
   -- =================================================================
-  -- AXI4 R bus (memory model → tester)
+  -- AXI4 R bus (memory model -> tester)
   -- =================================================================
   signal r_valid : std_logic;
   signal r_ready : std_logic;
@@ -110,7 +110,7 @@ architecture sim of axi_read_tester_simple_tb is
   signal stat_max_outstanding    : std_logic_vector(31 downto 0);
 
   -- =================================================================
-  -- R-data word slices — convenience for waveform viewing
+  -- R-data word slices -- convenience for waveform viewing
   -- =================================================================
   type t_slv32_arr is array (0 to 15) of std_logic_vector(31 downto 0);
   signal r_words : t_slv32_arr;
@@ -194,14 +194,14 @@ begin
       addr_range                => addr_range,
       addr_mode                 => addr_mode,
 
-      -- AR bus → memory model
+      -- AR bus -> memory model
       ar_valid                  => ar_valid,
       ar_ready                  => ar_ready,
       ar_id                     => ar_id,
       ar_addr                   => ar_addr,
       ar_len                    => ar_len,
 
-      -- R bus ← memory model
+      -- R bus <- memory model
       r_valid                   => r_valid,
       r_ready                   => r_ready,
       r_id                      => r_id,
@@ -236,7 +236,7 @@ begin
     );
 
   -- =================================================================
-  -- Memory model — responds to AR beats with address-derived data.
+  -- Memory model -- responds to AR beats with address-derived data.
   -- =================================================================
   u_mem : entity work.axi_mem_model
     generic map (
@@ -273,7 +273,7 @@ begin
     );
 
   -- =================================================================
-  -- Stimulus process — skeleton, populate your own test sequence.
+  -- Stimulus process -- skeleton, populate your own test sequence.
   -- =================================================================
   process
   begin

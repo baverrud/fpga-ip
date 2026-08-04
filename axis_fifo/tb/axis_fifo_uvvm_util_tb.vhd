@@ -8,7 +8,7 @@
 --                    Includes proper AXI4-Stream handshake BFM procedures
 --                    encapsulating the valid/ready protocol, ensuring tests
 --                    behave correctly regardless of pipeline depth or timing.
--- Author           : Rune Bæverrud
+-- Author           : Rune Baeverrud
 -- Current Revision : 1.1
 -- Licensing        : Zero-Clause BSD (0BSD)
 ---------------------------------------------------------------------------------------------------

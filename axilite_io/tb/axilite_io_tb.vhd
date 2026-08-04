@@ -1,14 +1,14 @@
 -----------------------------------------------------------------------
 --Filename         : axilite_io_tb.vhd
 --Description      : Shared AXI4-Lite Register I/O Testbench.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Current Revision : 1.00
 --Licensing        : Zero-Clause BSD (0BSD)
 --                 : Permission to use, copy, modify, and/or distribute this
 --                 : software for any purpose with or without fee is hereby granted.
 -----------------------------------------------------------------------
 -- =====================================================================
--- axilite_io_tb.vhd — Shared AXI4-Lite Register I/O Testbench
+-- axilite_io_tb.vhd -- Shared AXI4-Lite Register I/O Testbench
 -- =====================================================================
 -- Tests the axilite_io DUT (VHDL or SV) via the axilite_io_th harness
 -- which provides AXI-Stream loopback FIFOs and FIFO-status i_data.

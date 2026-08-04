@@ -1,13 +1,13 @@
 # ============================================================================
-# files_util.tcl — Shared .f file list parsing and UVVM detection utilities
+# files_util.tcl -- Shared .f file list parsing and UVVM detection utilities
 #
 # Used by synth_vivado.tcl, synth_vivado_project.tcl, and sim_modelsim.do.
 #
 # Section-filtering:
 #   The .f files use section headers like:
-#     # [rtl]    — RTL source files (compiled by all flows)
-#     # [top]    — Top-level wrapper (synthesis only)
-#     # [tb]     — Testbench files (simulation only)
+#     # [rtl]    -- RTL source files (compiled by all flows)
+#     # [top]    -- Top-level wrapper (synthesis only)
+#     # [tb]     -- Testbench files (simulation only)
 #   Each caller requests only the sections it needs.
 #
 # Returns: list of {file_path file_type vhdl_std} triples
@@ -16,7 +16,7 @@
 # ============================================================================
 
 # ----------------------------------------------------------------------------
-# is_uvvm_files_list — Check whether a .f file's [tb] entries reference UVVM
+# is_uvvm_files_list -- Check whether a .f file's [tb] entries reference UVVM
 #
 # Usage:   set result [is_uvvm_files_list <file_list_path>]
 # Returns: 1 if any file listed in the [tb] section contains
@@ -27,7 +27,7 @@
 #   library uvvm_vvc_framework;
 #
 # Note: This function intentionally does NOT check for "library uvvm_util"
-# because that would trigger the ModelSim top-entity rename (_tb → _uvvm_tb)
+# because that would trigger the ModelSim top-entity rename (_tb -> _uvvm_tb)
 # for testbenches that use uvvm_util but have a plain _tb entity name.
 # The uvvm_util-only detection lives in detect_uvvm.bat/sh for XSim skip purposes.
 # ----------------------------------------------------------------------------
@@ -64,7 +64,7 @@ proc is_uvvm_files_list {file_list_path} {
         set tb_data [read $tbfp]
         close $tbfp
         # Match only "uvvm_vvc_framework" (VVC-based UVVM). This drives ModelSim's
-        # top-entity rename (_tb → _uvvm_tb). The util-only "library uvvm_util"
+        # top-entity rename (_tb -> _uvvm_tb). The util-only "library uvvm_util"
         # check lives in detect_uvvm.bat/sh for XSim skip purposes, not here.
         if {[string match -nocase "*uvvm_vvc_framework*" $tb_data]} {
           return 1
@@ -77,7 +77,7 @@ proc is_uvvm_files_list {file_list_path} {
 }
 
 # ----------------------------------------------------------------------------
-# vhdl_std_normalize — Map an optional .f VHDL standard suffix to a canonical
+# vhdl_std_normalize -- Map an optional .f VHDL standard suffix to a canonical
 # bucket used by all synthesis/simulation flows.
 #
 # Usage:   set std [vhdl_std_normalize <suffix>]

@@ -7,9 +7,9 @@
 --                 : Passes Crush (fails BigCrush).
 --                 : Ref: D. Blackman & S. Vigna, "xoroshiro128+", 2016.
 --                 :
---                 : Zero DSP — add + XOR + shift + rotate only.
+--                 : Zero DSP -- add + XOR + shift + rotate only.
 --                 : 128-bit state (2x64), 64-bit output per cycle.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;

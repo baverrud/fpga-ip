@@ -4,7 +4,7 @@
 --                 : xoroshiro128+ PRNG modules.  The first ten
 --                 : xoroshiro128+ outputs are checked against the
 --                 : published reference recurrence and default seeds.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;

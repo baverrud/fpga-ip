@@ -1,9 +1,9 @@
 -----------------------------------------------------------------------
 --Filename         : axi_read_tester.vhd
---Description      : DMA read tester — AR generator, scoreboard FIFO,
+--Description      : DMA read tester -- AR generator, scoreboard FIFO,
 --                   and R-channel monitor.  AR and R buses are brought
 --                   out for connection to a memory model or DUT.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;
@@ -19,7 +19,7 @@ entity axi_read_tester is
     GC_TIME_WIDTH     : positive := 48;
     GC_STAT_WIDTH     : positive := 48;
     GC_SB_FIFO_DEPTH  : positive := 256;
-    GC_MAX_BURST      : positive := 256  -- max beats per burst — 16 for AXI3
+    GC_MAX_BURST      : positive := 256  -- max beats per burst -- 16 for AXI3
   );
   port (
     aclk    : in  std_logic;
@@ -41,14 +41,14 @@ entity axi_read_tester is
     addr_range   : in  std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
     addr_mode    : in  std_logic;
 
-    -- AXI Read-Address Channel (master → DUT)
+    -- AXI Read-Address Channel (master -> DUT)
     ar_valid : out std_logic;
     ar_ready : in  std_logic;
     ar_id    : out std_logic_vector(GC_ID_WIDTH-1 downto 0);
     ar_addr  : out std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
     ar_len   : out std_logic_vector(7 downto 0);
 
-    -- AXI Read-Data Channel (DUT → monitor)
+    -- AXI Read-Data Channel (DUT -> monitor)
     r_valid : in  std_logic;
     r_ready : out std_logic;
     r_id    : in  std_logic_vector(GC_ID_WIDTH-1 downto 0);
@@ -109,16 +109,16 @@ architecture rtl of axi_read_tester is
 begin
 
   ---------------------------------------------------------------------
-  -- Data flow:  AR gen → (sb_tf) → axis_fifo → (sb_ff) → R mon
-  --             AR gen ──ar_valid/ar_addr/ar_len──→ external DUT
-  --             R mon  ←──r_valid/r_data/r_last───  external DUT
+  -- Data flow:  AR gen -> (sb_tf) -> axis_fifo -> (sb_ff) -> R mon
+  --             AR gen --ar_valid/ar_addr/ar_len---> external DUT
+  --             R mon  <---r_valid/r_data/r_last---  external DUT
   --
   -- The scoreboard FIFO decouples AR issuance from R completion.
   -- AR gen pushes a descriptor per burst; R mon pops it when the
   -- first R beat arrives.
   ---------------------------------------------------------------------
 
-  -- AR generator — issues read-address bursts, pushes scoreboard entries
+  -- AR generator -- issues read-address bursts, pushes scoreboard entries
   u_ar_gen : entity work.axi_read_tester_ar_gen
     generic map (
       GC_DATA_BYTES  => GC_DATA_BYTES,
@@ -155,7 +155,7 @@ begin
       stat_cfg_errors         => stat_cfg_errors
     );
 
-  -- Scoreboard FIFO — elastic buffer between AR gen (producer) and
+  -- Scoreboard FIFO -- elastic buffer between AR gen (producer) and
   -- R mon (consumer).  FWFT (First-Word Fall-Through) with registered
   -- handshakes for timing isolation.
   u_sb_fifo : entity work.axis_fifo
@@ -175,7 +175,7 @@ begin
       fifo_count      => sb_fifo_count
     );
 
-  -- R monitor — validates R beats against scoreboard, accumulates stats.
+  -- R monitor -- validates R beats against scoreboard, accumulates stats.
   -- Backpressures the R channel when waiting for a scoreboard entry.
   u_r_mon : entity work.axi_read_tester_r_mon
     generic map (
@@ -221,7 +221,7 @@ begin
     );
 
   ---------------------------------------------------------------------
-  -- Max-outstanding tracker — records peak fifo_count across stat
+  -- Max-outstanding tracker -- records peak fifo_count across stat
   -- measurement windows.  Cleared by stat_rst.
   ---------------------------------------------------------------------
   max_out_in <= sb_fifo_count when sb_fifo_count > max_out_r else max_out_r;

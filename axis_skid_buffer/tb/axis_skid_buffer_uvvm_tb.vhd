@@ -3,18 +3,18 @@
 -- Description      : UVVM VVC-based Testbench Sequencer for axis_skid_buffer.
 --                    Communicates using abstract VVC command interfaces, keeping the
 --                    sequencer process free of physical port dependencies.
--- Author           : Rune Bæverrud
+-- Author           : Rune Baeverrud
 -- Current Revision : 1.0
 -- Licensing        : Zero-Clause BSD (0BSD)
 ---------------------------------------------------------------------------------------------------
 --
 -- UVVM TOPOLOGY:
 --
---   SEQUENCER (this file)  ──non-blocking VVC commands──>  HARNESS (uvvm_th)
+--   SEQUENCER (this file)  --non-blocking VVC commands-->  HARNESS (uvvm_th)
 --     portless, abstract                                      structural wiring
---                                                               ├── TX VVC (master, idx 0)
---                                                               ├── DUT (axis_skid_buffer)
---                                                               └── RX VVC (slave,  idx 1)
+--                                                               +-- TX VVC (master, idx 0)
+--                                                               +-- DUT (axis_skid_buffer)
+--                                                               +-- RX VVC (slave,  idx 1)
 --
 -- Tests: passthrough, fill-to-TWO with stall, interleaved overlap,
 --        prolonged stall, and in-flight reset.

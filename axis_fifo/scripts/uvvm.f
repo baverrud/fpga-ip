@@ -1,12 +1,12 @@
 # ============================================================================
-# uvvm.f — UVVM Verification File List (language-agnostic)
+# uvvm.f -- UVVM Verification File List (language-agnostic)
 #
 # Used by:
 #   run axis_fifo modelsim uvvm      (simulation, all sections)
 #
 # Section reference:
-#   [rtl]   — RTL sources (shared with vhdl.f)
-#   [tb]    — UVVM test harness + sequencer
+#   [rtl]   -- RTL sources (shared with vhdl.f)
+#   [tb]    -- UVVM test harness + sequencer
 #
 # Notes:
 #   - The basename "uvvm" triggers auto-detection in sim_modelsim.do:

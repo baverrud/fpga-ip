@@ -4,7 +4,7 @@
 --                 : Instantiates axilite_io_th (FIFO loopback + status
 --                 : i_data) and an AXI4-Lite VVC master, encapsulating
 --                 : all physical port mapping.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Current Revision : 1.00
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
@@ -46,7 +46,7 @@ architecture struct of axilite_io_uvvm_th is
 
   signal clk_i         : std_logic := '0';
 
-  -- AXI4-Lite internal signals (connect VVC ↔ TH)
+  -- AXI4-Lite internal signals (connect VVC <-> TH)
   signal s_axi_awaddr  : std_logic_vector(15 downto 0);
   signal s_axi_awprot  : std_logic_vector( 2 downto 0);
   signal s_axi_awvalid : std_logic;
@@ -96,7 +96,7 @@ begin
   --------------------------------------------------------------------
   -- Map AXI4-Lite VVC interface record to individual signals
   --------------------------------------------------------------------
-  -- VVC → DUT (VVC drives DUT inputs)
+  -- VVC -> DUT (VVC drives DUT inputs)
   s_axi_awaddr  <= std_logic_vector(axilite_if.write_address_channel.awaddr(15 downto 0));
   s_axi_awprot  <= axilite_if.write_address_channel.awprot;
   s_axi_awvalid <= axilite_if.write_address_channel.awvalid;
@@ -109,7 +109,7 @@ begin
   s_axi_arvalid <= axilite_if.read_address_channel.arvalid;
   s_axi_rready  <= axilite_if.read_data_channel.rready;
 
-  -- DUT → VVC (DUT drives VVC inputs)
+  -- DUT -> VVC (DUT drives VVC inputs)
   axilite_if.write_address_channel.awready  <= s_axi_awready;
   axilite_if.write_data_channel.wready      <= s_axi_wready;
   axilite_if.write_response_channel.bresp   <= s_axi_bresp;

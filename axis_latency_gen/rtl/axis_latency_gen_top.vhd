@@ -4,7 +4,7 @@
 --                 : Passes all generics and ports through.
 --                 : Converts fifo_count from unconstrained unsigned
 --                 : to std_logic_vector for IP integrator compat.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;

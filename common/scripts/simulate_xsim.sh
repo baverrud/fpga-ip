@@ -1,6 +1,6 @@
 #!/bin/bash
 # ===========================================================================
-# simulate_xsim.sh — Generic XSim (Vivado Simulator) simulation launcher
+# simulate_xsim.sh -- Generic XSim (Vivado Simulator) simulation launcher
 #
 # Called from run.sh or directly. Compiles sources from a .f file list
 # using xvhdl/xvlog, elaborates with xelab, and runs with xsim.
@@ -10,8 +10,8 @@
 #   $2  File list name (without .f extension)
 #         Examples: vhdl, uvvm, sv
 #   $3  Optional flag:
-#         gui   — Launch XSim GUI (xsim --gui)
-#         clean — Delete the xsim/ working directory
+#         gui   -- Launch XSim GUI (xsim --gui)
+#         clean -- Delete the xsim/ working directory
 #
 # Behaviour:
 #   - Derives IP name from the scripts directory parent folder.
@@ -56,7 +56,7 @@ if [ ! -f "$FILE_LIST" ]; then
   exit 1
 fi
 
-# Determine top entity — parse from the first VHDL file in the [tb]
+# Determine top entity -- parse from the first VHDL file in the [tb]
 # section of the .f file (same approach as simulate.sh / simulate.bat).
 # Falls back to <ip_name>_tb if parsing fails.
 # UVVM auto-detection via shared utility runs first (XSim skips UVVM).
@@ -109,7 +109,7 @@ echo "[simulate_xsim] Compiling from $FILE_LIST..."
 # headers ([rtl], [tb], [top]) since XSim compiles everything
 # in a single work library regardless of section grouping.
 while IFS= read -r LINE; do
-  # Trim leading/trailing whitespace — the .f files may use
+  # Trim leading/trailing whitespace -- the .f files may use
   # inconsistent spacing around file paths.
   LINE="$(echo "$LINE" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
   

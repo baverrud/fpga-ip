@@ -3,7 +3,7 @@
 --Description      : Lean functional testbench for axis_skid_buffer.
 --                 : Covers pass-through, skid ordering, prolonged stall,
 --                 : overlap throughput, and in-flight reset.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Current Revision : 3.0
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------

@@ -4,8 +4,8 @@
 --                 : Tests GC_DATA_BYTES = 1,2,4,8,16,32,64,128 with
 --                 : burst lengths 0,3,7,255 plus back-to-back ARs,
 --                 : zero-latency, FIFO-full, R-backpressure, and
---                 : reset-in-flight — all in a single run.
---Author           : Rune Bæverrud
+--                 : reset-in-flight -- all in a single run.
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;

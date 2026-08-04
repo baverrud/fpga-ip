@@ -8,7 +8,7 @@
 --                   err_rst).
 --                   Some simulators do not support mode views on array
 --                   types, so each instance gets dedicated ports.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;
@@ -31,7 +31,7 @@ entity axi4_read_tester_multi is
     aclk    : in std_logic;
     aresetn : in std_logic;
 
-    -- AXI4-Lite register interfaces (slave) — one per shim instance
+    -- AXI4-Lite register interfaces (slave) -- one per shim instance
  -- Original intent (array mode views are not supported by all simulators):
  -- axilite   : view (slave) of axilite_m40_array_t(0 to GC_NUM_INSTANCES-1);
     axilite_0 : view slave_axilite of axilite_m40_t;
@@ -39,7 +39,7 @@ entity axi4_read_tester_multi is
     axilite_2 : view slave_axilite of axilite_m40_t;
     axilite_3 : view slave_axilite of axilite_m40_t;
 
-    -- AXI4 Read-Address channels (master) — one per shim instance
+    -- AXI4 Read-Address channels (master) -- one per shim instance
  -- Original intent:
  -- ar : view (master) of axi4_hp_ar_array_t(0 to GC_NUM_INSTANCES-1);
     ar_0 : view master_ar of axi4_hp_ar_t;
@@ -47,7 +47,7 @@ entity axi4_read_tester_multi is
     ar_2 : view master_ar of axi4_hp_ar_t;
     ar_3 : view master_ar of axi4_hp_ar_t;
 
-    -- AXI4 Read-Data channels (master) — one per shim instance
+    -- AXI4 Read-Data channels (master) -- one per shim instance
  -- Original intent:
  -- r   : view (master) of axi4_hp_r_array_t(0 to GC_NUM_INSTANCES-1);
     r_0 : view master_r of axi4_hp_r_t;

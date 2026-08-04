@@ -1,5 +1,5 @@
 # =============================================================================
-# sim.do — Thin wrapper delegating to sim_modelsim.do
+# sim.do -- Thin wrapper delegating to sim_modelsim.do
 # =============================================================================
 
 set ip [file tail [file dirname [pwd]]]

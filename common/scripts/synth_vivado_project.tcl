@@ -1,5 +1,5 @@
 # ============================================================================
-# synth_vivado_project.tcl — Generic Vivado project maker (Project Mode)
+# synth_vivado_project.tcl -- Generic Vivado project maker (Project Mode)
 #
 # This script creates a Vivado project from a .f file list. It is invoked
 # by synthesize.bat/sh (via run.bat/run.sh) with the "gui" flag.
@@ -11,13 +11,13 @@
 #   1. Parse arguments (top entity, file list, optional project name, part)
 #   2. Close any open project
 #   3. Create a new project with -force (overwrites existing)
-#   4. Parse .f file list: [rtl], [top] → Design Sources; [tb] → Simulation Sources
+#   4. Parse .f file list: [rtl], [top] -> Design Sources; [tb] -> Simulation Sources
 #   5. Add source files with correct file types per section
 #   6. Set the top-level entity
 #
 # Arguments:
 #   argv 0: Top-level entity name (e.g. axis_fifo_top)
-#   argv 1: File list path (.f) — only [rtl], [top], [default] sections
+#   argv 1: File list path (.f) -- only [rtl], [top], [default] sections
 #   argv 2: (Optional) Project name (default: <top>_proj)
 #   argv 3: (Optional) Target part number (default: xc7a35tftg256-1)
 #

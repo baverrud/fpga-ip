@@ -4,7 +4,7 @@
 --                   Passes all AXI4 and AXI4-Lite interfaces through
 --                   to the entity boundary for connection to AXI
 --                   interconnect / PS in a real design.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;
@@ -37,13 +37,13 @@ entity axi4_read_tester_shim_top is
     -- Diagnostic LED
     led : out std_logic;
 
-    -- AXI4-Lite register interface (slave — connect to PS or AXI interconnect)
+    -- AXI4-Lite register interface (slave -- connect to PS or AXI interconnect)
     axilite : view slave_axilite of axilite_m40_t;
 
-    -- AXI4 Read-Address channel (master — connect to AXI interconnect or DUT)
+    -- AXI4 Read-Address channel (master -- connect to AXI interconnect or DUT)
     ar : view master_ar of axi4_hp_ar_t;
 
-    -- AXI4 Read-Data channel (slave — connect to AXI interconnect or DUT)
+    -- AXI4 Read-Data channel (slave -- connect to AXI interconnect or DUT)
     r : view master_r of axi4_hp_r_t
   );
 end entity;

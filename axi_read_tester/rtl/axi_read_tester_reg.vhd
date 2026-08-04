@@ -4,7 +4,7 @@
 --                   AXI4-Lite register interface via axilite_io.
 --                   Exposes AXI4-Lite, AR, and R buses as individual
 --                   signals for broad tool compatibility.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 --
 -- =====================================================================

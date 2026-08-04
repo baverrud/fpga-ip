@@ -1,14 +1,14 @@
 # ============================================================================
-# sv.f — SystemVerilog Design & Simple Testbench File List
+# sv.f -- SystemVerilog Design & Simple Testbench File List
 #
 # Used by:
 #   run axilite_io modelsim sv        (simulation, all sections)
 #   run axilite_io vivado sv          (synthesis: [rtl] + [top] only)
 #
 # Section reference:
-#   [rtl]   — RTL sources always compiled
-#   [tb]    — Testbench (simulation only, skipped in synthesis)
-#   [top]   — Synthesis wrapper (none defined here)
+#   [rtl]   -- RTL sources always compiled
+#   [tb]    -- Testbench (simulation only, skipped in synthesis)
+#   [top]   -- Synthesis wrapper (none defined here)
 #
 # Notes:
 #   - util_pkg (common/rtl/util_pkg.vhd) is VHDL but required for the

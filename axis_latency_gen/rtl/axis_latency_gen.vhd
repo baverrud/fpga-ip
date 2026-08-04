@@ -5,7 +5,7 @@
 --                 : Stores {tdata, t_departure} in a single wider
 --                 : axis_fifo. Departure decided at entry time.
 --                 : Timer wrap handled by signed subtraction.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;

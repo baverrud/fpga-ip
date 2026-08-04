@@ -1,5 +1,5 @@
 -- =====================================================================
--- axilite_bfm_pkg.vhd — AXI4-Lite BFM helpers (VHDL-2008)
+-- axilite_bfm_pkg.vhd -- AXI4-Lite BFM helpers (VHDL-2008)
 -- =====================================================================
 -- Standalone BFM package containing the axilite_write / axilite_read
 -- procedures from axilite_pkg, extracted so they can be compiled with

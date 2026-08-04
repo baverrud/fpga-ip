@@ -4,7 +4,7 @@
 --                 : procedures encapsulating valid/ready handshake.
 --                 : Tests odd/non-power-of-two depths, back-to-back
 --                 : writes/reads, and empty/full boundary corner cases.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Current Revision : 1.1
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
@@ -119,7 +119,7 @@ begin
     -- ================================================================
     -- FIFO is full (3 elements). Pop one element to free a slot, then
     -- push x"D4".  Due to the DUT's registered pipeline, the pop
-    -- commits on cycle N and the push commits on cycle N+1 — the
+    -- commits on cycle N and the push commits on cycle N+1 -- the
     -- handshake handles this transparently as long as the consumer
     -- asserts tready and the producer holds tvalid.
     report "=== Simultaneous Push-Pop (Protocol-compliant) ===";
@@ -127,7 +127,7 @@ begin
     axis_write(aclk, s_axis_tdata, s_axis_tvalid, s_axis_tready, x"D4");
     wait for 1 ns;
 
-    -- Occupancy returned to 3 (popped 1 → 2, then pushed 1 → 3).
+    -- Occupancy returned to 3 (popped 1 -> 2, then pushed 1 -> 3).
     assert fifo_count = 3
       report "FAIL: fifo_count should be 3 after pop+push when full, got " & integer'image(to_integer(fifo_count))
       severity error;
@@ -186,7 +186,7 @@ begin
     -- ================================================================
     -- Read request while FIFO is empty. The core must gracefully handle
     -- this (no out-of-range crashes on index -1).  axis_pop waits for
-    -- tvalid, which will never come when empty — so instead we drive
+    -- tvalid, which will never come when empty -- so instead we drive
     -- tready for one cycle manually (simulating a premature read request).
     report "--- CORNER CASE 1: Read Attempt on Empty ---";
     m_axis_tready <= '1';

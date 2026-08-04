@@ -4,7 +4,7 @@
 --                   Passes all AXI4 and AXI4-Lite interfaces through
 --                   to the entity boundary for connection to AXI
 --                   interconnect / PS in a real design.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;
@@ -27,19 +27,19 @@ entity axi4_read_tester_multi_top is
     aclk    : in std_logic;
     aresetn : in std_logic;
 
-    -- AXI4-Lite register interfaces (slave) — one per shim instance
+    -- AXI4-Lite register interfaces (slave) -- one per shim instance
     axilite_0 : view slave_axilite of axilite_m40_t;
     axilite_1 : view slave_axilite of axilite_m40_t;
     axilite_2 : view slave_axilite of axilite_m40_t;
     axilite_3 : view slave_axilite of axilite_m40_t;
 
-    -- AXI4 Read-Address channels (master) — one per shim instance
+    -- AXI4 Read-Address channels (master) -- one per shim instance
     ar_0 : view master_ar of axi4_hp_ar_t;
     ar_1 : view master_ar of axi4_hp_ar_t;
     ar_2 : view master_ar of axi4_hp_ar_t;
     ar_3 : view master_ar of axi4_hp_ar_t;
 
-    -- AXI4 Read-Data channels (master) — one per shim instance
+    -- AXI4 Read-Data channels (master) -- one per shim instance
     r_0 : view master_r of axi4_hp_r_t;
     r_1 : view master_r of axi4_hp_r_t;
     r_2 : view master_r of axi4_hp_r_t;

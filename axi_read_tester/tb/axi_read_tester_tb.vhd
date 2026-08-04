@@ -6,7 +6,7 @@
 --                   max-burst, 4KB boundary, random addressing,
 --                   zero/high latency, aperture gating, stat/err
 --                   reset, and in-flight reset.
---Author           : Rune Bæverrud
+--Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;
@@ -56,14 +56,14 @@ architecture sim of axi_read_tester_tb is
   signal base_latency     : std_logic_vector(15 downto 0) := (others => '0');
   signal base_beat_gap    : std_logic_vector(15 downto 0) := (others => '0');
 
-  -- AXI4 AR bus (tester → memory model)
+  -- AXI4 AR bus (tester -> memory model)
   signal ar_valid : std_logic;
   signal ar_ready : std_logic;
   signal ar_id    : std_logic_vector(C_ID_WIDTH-1 downto 0);
   signal ar_addr  : std_logic_vector(C_ADDR_WIDTH-1 downto 0);
   signal ar_len   : std_logic_vector(7 downto 0);
 
-  -- AXI4 R bus (memory model → tester)
+  -- AXI4 R bus (memory model -> tester)
   signal r_valid : std_logic;
   signal r_ready : std_logic;
   signal r_id    : std_logic_vector(C_ID_WIDTH-1 downto 0);
@@ -179,14 +179,14 @@ begin
       addr_range                => addr_range,
       addr_mode                 => addr_mode,
 
-      -- AR bus → memory model
+      -- AR bus -> memory model
       ar_valid                  => ar_valid,
       ar_ready                  => ar_ready,
       ar_id                     => ar_id,
       ar_addr                   => ar_addr,
       ar_len                    => ar_len,
 
-      -- R bus ← memory model
+      -- R bus <- memory model
       r_valid                   => r_valid,
       r_ready                   => r_ready,
       r_id                      => r_id,
@@ -221,7 +221,7 @@ begin
     );
 
   --------------------------------------------------------------------
-  -- Memory model — responds to AR beats with address-derived data.
+  -- Memory model -- responds to AR beats with address-derived data.
   --------------------------------------------------------------------
   u_mem : entity work.axi_mem_model
     generic map (
@@ -386,7 +386,7 @@ base_latency <= phase_latency;
       expected_beats_per_xaction => 16
     );
 
-    -- P2: Single-beat bursts (blen=0 → 1 beat)
+    -- P2: Single-beat bursts (blen=0 -> 1 beat)
     run_phase(
       phase_name       => "P2: Single-beat",
       phase_base_addr  => X"00010000",
@@ -412,7 +412,7 @@ base_latency <= phase_latency;
       expected_beats_per_xaction => 256
     );
 
-    -- P4: 4 KB boundary crossing (base 0xFE0 + 2 beats × 64 B = over)
+    -- P4: 4 KB boundary crossing (base 0xFE0 + 2 beats x 64 B = over)
     run_phase(
       phase_name       => "P4: 4KB boundary",
       phase_base_addr  => X"00000FE0",
