@@ -8,6 +8,10 @@
 --                 : entry per burst -- {addr, id, timestamp, beats}.
 --                 : Includes 4KB boundary guard and config-error
 --                 : detection.
+--                 :
+--                 : Timing note: no dividers or multipliers anywhere;
+--                 : random addressing uses a bit-mask, so addr_range
+--                 : must be a power of two when addr_mode='1'.
 --Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
@@ -29,30 +33,37 @@ entity axi_read_tester_ar_gen is
     aresetn     : in  std_logic;
     global_time : in  unsigned(GC_TIME_WIDTH-1 downto 0);
 
-    enable_local  : in  std_logic;
-    aperture      : in  std_logic;
+    -- Control
+    enable_local  : in  std_logic;   -- per-instance enable
+    aperture      : in  std_logic;   -- measurement window
 
-    stat_rst     : in  std_logic;
+    stat_rst     : in  std_logic;    -- clears stat counters (not the FSM)
     arid         : in  std_logic_vector(GC_ID_WIDTH-1 downto 0);
-    burst_length : in  std_logic_vector(31 downto 0);
-    pace         : in  std_logic_vector(31 downto 0);
-    pace_init    : in  std_logic_vector(31 downto 0);
+    burst_length : in  std_logic_vector(31 downto 0);   -- beats per burst (0 clamps to 1)
+    pace         : in  std_logic_vector(31 downto 0);   -- inter-burst delay (cycles)
+    pace_init    : in  std_logic_vector(31 downto 0);   -- delay before first burst
     base_addr    : in  std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
     addr_range   : in  std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
-    addr_mode    : in  std_logic;
+    -- NOTE: random mode (addr_mode='1') requires addr_range to be a
+    -- power of two (offset is a bit-mask).  Linear mode accepts any
+    -- range.
+    addr_mode    : in  std_logic;    -- '0' = linear sweep, '1' = pseudo-random
 
+    -- AXI Read-Address Channel (master -> DUT)
     ar_valid   : out std_logic;
     ar_ready   : in  std_logic;
     ar_id_out  : out std_logic_vector(GC_ID_WIDTH-1 downto 0);
     ar_addr    : out std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
-    ar_len     : out std_logic_vector(7 downto 0);
-    ar_size    : out std_logic_vector(2 downto 0);
-    ar_burst   : out std_logic_vector(1 downto 0);
+    ar_len     : out std_logic_vector(7 downto 0);   -- beats-1
+    ar_size    : out std_logic_vector(2 downto 0);   -- bytes per beat (log2 of data width)
+    ar_burst   : out std_logic_vector(1 downto 0);   -- always INCR
 
+    -- Scoreboard push (one descriptor per burst: {addr, id, ts, blen})
     sb_tdata  : out std_logic_vector(GC_ADDR_WIDTH + GC_ID_WIDTH + GC_TIME_WIDTH + 8 - 1 downto 0);
     sb_tvalid : out std_logic;
     sb_tready : in  std_logic;
 
+    -- Statistics (plain register reads, no pipeline latency)
     stat_ar_backpressure : out std_logic_vector(31 downto 0);
     stat_sb_backpressure : out std_logic_vector(31 downto 0);
     stat_ar_issued       : out std_logic_vector(31 downto 0);
@@ -64,6 +75,10 @@ architecture rtl of axi_read_tester_ar_gen is
 
   constant C_SB_WIDTH : positive := GC_ADDR_WIDTH + GC_ID_WIDTH + GC_TIME_WIDTH + 8;
   constant C_4KB      : positive := 4096;
+
+  -- NOTE: C_SB_WIDTH duplicates the sb_tdata port width; it is kept for
+  -- documentation only.  (Random mode needs no multiplier: offset is a
+  -- bit-mask of addr_range, which must be a power of two in that mode.)
 
   ---------------------------------------------------------------------
   -- 4-state FSM:
@@ -83,6 +98,9 @@ architecture rtl of axi_read_tester_ar_gen is
     blen       : unsigned(7 downto 0);                 -- AXI arlen (beats-1)
     pace_cnt   : unsigned(31 downto 0);                -- inter-burst pacing counter
     first_run  : std_logic;                            -- '1' = use pace_init
+                                                        -- (written but not
+                                                        --  currently read; kept
+                                                        --  for future use)
     ar_bp_cnt  : unsigned(31 downto 0);                -- AR backpressure events
     sb_bp_cnt  : unsigned(31 downto 0);                -- scoreboard backpressure events
     ar_cnt     : unsigned(31 downto 0);                -- ARs successfully issued
@@ -143,8 +161,8 @@ begin
     variable v_enable  : std_logic;
     variable v_bsize   : unsigned(31 downto 0);
     variable v_blen_i  : unsigned(31 downto 0);   -- burst_length after clamping
-    variable v_max_blk : unsigned(63 downto 0);   -- max block index (random mode)
-    variable v_rand_blk: unsigned(31 downto 0);   -- random block offset
+    variable v_end     : unsigned(GC_ADDR_WIDTH-1 downto 0);  -- window end (base+range)
+    variable v_off     : unsigned(GC_ADDR_WIDTH-1 downto 0);  -- random offset in window
   begin
     v := r;  -- recover current state as default for all fields
 
@@ -223,24 +241,21 @@ begin
       -- PACE_WAIT:  Count down pacing delay.  When zero, compute blen
       --             and proceed.  Return to IDLE if enable/aperture drops.
       --
-      --             Burst is also clamped to the address window so the
-      --             last beat never exceeds base_addr + addr_range - 1.
+      --             Boundary guard (both addressing modes):  the burst
+      --             must never read outside [base_addr, base_addr+range).
+      --             Clamp the start address:  wrap to base_addr if past
+      --             the end, otherwise push the start back so the full
+      --             burst fits.  (Address clamp only -- no division.)
       when S_PACE_WAIT =>
         if v_enable = '0' or aperture = '0' then
           v.state := S_IDLE;
         elsif r.pace_cnt = 0 then
-          -- Clamp burst to the remaining address window
-          -- If cur_addr is at or past the end, wrap to base_addr first.
-          if r.cur_addr >= unsigned(base_addr) + unsigned(addr_range) then
+          v_end := unsigned(base_addr) + unsigned(addr_range);
+          if r.cur_addr >= v_end then
             v.cur_addr := unsigned(base_addr);
-          end if;
-          -- Re-evaluate remaining window after potential wrap
-          if v_blen_i * GC_DATA_BYTES > unsigned(base_addr) + unsigned(addr_range) - r.cur_addr then
-            v_blen_i := resize(
-              (unsigned(base_addr) + unsigned(addr_range) - r.cur_addr) / GC_DATA_BYTES, 32);
-            if v_blen_i = 0 then
-              v_blen_i := to_unsigned(1, 32);
-            end if;
+          elsif v_bsize <= unsigned(addr_range) and
+                r.cur_addr + resize(v_bsize, GC_ADDR_WIDTH) > v_end then
+            v.cur_addr := v_end - resize(v_bsize, GC_ADDR_WIDTH);
           end if;
           v.blen := resize(v_blen_i - 1, 8);
           v.state := S_AR_ISSUE;
@@ -279,15 +294,23 @@ begin
         if sb_tready = '1' then
           -- Advance to next address
           if addr_mode = '1' then
-            -- Random addressing within window
+            -- Random addressing within window.  Random mode requires
+            -- addr_range to be a power of two, so AND-masking the PRNG
+            -- bits with (addr_range-1) gives a uniform offset in
+            -- [0, addr_range) -- no multiplier or divider.  The offset
+            -- is transfer-aligned, then clamped so the full burst fits.
             prng_step <= '1';
-            v_max_blk := resize(unsigned(addr_range) / v_bsize, 64);
-            if v_max_blk = 0 then
-              v_max_blk := to_unsigned(1, 64);
+            v_off := unsigned(prng_data(GC_ADDR_WIDTH-1 downto 0))
+                     and (unsigned(addr_range) - 1);
+            v_off := v_off and
+                     (not to_unsigned(GC_DATA_BYTES-1, GC_ADDR_WIDTH));
+            if v_bsize <= unsigned(addr_range) and
+               v_off > unsigned(addr_range) - resize(v_bsize, GC_ADDR_WIDTH) then
+              v_off := (resize(unsigned(addr_range), GC_ADDR_WIDTH)
+                       - resize(v_bsize, GC_ADDR_WIDTH))
+                       and (not to_unsigned(GC_DATA_BYTES-1, GC_ADDR_WIDTH));
             end if;
-            v_rand_blk := resize(unsigned(prng_data) mod v_max_blk, 32);
-            v.cur_addr := unsigned(base_addr)
-              + resize(v_rand_blk * v_bsize, GC_ADDR_WIDTH);
+            v.cur_addr := unsigned(base_addr) + v_off;
           else
             -- Linear sweep with wrap
             if r.cur_addr + resize(v_bsize, GC_ADDR_WIDTH) >=
