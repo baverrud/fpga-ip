@@ -12,6 +12,7 @@ work/
 modelsim/
 vivado/
 sim/
+sim_simple/
 xsim/
 tmp/
 temp/
