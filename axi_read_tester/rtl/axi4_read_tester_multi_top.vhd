@@ -21,7 +21,8 @@ entity axi4_read_tester_multi_top is
     GC_ID_WIDTH       : positive := 6;
     GC_TIME_WIDTH     : positive := 48;
     GC_STAT_WIDTH     : positive := 48;
-    GC_SB_FIFO_DEPTH  : positive := 256
+    GC_SB_FIFO_DEPTH  : positive := 256;
+    GC_MAX_BURST      : positive := 256   -- max beats per burst: 256 (AXI4) / 16 (AXI3)
   );
   port (
     aclk    : in std_logic;
@@ -49,7 +50,10 @@ entity axi4_read_tester_multi_top is
     axilite_ctrl : view slave_axilite of axilite_m40_t;
 
     -- Diagnostic LED outputs
-    led : out std_logic_vector(4 downto 0)
+    led : out std_logic_vector(4 downto 0);
+
+    -- Pipeline busy outputs -- one per shim instance
+    pipeline_busy : out std_logic_vector(0 to 3)
   );
 end entity;
 
@@ -63,7 +67,8 @@ begin
       GC_ID_WIDTH      => GC_ID_WIDTH,
       GC_TIME_WIDTH    => GC_TIME_WIDTH,
       GC_STAT_WIDTH    => GC_STAT_WIDTH,
-      GC_SB_FIFO_DEPTH => GC_SB_FIFO_DEPTH
+      GC_SB_FIFO_DEPTH => GC_SB_FIFO_DEPTH,
+      GC_MAX_BURST     => GC_MAX_BURST
     )
     port map (
       aclk           => aclk,
@@ -81,7 +86,8 @@ begin
       r_2            => r_2,
       r_3            => r_3,
       axilite_ctrl   => axilite_ctrl,
-      led            => led
+      led          => led,
+      pipeline_busy => pipeline_busy
     );
 
 end architecture;

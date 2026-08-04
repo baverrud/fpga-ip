@@ -4,8 +4,7 @@
 --                   AXI4-Lite register interface via axilite_io.
 --                   Exposes AR and R as VHDL-2019 mode-view AXI4
 --                   interfaces.  All stat_* outputs and control inputs
---                   except enable_global/aperture/stat_rst/err_rst
---                   are connected to the axilite register bank.
+--                   except aperture/stat_rst/err_rst are connected to the axilite register bank.
 --Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 --
@@ -59,10 +58,11 @@
 --  [23] stat_rlast_errors
 --  [24] stat_resp_errors
 --  [25] stat_sb_underflow_errors
---  [26] pipeline_busy
---  [27] stat_max_outstanding
---  [28] stat_interbeat_gap_min
---  [29] stat_interbeat_gap_max
+--  [26] stat_max_outstanding
+--  [27] stat_interbeat_gap_min
+--  [28] stat_interbeat_gap_max
+--
+-- pipeline_busy is exposed as an output port (not readable via i_data).
 -- =====================================================================
 -----------------------------------------------------------------------
 library ieee;
@@ -83,21 +83,24 @@ entity axi4_read_tester_shim is
     GC_ID_WIDTH       : positive := 6;    -- matches axi4_hp_ar/r_t (5:0)
     GC_TIME_WIDTH     : positive := 48;
     GC_STAT_WIDTH     : positive := 48;   -- matches i_data split below (2 x 32-bit words)
-    GC_SB_FIFO_DEPTH  : positive := 256
+    GC_SB_FIFO_DEPTH  : positive := 256;
+    GC_MAX_BURST      : positive := 256   -- max beats per burst: 256 (AXI4) / 16 (AXI3)
   );
   port (
     aclk    : in  std_logic;
     aresetn : in  std_logic;
 
     -- Global across all testers
-    global_time   : in  std_logic_vector(GC_TIME_WIDTH-1 downto 0);
-    enable_global : in  std_logic;
+    global_time   : in  unsigned(GC_TIME_WIDTH-1 downto 0);
     aperture      : in  std_logic;
     stat_rst      : in  std_logic;
     err_rst       : in  std_logic;
 
     -- Diagnostic LED output (driven by o_data[17], bit 0)
     led : out std_logic;
+
+    -- Pipeline busy (scoreboard has entries or burst in-flight)
+    pipeline_busy : out std_logic;
 
     -- AXI4-Lite register interface (slave)
     -- axilite_m40_t provides 40-bit addresses; only lower 16 bits
@@ -138,7 +141,7 @@ architecture rtl of axi4_read_tester_shim is
   --------------------------------------------------------------------
   -- Register counts -- see header table for full register map.
   constant C_NUM_ODATA : natural := 32;
-  constant C_NUM_IDATA : natural := 34;
+  constant C_NUM_IDATA : natural := 29;
 
   signal o_data : t_slv32_array(0 to C_NUM_ODATA-1) := (others => (others => '0'));
   signal i_data : t_slv32_array(0 to C_NUM_IDATA-1) := (others => (others => '0'));
@@ -147,7 +150,7 @@ architecture rtl of axi4_read_tester_shim is
   -- Control signals (decoded from o_data registers)
   --------------------------------------------------------------------
   signal enable_local     : std_logic;
-  signal enable_effective : std_logic;
+
   signal addr_mode    : std_logic;
   signal arid         : std_logic_vector(GC_ID_WIDTH-1 downto 0);
   signal burst_length : std_logic_vector(31 downto 0);
@@ -200,7 +203,6 @@ architecture rtl of axi4_read_tester_shim is
   signal stat_ar_issued           : std_logic_vector(31 downto 0);
   signal stat_cfg_errors          : std_logic_vector(31 downto 0);
   signal stat_elapsed_cycles      : std_logic_vector(31 downto 0);
-  signal pipeline_busy       : std_logic;
   signal stat_max_outstanding     : std_logic_vector(31 downto 0);
   signal stat_data_errors         : std_logic_vector(31 downto 0);
   signal stat_id_errors           : std_logic_vector(31 downto 0);
@@ -315,12 +317,9 @@ begin
   i_data(23) <= stat_rlast_errors;
   i_data(24) <= stat_resp_errors;
   i_data(25) <= stat_sb_underflow_errors;
-  i_data(26) <= (0 => pipeline_busy, others => '0');
-  i_data(27) <= stat_max_outstanding;
-  i_data(28) <= stat_interbeat_gap_min;
-  i_data(29) <= stat_interbeat_gap_max;
-
-  enable_effective <= enable_local and enable_global;
+  i_data(26) <= stat_max_outstanding;
+  i_data(27) <= stat_interbeat_gap_min;
+  i_data(28) <= stat_interbeat_gap_max;
 
   --------------------------------------------------------------------
   -- axi_read_tester instantiation
@@ -332,7 +331,8 @@ begin
       GC_ID_WIDTH      => GC_ID_WIDTH,
       GC_TIME_WIDTH    => GC_TIME_WIDTH,
       GC_STAT_WIDTH    => GC_STAT_WIDTH,
-      GC_SB_FIFO_DEPTH => GC_SB_FIFO_DEPTH
+      GC_SB_FIFO_DEPTH => GC_SB_FIFO_DEPTH,
+      GC_MAX_BURST     => GC_MAX_BURST
     )
     port map (
       -- Clock / reset
@@ -341,7 +341,7 @@ begin
       global_time             => global_time,
 
       -- Tester control (direct top-level pass-through)
-      enable_local            => enable_effective, -- o_data[0] and enable_global
+      enable_local            => enable_local, -- o_data[0]
       aperture                => aperture,
       stat_rst                => stat_rst,
       err_rst                 => err_rst,
@@ -380,15 +380,15 @@ begin
       stat_first_latency_min  => stat_first_latency_min,    -- i_data[10..11]
       stat_first_latency_max  => stat_first_latency_max,    -- i_data[12..13]
       stat_interbeat_gap_sum  => stat_interbeat_gap_sum,    -- i_data[14..15]
-      stat_interbeat_gap_min  => stat_interbeat_gap_min,    -- i_data[28]
-      stat_interbeat_gap_max  => stat_interbeat_gap_max,    -- i_data[29]
+      stat_interbeat_gap_min  => stat_interbeat_gap_min,    -- i_data[27]
+      stat_interbeat_gap_max  => stat_interbeat_gap_max,    -- i_data[28]
       stat_ar_backpressure    => stat_ar_backpressure,      -- i_data[16]
       stat_sb_backpressure    => stat_sb_backpressure,      -- i_data[17]
       stat_ar_issued          => stat_ar_issued,            -- i_data[18]
       stat_cfg_errors         => stat_cfg_errors,           -- i_data[19]
       stat_elapsed_cycles     => stat_elapsed_cycles,       -- i_data[20]
-      pipeline_busy      => pipeline_busy,        -- i_data[26]
-      stat_max_outstanding    => stat_max_outstanding,      -- i_data[27]
+      pipeline_busy      => pipeline_busy,        -- output port
+      stat_max_outstanding    => stat_max_outstanding,      -- i_data[26]
       stat_data_errors        => stat_data_errors,          -- i_data[21]
       stat_id_errors          => stat_id_errors,            -- i_data[22]
       stat_rlast_errors       => stat_rlast_errors,         -- i_data[23]

@@ -31,7 +31,7 @@ architecture sim of axi_read_tester_tb is
   signal aclk          : std_logic := '0';
   signal aresetn       : std_logic := '0';
   signal sim_done      : boolean   := false;
-  signal global_time   : std_logic_vector(C_TIME_WIDTH-1 downto 0) := (others => '0');
+  signal global_time   : unsigned(C_TIME_WIDTH-1 downto 0) := (others => '0');
 
   -- Tester control
   signal enable_local  : std_logic := '0';
@@ -143,7 +143,7 @@ begin
   p_global_time : process(aclk)
   begin
     if rising_edge(aclk) and aresetn = '1' then
-      global_time <= std_logic_vector(unsigned(global_time) + 1);
+      global_time <= global_time + 1;
     end if;
   end process;
 

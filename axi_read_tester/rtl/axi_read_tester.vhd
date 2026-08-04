@@ -25,7 +25,7 @@ entity axi_read_tester is
     aclk    : in  std_logic;
     aresetn : in  std_logic;
 
-    global_time : in  std_logic_vector(GC_TIME_WIDTH-1 downto 0);
+    global_time : in  unsigned(GC_TIME_WIDTH-1 downto 0);
 
     enable_local  : in  std_logic;
     aperture      : in  std_logic;
@@ -222,14 +222,14 @@ begin
 
   ---------------------------------------------------------------------
   -- Max-outstanding tracker -- records peak fifo_count across stat
-  -- measurement windows.  Cleared by stat_rst.
+  -- measurement windows.  Cleared by aresetn and stat_rst.
   ---------------------------------------------------------------------
   max_out_in <= sb_fifo_count when sb_fifo_count > max_out_r else max_out_r;
 
   p_max_out : process(aclk)
   begin
     if rising_edge(aclk) then
-      if stat_rst = '1' then
+      if aresetn = '0' or stat_rst = '1' then
         max_out_r <= (others => '0');
       else
         max_out_r <= max_out_in;

@@ -30,12 +30,12 @@ architecture sim of axi_read_tester_reg_tb is
   signal rst_n    : std_logic := '0';
   signal sim_done : boolean := false;
 
-  signal global_time : unsigned(C_TIME_WIDTH-1 downto 0) := (others => '0');
-  signal enable_global : std_logic := '0';
+  signal global_time   : unsigned(C_TIME_WIDTH-1 downto 0) := (others => '0');
   signal aperture      : std_logic := '0';
   signal stat_rst      : std_logic := '0';
   signal err_rst       : std_logic := '0';
   signal led           : std_logic;
+  signal pipeline_busy : std_logic;
 
   -- Flat AXI4-Lite slave interface.
   signal axilite_awaddr  : std_logic_vector(39 downto 0) := (others => '0');
@@ -106,17 +106,18 @@ begin
       GC_ID_WIDTH      => C_ID_WIDTH,
       GC_TIME_WIDTH    => C_TIME_WIDTH,
       GC_STAT_WIDTH    => 48,
-      GC_SB_FIFO_DEPTH => 256
+      GC_SB_FIFO_DEPTH => 256,
+      GC_MAX_BURST     => 256
     )
     port map (
       aclk           => clk,
       aresetn        => rst_n,
-      global_time    => std_logic_vector(global_time),
-      enable_global  => enable_global,
+      global_time    => global_time,
       aperture       => aperture,
       stat_rst       => stat_rst,
       err_rst        => err_rst,
       led            => led,
+      pipeline_busy  => pipeline_busy,
       axilite_awaddr  => axilite_awaddr,
       axilite_awprot  => axilite_awprot,
       axilite_awvalid => axilite_awvalid,
@@ -241,37 +242,31 @@ begin
     write_reg(6, x"00001000");
     write_reg(8, x"00010000");
 
-    enable_global <= '1';
     aperture      <= '1';
     wait_cycles(clk, C_RUN_CYCLES);
 
-    read_reg(i_data_addr(1), data);
-    assert data(0) = '1'
-      report "aperture readback was not asserted during the run"
-      severity error;
+    -- aperture is an input only; no readback register.
 
-    enable_global <= '0';
     aperture      <= '0';
     wait_cycles(clk, C_DRAIN_CYCLES);
 
-    read_reg(i_data_addr(0), data);
-    assert data(0) = '0'
+    assert pipeline_busy = '0'
       report "pipeline_busy did not clear after the drain window"
       severity error;
 
-    read_reg(i_data_addr(2), data);
+    read_reg(i_data_addr(0), data);
     xactions := to_integer(unsigned(data));
     assert xactions > 0
       report "no read transactions were observed"
       severity error;
 
-    read_reg(i_data_addr(3), data);
+    read_reg(i_data_addr(1), data);
     beats := to_integer(unsigned(data));
     assert beats > xactions
       report "read beat count did not exceed transaction count"
       severity error;
 
-    for index in 23 to 27 loop
+    for index in 21 to 25 loop
       read_reg(i_data_addr(index), data);
       assert data = x"00000000"
         report "an AXI read error counter was non-zero"

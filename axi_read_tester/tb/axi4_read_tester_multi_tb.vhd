@@ -32,6 +32,7 @@ architecture sim of axi4_read_tester_multi_tb is
   signal sim_done : boolean := false;
 
   signal led : std_logic_vector(4 downto 0);
+  signal pipeline_busy : std_logic_vector(0 to 3);
 
   -- AXI4-Lite buses -- one per shim instance
   signal axilite_0 : axilite_m40_t;
@@ -85,7 +86,8 @@ begin
       GC_DATA_BYTES    => C_DATA_BYTES,
       GC_ADDR_WIDTH    => C_ADDR_WIDTH,
       GC_ID_WIDTH      => C_ID_WIDTH,
-      GC_SB_FIFO_DEPTH => 256
+      GC_SB_FIFO_DEPTH => 256,
+      GC_MAX_BURST     => 256
     )
     port map (
       aclk         => clk,
@@ -103,7 +105,8 @@ begin
       r_2          => r_2,
       r_3          => r_3,
       axilite_ctrl => axilite_ctrl,
-      led          => led
+      led          => led,
+      pipeline_busy => pipeline_busy
     );
 
   --------------------------------------------------------------------
@@ -280,9 +283,8 @@ begin
     write(l, string'("=== T1: Multi-shim enable and LED test ==="));
     writeline(output, l);
 
-    -- enable_global = 1, aperture = 1 (o_data[0], o_data[1])
+    -- aperture = 1 (o_data[0])
     axi_wr_ctrl(0, u32(1));
-    axi_wr_ctrl(1, u32(1));
     wait_cycles(2);
 
     if led(4) = '0' then
@@ -290,8 +292,8 @@ begin
       writeline(output, l);
     end if;
 
-    -- Write extra LED via o_data[4]
-    axi_wr_ctrl(4, u32(1));
+    -- Write extra LED via o_data[3]
+    axi_wr_ctrl(3, u32(1));
     wait_cycles(2);
     if led(4) = '1' then
       write(l, string'("  PASS: led(4) on (software)"));
@@ -299,7 +301,6 @@ begin
     end if;
 
     axi_wr_ctrl(0, u32(0));
-    axi_wr_ctrl(1, u32(0));
 
     ------------------------------------------------------------------
     -- Test 2: Configure shim 0 and run a short burst
@@ -307,9 +308,8 @@ begin
     write(l, string'("=== T2: Shim 0 burst test ==="));
     writeline(output, l);
 
-    -- enable_global, aperture
+    -- aperture = 1
     axi_wr_ctrl(0, u32(1));
-    axi_wr_ctrl(1, u32(1));
 
     -- Configure shim 0: enable_local=1, arid=1, burst_length=8,
     --   pace=0, base_addr=0x00001000, addr_range=0x00004000
@@ -326,7 +326,6 @@ begin
 
     -- Disable
     axi_wr_ctrl(0, u32(0));
-    axi_wr_ctrl(1, u32(0));
     wait_cycles(C_DRAIN);
 
     write(l, string'("  PASS: burst test completed"));

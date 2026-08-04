@@ -4,8 +4,7 @@
 --                   VHDL-2019 generate with individual scalar mode-view
 --                   ports per instance. An extra axilite_ctrl port
 --                   drives an axilite_io register bank for multi-
---                   level control (enable_global, aperture, stat_rst,
---                   err_rst).
+--                   level control (aperture, stat_rst, err_rst).
 --                   Some simulators do not support mode views on array
 --                   types, so each instance gets dedicated ports.
 --Author           : Rune Baeverrud
@@ -25,7 +24,8 @@ entity axi4_read_tester_multi is
     GC_ID_WIDTH       : positive := 6;
     GC_TIME_WIDTH     : positive := 48;
     GC_STAT_WIDTH     : positive := 48;
-    GC_SB_FIFO_DEPTH  : positive := 256
+    GC_SB_FIFO_DEPTH  : positive := 256;
+    GC_MAX_BURST      : positive := 256   -- max beats per burst: 256 (AXI4) / 16 (AXI3)
   );
   port (
     aclk    : in std_logic;
@@ -56,24 +56,26 @@ entity axi4_read_tester_multi is
     r_3 : view master_r of axi4_hp_r_t;
 
     -- Extra AXI4-Lite register interface for multi-level control
-    -- (drives enable_global, aperture, stat_rst, err_rst)
+    -- (drives aperture, stat_rst, err_rst)
     axilite_ctrl : view slave_axilite of axilite_m40_t;
 
     -- Diagnostic LED outputs
     --   led(3:0) = per-shim-instance LEDs
-    --   led(4)   = software-controlled via o_data(2)(0)
-    led : out std_logic_vector(4 downto 0)
+    --   led(4)   = software-controlled via o_data(3)(0)
+    led : out std_logic_vector(4 downto 0);
+
+    -- Pipeline busy outputs -- one per shim instance
+    pipeline_busy : out std_logic_vector(0 to 3)
   );
 end entity;
 
 architecture rtl of axi4_read_tester_multi is
 
   constant C_NUM_INSTANCES : natural := 4;
-  constant C_NUM_ODATA     : natural := 5;   -- o_data[0..4]: one function per register
+  constant C_NUM_ODATA     : natural := 4;   -- o_data[0..3]: one function per register
   constant C_NUM_IDATA     : natural := 2;   -- i_data[0..1] for status readback
 
-  signal global_time   : std_logic_vector(GC_TIME_WIDTH-1 downto 0) := (others => '0');
-  signal enable_global : std_logic;
+  signal global_time   : unsigned(GC_TIME_WIDTH-1 downto 0) := (others => '0');
   signal aperture      : std_logic;
   signal stat_rst      : std_logic;
   signal err_rst       : std_logic;
@@ -82,6 +84,7 @@ architecture rtl of axi4_read_tester_multi is
   signal i_data : t_slv32_array(0 to C_NUM_IDATA-1) := (others => (others => '0'));
 
   signal led_int : std_logic_vector(0 to C_NUM_INSTANCES-1);
+  signal pipeline_busy_int : std_logic_vector(0 to C_NUM_INSTANCES-1);
 
   -- AXI bus arrays for internal generate wiring
   signal axilite : axilite_m40_array_t(0 to C_NUM_INSTANCES-1);
@@ -94,21 +97,19 @@ begin
   -- Multi-level control: axilite_io register bank on axilite_ctrl
   --
   -- Register map (one function per register):
-  --   o_data[0]  : enable_global
-  --   o_data[1]  : aperture
-  --   o_data[2]  : stat_rst
-  --   o_data[3]  : err_rst
-  --   o_data[4]  : extra LED (led(4))
+  --   o_data[0]  : aperture
+  --   o_data[1]  : stat_rst
+  --   o_data[2]  : err_rst
+  --   o_data[3]  : extra LED (led(4))
   --   i_data[0]  : global_time[31:0]
   --   i_data[1]  : global_time[47:32]
   --------------------------------------------------------------------
-  enable_global <= o_data(0)(0);
-  aperture      <= o_data(1)(0);
-  stat_rst      <= o_data(2)(0);
-  err_rst       <= o_data(3)(0);
+  aperture      <= o_data(0)(0);
+  stat_rst      <= o_data(1)(0);
+  err_rst       <= o_data(2)(0);
 
-  i_data(0) <= global_time(31 downto 0);
-  i_data(1) <= (15 downto 0 => '0') & global_time(47 downto 32);
+  i_data(0) <= std_logic_vector(global_time(31 downto 0));
+  i_data(1) <= std_logic_vector(resize(global_time(47 downto 32), 32));
 
   u_ctrl_io : entity work.axilite_io
     generic map (
@@ -167,10 +168,12 @@ begin
 
   --------------------------------------------------------------------
   -- LED output mapping
+  --   led(4)   = software-controlled via o_data(3)(0)
   --   led(3:0) = per-shim-instance diagnostic LEDs
-  --   led(4)   = software-controlled via o_data(4)(0)
   --------------------------------------------------------------------
-  led <= led_int & o_data(4)(0);
+  led <= o_data(3)(0) & led_int;
+
+  pipeline_busy <= pipeline_busy_int;
 
   --------------------------------------------------------------------
   -- Global time counter
@@ -181,7 +184,7 @@ begin
       if aresetn = '0' then
         global_time <= (others => '0');
       else
-        global_time <= std_logic_vector(unsigned(global_time) + 1);
+        global_time <= global_time + 1;
       end if;
     end if;
   end process;
@@ -199,20 +202,21 @@ begin
         GC_ID_WIDTH      => GC_ID_WIDTH,
         GC_TIME_WIDTH    => GC_TIME_WIDTH,
         GC_STAT_WIDTH    => GC_STAT_WIDTH,
-        GC_SB_FIFO_DEPTH => GC_SB_FIFO_DEPTH
+        GC_SB_FIFO_DEPTH => GC_SB_FIFO_DEPTH,
+        GC_MAX_BURST     => GC_MAX_BURST
       )
       port map (
         aclk           => aclk,
         aresetn        => aresetn,
         global_time    => global_time,
-        enable_global  => enable_global,
         aperture       => aperture,
         stat_rst       => stat_rst,
         err_rst        => err_rst,
         axilite        => axilite(i),
         ar             => ar(i),
         r              => r(i),
-        led            => led_int(i)
+        led            => led_int(i),
+        pipeline_busy  => pipeline_busy_int(i)
       );
 
   end generate;

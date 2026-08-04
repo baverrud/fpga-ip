@@ -27,7 +27,7 @@ entity axi_read_tester_ar_gen is
   port (
     aclk        : in  std_logic;
     aresetn     : in  std_logic;
-    global_time : in  std_logic_vector(GC_TIME_WIDTH-1 downto 0);
+    global_time : in  unsigned(GC_TIME_WIDTH-1 downto 0);
 
     enable_local  : in  std_logic;
     aperture      : in  std_logic;
@@ -271,7 +271,7 @@ begin
         sb_tdata(C_ADDR_HIGH downto C_ADDR_LOW) <=
           std_logic_vector(r.cur_addr);
         sb_tdata(C_ID_HIGH downto C_ID_LOW) <= arid;
-        sb_tdata(C_TS_HIGH downto C_TS_LOW) <= global_time;
+        sb_tdata(C_TS_HIGH downto C_TS_LOW) <= std_logic_vector(global_time);
         sb_tdata(C_BEATS_HIGH downto C_BEATS_LOW) <=
           std_logic_vector(r.blen);
         sb_tvalid <= '1';

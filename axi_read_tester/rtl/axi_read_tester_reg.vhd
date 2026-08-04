@@ -31,37 +31,37 @@
 --  [17]  led (bit 0) - diagnostic GPIO
 --
 -- i_data (read-only) - GC_STAT_WIDTH <= 63 -> max 2 words per wide signal:
---  [0]  pipeline_busy
---  [1]  aperture
---  [2]  stat_xactions
---  [3]  stat_beats
---  [4]  stat_latency_sum (lo)
---  [5]  stat_latency_sum (hi)
---  [6]  stat_latency_min (lo)
---  [7]  stat_latency_min (hi)
---  [8]  stat_latency_max (lo)
---  [9]  stat_latency_max (hi)
---  [10] stat_first_latency_sum (lo)
---  [11] stat_first_latency_sum (hi)
---  [12] stat_first_latency_min (lo)
---  [13] stat_first_latency_min (hi)
---  [14] stat_first_latency_max (lo)
---  [15] stat_first_latency_max (hi)
---  [16] stat_interbeat_gap_sum (lo)
---  [17] stat_interbeat_gap_sum (hi)
---  [18] stat_ar_backpressure
---  [19] stat_sb_backpressure
---  [20] stat_ar_issued
---  [21] stat_cfg_errors
---  [22] stat_elapsed_cycles
---  [23] stat_data_errors
---  [24] stat_id_errors
---  [25] stat_rlast_errors
---  [26] stat_resp_errors
---  [27] stat_sb_underflow_errors
---  [28] stat_max_outstanding
---  [29] stat_interbeat_gap_min
---  [30] stat_interbeat_gap_max
+--  [0]  stat_xactions
+--  [1]  stat_beats
+--  [2]  stat_latency_sum (lo)
+--  [3]  stat_latency_sum (hi)
+--  [4]  stat_latency_min (lo)
+--  [5]  stat_latency_min (hi)
+--  [6]  stat_latency_max (lo)
+--  [7]  stat_latency_max (hi)
+--  [8]  stat_first_latency_sum (lo)
+--  [9]  stat_first_latency_sum (hi)
+--  [10] stat_first_latency_min (lo)
+--  [11] stat_first_latency_min (hi)
+--  [12] stat_first_latency_max (lo)
+--  [13] stat_first_latency_max (hi)
+--  [14] stat_interbeat_gap_sum (lo)
+--  [15] stat_interbeat_gap_sum (hi)
+--  [16] stat_ar_backpressure
+--  [17] stat_sb_backpressure
+--  [18] stat_ar_issued
+--  [19] stat_cfg_errors
+--  [20] stat_elapsed_cycles
+--  [21] stat_data_errors
+--  [22] stat_id_errors
+--  [23] stat_rlast_errors
+--  [24] stat_resp_errors
+--  [25] stat_sb_underflow_errors
+--  [26] stat_max_outstanding
+--  [27] stat_interbeat_gap_min
+--  [28] stat_interbeat_gap_max
+--
+-- pipeline_busy is exposed as an output port (not readable via i_data).
 -- =====================================================================
 -----------------------------------------------------------------------
 library ieee;
@@ -76,21 +76,24 @@ entity axi_read_tester_reg is
     GC_ID_WIDTH       : positive := 6;    -- matches axi4_hp_ar/r_t (5:0)
     GC_TIME_WIDTH     : positive := 48;
     GC_STAT_WIDTH     : positive := 48;   -- matches i_data split below (2 x 32-bit words)
-    GC_SB_FIFO_DEPTH  : positive := 256
+    GC_SB_FIFO_DEPTH  : positive := 256;
+    GC_MAX_BURST      : positive := 256   -- max beats per burst: 256 (AXI4) / 16 (AXI3)
   );
   port (
     aclk    : in std_logic;
     aresetn : in std_logic;
 
     -- Global across all testers
-    global_time   : in std_logic_vector(GC_TIME_WIDTH-1 downto 0);
-    enable_global : in std_logic;
+    global_time   : in unsigned(GC_TIME_WIDTH-1 downto 0);
     aperture      : in std_logic;
     stat_rst      : in std_logic;
     err_rst       : in std_logic;
 
     -- Diagnostic LED output (driven by o_data[17], bit 0)
     led : out std_logic;
+
+    -- Pipeline busy (scoreboard has entries or burst in-flight)
+    pipeline_busy : out std_logic;
 
     -- AXI4-Lite register interface (slave)
     axilite_awaddr  : in  std_logic_vector(39 downto 0);
@@ -154,13 +157,12 @@ architecture rtl of axi_read_tester_reg is
   end function;
 
   constant C_NUM_ODATA : natural := 32;
-  constant C_NUM_IDATA : natural := 34;
+  constant C_NUM_IDATA : natural := 29;
 
   signal o_data : t_slv32_array(0 to C_NUM_ODATA-1) := (others => (others => '0'));
   signal i_data : t_slv32_array(0 to C_NUM_IDATA-1) := (others => (others => '0'));
 
   signal enable_local     : std_logic;
-  signal enable_effective : std_logic;
   signal addr_mode        : std_logic;
   signal arid             : std_logic_vector(GC_ID_WIDTH-1 downto 0);
   signal burst_length     : std_logic_vector(31 downto 0);
@@ -176,8 +178,6 @@ architecture rtl of axi_read_tester_reg is
   signal ar_qos_reg       : std_logic_vector(3 downto 0);
   signal ar_region_reg    : std_logic_vector(3 downto 0);
   signal ar_user_reg      : std_logic_vector(0 downto 0);
-
-  signal pipeline_busy            : std_logic;
 
   signal stat_xactions            : std_logic_vector(31 downto 0);
   signal stat_beats               : std_logic_vector(31 downto 0);
@@ -264,40 +264,35 @@ begin
 
   led <= o_data(17)(0);
 
-  i_data(0) <= (0 => pipeline_busy, others => '0');
-  i_data(1) <= (0 => aperture, others => '0');
-
-  i_data(2)  <= stat_xactions;
-  i_data(3)  <= stat_beats;
-  i_data(4)  <= stat_latency_sum(31 downto 0);
-  i_data(5)  <= word32(stat_latency_sum, 1);
-  i_data(6)  <= stat_latency_min(31 downto 0);
-  i_data(7)  <= word32(stat_latency_min, 1);
-  i_data(8)  <= stat_latency_max(31 downto 0);
-  i_data(9)  <= word32(stat_latency_max, 1);
-  i_data(10) <= stat_first_latency_sum(31 downto 0);
-  i_data(11) <= word32(stat_first_latency_sum, 1);
-  i_data(12) <= stat_first_latency_min(31 downto 0);
-  i_data(13) <= word32(stat_first_latency_min, 1);
-  i_data(14) <= stat_first_latency_max(31 downto 0);
-  i_data(15) <= word32(stat_first_latency_max, 1);
-  i_data(16) <= stat_interbeat_gap_sum(31 downto 0);
-  i_data(17) <= word32(stat_interbeat_gap_sum, 1);
-  i_data(18) <= stat_ar_backpressure;
-  i_data(19) <= stat_sb_backpressure;
-  i_data(20) <= stat_ar_issued;
-  i_data(21) <= stat_cfg_errors;
-  i_data(22) <= stat_elapsed_cycles;
-  i_data(23) <= stat_data_errors;
-  i_data(24) <= stat_id_errors;
-  i_data(25) <= stat_rlast_errors;
-  i_data(26) <= stat_resp_errors;
-  i_data(27) <= stat_sb_underflow_errors;
-  i_data(28) <= stat_max_outstanding;
-  i_data(29) <= stat_interbeat_gap_min;
-  i_data(30) <= stat_interbeat_gap_max;
-
-  enable_effective <= enable_local and enable_global;
+  i_data(0)  <= stat_xactions;
+  i_data(1)  <= stat_beats;
+  i_data(2)  <= stat_latency_sum(31 downto 0);
+  i_data(3)  <= word32(stat_latency_sum, 1);
+  i_data(4)  <= stat_latency_min(31 downto 0);
+  i_data(5)  <= word32(stat_latency_min, 1);
+  i_data(6)  <= stat_latency_max(31 downto 0);
+  i_data(7)  <= word32(stat_latency_max, 1);
+  i_data(8)  <= stat_first_latency_sum(31 downto 0);
+  i_data(9)  <= word32(stat_first_latency_sum, 1);
+  i_data(10) <= stat_first_latency_min(31 downto 0);
+  i_data(11) <= word32(stat_first_latency_min, 1);
+  i_data(12) <= stat_first_latency_max(31 downto 0);
+  i_data(13) <= word32(stat_first_latency_max, 1);
+  i_data(14) <= stat_interbeat_gap_sum(31 downto 0);
+  i_data(15) <= word32(stat_interbeat_gap_sum, 1);
+  i_data(16) <= stat_ar_backpressure;
+  i_data(17) <= stat_sb_backpressure;
+  i_data(18) <= stat_ar_issued;
+  i_data(19) <= stat_cfg_errors;
+  i_data(20) <= stat_elapsed_cycles;
+  i_data(21) <= stat_data_errors;
+  i_data(22) <= stat_id_errors;
+  i_data(23) <= stat_rlast_errors;
+  i_data(24) <= stat_resp_errors;
+  i_data(25) <= stat_sb_underflow_errors;
+  i_data(26) <= stat_max_outstanding;
+  i_data(27) <= stat_interbeat_gap_min;
+  i_data(28) <= stat_interbeat_gap_max;
 
   u_tester : entity work.axi_read_tester
     generic map (
@@ -306,13 +301,14 @@ begin
       GC_ID_WIDTH      => GC_ID_WIDTH,
       GC_TIME_WIDTH    => GC_TIME_WIDTH,
       GC_STAT_WIDTH    => GC_STAT_WIDTH,
-      GC_SB_FIFO_DEPTH => GC_SB_FIFO_DEPTH
+      GC_SB_FIFO_DEPTH => GC_SB_FIFO_DEPTH,
+      GC_MAX_BURST     => GC_MAX_BURST
     )
     port map (
       aclk                    => aclk,
       aresetn                 => aresetn,
       global_time             => global_time,
-      enable_local            => enable_effective,
+      enable_local            => enable_local,
       aperture                => aperture,
       stat_rst                => stat_rst,
       err_rst                 => err_rst,

@@ -21,21 +21,24 @@ entity axi4_read_tester_shim_top is
     GC_ID_WIDTH       : positive := 6;
     GC_TIME_WIDTH     : positive := 48;
     GC_STAT_WIDTH     : positive := 48;
-    GC_SB_FIFO_DEPTH  : positive := 256
+    GC_SB_FIFO_DEPTH  : positive := 256;
+    GC_MAX_BURST      : positive := 256   -- max beats per burst: 256 (AXI4) / 16 (AXI3)
   );
   port (
     aclk    : in  std_logic;
     aresetn : in  std_logic;
 
     -- Global time (drive from a free-running counter in the design)
-    global_time   : in  std_logic_vector(GC_TIME_WIDTH-1 downto 0);
-    enable_global : in  std_logic;
+    global_time   : in  unsigned(GC_TIME_WIDTH-1 downto 0);
     aperture      : in  std_logic;
     stat_rst      : in  std_logic;
     err_rst       : in  std_logic;
 
     -- Diagnostic LED
     led : out std_logic;
+
+    -- Pipeline busy (scoreboard has entries or burst in-flight)
+    pipeline_busy : out std_logic;
 
     -- AXI4-Lite register interface (slave -- connect to PS or AXI interconnect)
     axilite : view slave_axilite of axilite_m40_t;
@@ -58,20 +61,21 @@ begin
       GC_ID_WIDTH      => GC_ID_WIDTH,
       GC_TIME_WIDTH    => GC_TIME_WIDTH,
       GC_STAT_WIDTH    => GC_STAT_WIDTH,
-      GC_SB_FIFO_DEPTH => GC_SB_FIFO_DEPTH
+      GC_SB_FIFO_DEPTH => GC_SB_FIFO_DEPTH,
+      GC_MAX_BURST     => GC_MAX_BURST
     )
     port map (
       aclk           => aclk,
       aresetn        => aresetn,
       global_time    => global_time,
-      enable_global  => enable_global,
       aperture       => aperture,
       stat_rst       => stat_rst,
       err_rst        => err_rst,
       axilite        => axilite,
       ar             => ar,
       r              => r,
-      led            => led
+      led            => led,
+      pipeline_busy  => pipeline_busy
     );
 
 end architecture;

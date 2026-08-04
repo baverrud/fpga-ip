@@ -34,11 +34,11 @@ architecture sim of axi4_read_tester_shim_tb is
   signal sim_done  : boolean   := false;
   signal global_time : unsigned(C_TIME_WIDTH-1 downto 0) := (others => '0');
 
-  signal enable_global : std_logic := '0';
   signal aperture      : std_logic := '0';
   signal stat_rst      : std_logic := '0';
   signal err_rst       : std_logic := '0';
   signal led           : std_logic;
+  signal pipeline_busy : std_logic;
 
   signal axilite : axilite_m40_t;
   signal ar : axi4_hp_ar_t;
@@ -93,20 +93,21 @@ begin
       GC_ID_WIDTH      => C_ID_WIDTH,
       GC_TIME_WIDTH    => C_TIME_WIDTH,
       GC_STAT_WIDTH    => C_STAT_WIDTH,
-      GC_SB_FIFO_DEPTH => 256
+      GC_SB_FIFO_DEPTH => 256,
+      GC_MAX_BURST     => 256
     )
     port map (
       aclk           => clk,
       aresetn        => rst_n,
-      global_time    => std_logic_vector(global_time),
-      enable_global  => enable_global,
+      global_time    => global_time,
       aperture       => aperture,
       stat_rst       => stat_rst,
       err_rst        => err_rst,
       axilite        => axilite,
       ar             => ar,
       r              => r,
-      led            => led
+      led            => led,
+      pipeline_busy  => pipeline_busy
     );
 
   --------------------------------------------------------------------
@@ -237,7 +238,7 @@ begin
 
     -- Now try reading all stat counters
     v_all_pass := true;
-    for i in 0 to 29 loop
+    for i in 0 to 28 loop
       axi_rd(i, v_data);
       -- stat_*_min fields reset to all ones; elapsed_cycles is expected
       -- to advance while the tester is out of reset.
@@ -261,7 +262,7 @@ begin
           writeline(output, l);
           v_all_pass := false;
         end if;
-      elsif i = 28 then
+      elsif i = 27 then
         if v_data /= X"FFFFFFFF" then
           write(l, string'("  FAIL: i_data["));
           write(l, i);
@@ -290,19 +291,6 @@ begin
       v_failed := true;
     end if;
 
-    -- Global enable must gate a locally enabled tester.
-    aperture <= '1';
-    wait_cycles(20);
-    aperture <= '0';
-    axi_rd(0, v_data);
-    if v_data = u32(0) then
-      write(l, string'("  PASS: enable_global gates local traffic"));
-    else
-      write(l, string'("  FAIL: enable_global did not gate traffic"));
-      v_failed := true;
-    end if;
-    writeline(output, l);
-
     ------------------------------------------------------------------
     -- Test 2: Configure and run 16-beat bursts
     ------------------------------------------------------------------
@@ -320,7 +308,6 @@ begin
     axi_wr(9, u32(0));
 
     -- Enable and run
-    enable_global <= '1';
     aperture <= '1';
     wait_cycles(400);
     aperture <= '0';
@@ -354,13 +341,12 @@ begin
     writeline(output, l);
 
     -- Read max outstanding
-    axi_rd(27, v_data);
+    axi_rd(26, v_data);
     write(l, string'("  max_outstanding="));
     write(l, to_integer(unsigned(v_data)));
     writeline(output, l);
 
     -- Disable and reset between tests
-    enable_global <= '0';
     rst_n <= '0';
     wait_cycles(10);
     rst_n <= '1';
@@ -376,7 +362,6 @@ begin
     axi_wr(0, u32(1));     -- enable_local = 1
     axi_wr(3, u32(8));     -- burst_length = 8
     axi_wr(6, u32(16#00002000#));
-    enable_global <= '1';
     aperture <= '1';
     wait_cycles(200);
     aperture <= '0';
@@ -389,7 +374,6 @@ begin
     writeline(output, l);
 
     -- Quiesce traffic before stat reset verification.
-    enable_global <= '0';
     aperture      <= '0';
     axi_wr(0, u32(0));
     wait_cycles(C_DRAIN);
@@ -411,7 +395,6 @@ begin
     writeline(output, l);
 
     -- Disable
-    enable_global <= '0';
     rst_n <= '0';
     wait_cycles(10);
     rst_n <= '1';

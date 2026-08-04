@@ -25,7 +25,7 @@ entity axi_read_tester_r_mon is
   port (
     aclk        : in  std_logic;
     aresetn     : in  std_logic;
-    global_time : in  std_logic_vector(GC_TIME_WIDTH-1 downto 0);
+    global_time : in  unsigned(GC_TIME_WIDTH-1 downto 0);
 
     stat_rst     : in  std_logic;
     err_rst      : in  std_logic;
@@ -345,7 +345,7 @@ begin
         ------------------------------------------------------------------
         if v_gate = '1' then
           if v.burst_beats = 0 then
-            v_latency := unsigned(global_time) - v.ts_ar;
+            v_latency := global_time - v.ts_ar;
             v.latency_sum := r.latency_sum + v_latency;
 
             if v_latency < r.latency_min then
@@ -356,7 +356,7 @@ begin
             end if;
           end if;
 
-          v_gap := unsigned(global_time) - r.ts_prev_beat;
+          v_gap := global_time - r.ts_prev_beat;
           if v.beat_idx > 1 then
             v.interbeat_gap_sum := r.interbeat_gap_sum + v_gap;
             if v_gap < r.interbeat_gap_min then
@@ -368,7 +368,7 @@ begin
           end if;
 
           if v.beat_idx = 1 and v.latency_started = '1' then
-            v_latency := unsigned(global_time) - v.ts_ar;
+            v_latency := global_time - v.ts_ar;
             v.first_lat_sum := r.first_lat_sum + v_latency;
 
             if v_latency < r.first_lat_min then
@@ -380,7 +380,7 @@ begin
           end if;
         end if;
 
-        v.ts_prev_beat := unsigned(global_time);
+        v.ts_prev_beat := global_time;
 
         -- Transaction completed -- count it and clear latency flag
         if v.burst_beats = 0 then
