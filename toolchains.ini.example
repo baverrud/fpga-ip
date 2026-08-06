@@ -32,3 +32,7 @@ setup = <command-that-activates-vivado>
 ;
 ; [toolchain.xsim.2025.2]
 ; setup = <command-for-vivado-2025.2>
+
+; Commands then select the version-qualified setup, for example:
+;   run axis_fifo vhdl vivado --version 2025.2
+;   run axis_fifo vhdl xsim --version 2025.2

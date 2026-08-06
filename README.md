@@ -129,8 +129,16 @@ run <ip|all> <manifest|all> <tool|all>   # Sweep matrix, batch only
 | `run axis_fifo vhdl vivado` | Vivado VHDL synthesis (batch) |
 | `run axis_fifo vhdl vivado gui` | Vivado non-project GUI synthesis |
 | `run axis_fifo vhdl vivado project` | Vivado native `.xpr` project + GUI |
+| `run axis_fifo vhdl vivado --version 2023.2` | Vivado 2023.2 synthesis using the matching local toolchain |
+| `run axis_fifo vhdl vivado --version 2025.2` | Vivado 2025.2 synthesis using the matching local toolchain |
+| `run axis_fifo vhdl vivado --version 2026.1` | Vivado 2026.1 synthesis using the matching local toolchain |
 | `run axis_fifo vhdl xsim` | XSim VHDL simulation (batch) |
+| `run axis_fifo vhdl xsim --version 2023.2` | XSim from Vivado 2023.2 |
+| `run axis_fifo vhdl xsim --version 2025.2` | XSim from Vivado 2025.2 |
+| `run axis_fifo vhdl xsim --version 2026.1` | XSim from Vivado 2026.1 |
 | `run axis_fifo vhdl xsim gui` | XSim VHDL (GUI) |
+| `run axis_fifo vhdl modelsim --version 2020.1` | ModelSim 2020.1 simulation |
+| `run axis_fifo vhdl questa --version 2025.3` | Questa 2025.3 simulation with VHDL-2019 capability |
 | `run axis_fifo vhdl modelsim project --project-dir proj/modelsim` | Persistent ModelSim project |
 | `run all all all` | Sweep every IP/manifest/tool (batch) |
 | `run all vhdl modelsim` | Sweep every IP, `vhdl.f`, ModelSim |
