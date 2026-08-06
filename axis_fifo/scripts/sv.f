@@ -12,5 +12,6 @@ axis_fifo/rtl/axis_fifo_top.vhd
 [tb:default]
 top = axis_fifo_tb
 requires =
+time_res = ps
 common/rtl/axis_bfm_pkg.vhd
 axis_fifo/tb/axis_fifo_tb.vhd
