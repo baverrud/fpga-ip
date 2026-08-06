@@ -76,22 +76,11 @@ run <ip> all [<tool>]            Run all .f permutations (optionally filter tool
 | `run axis_fifo all   modelsim` | Run all .f files with ModelSim only |
 | `run axis_fifo clean` | Remove modelsim/, vivado/, xsim/ working dirs |
 
-### Common Scripts Layer
+### Launcher
 
-The `common/scripts/` directory contains reusable launchers shared by all IP
-blocks. Each is invoked by `run.bat`/`run.sh`:
-
-| File | Purpose |
-|------|---------|
-| `simulate.bat` / `simulate.sh` | Shell launcher for ModelSim/Questa |
-| `simulate_xsim.bat` / `simulate_xsim.sh` | Shell launcher for XSim (Vivado Simulator) |
-| `synthesize.bat` / `synthesize.sh` | Shell launcher for Vivado |
-| `sim_modelsim.do` | Tcl simulation engine (compile + elaborate + run) |
-| `synth_vivado.tcl` | Tcl non-project synthesis engine |
-| `synth_vivado_project.tcl` | Tcl Vivado project maker |
-| `detect_uvvm.bat` / `detect_uvvm.sh` | UVVM content-based detection utility |
-| `check_top_section.bat` / `check_top_section.sh` | `[top]` section presence checker |
-| `files_util.tcl` | Shared `.f` metadata utilities: UVVM detection, VHDL standard normalization, and section-filtered parsing |
+`run.py` is the single launcher for all simulation and synthesis flows (see
+`common/doc/run-py.md`). The legacy launcher stack (`common/scripts/`,
+`run.sh`, `run_legacy.bat`) was removed after the migration to `run.py`.
 
 ### File List (`.f`) Format
 

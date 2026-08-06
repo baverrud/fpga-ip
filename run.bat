@@ -13,7 +13,8 @@ REM   run axis_fifo vhdl vivado project
 REM   run axis_fifo vhdl xsim gui
 REM   run clean axis_fifo
 REM
-REM The old launcher is preserved at run_legacy.bat during migration.
+REM run.py is the only launcher (the legacy run_legacy.bat / common/scripts
+REM stack was removed after the migration).
 REM ===========================================================================
 python "%~dp0run.py" %*
 exit /b %ERRORLEVEL%

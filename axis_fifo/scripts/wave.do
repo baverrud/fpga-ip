@@ -1,7 +1,8 @@
 # ============================================================================
 # wave.do -- Default Wave window setup for axis_fifo simulation
 #
-# Auto-loaded by sim_modelsim.do when ModelSim runs in GUI mode.
+# Formerly auto-loaded by the legacy sim_modelsim.do GUI flow (now removed;
+# run.py is the only launcher). Keep for manual `do wave.do` use.
 # Detects which testbench hierarchy is loaded (simple vs UVVM)
 # and sets up the appropriate signal groups.
 #
