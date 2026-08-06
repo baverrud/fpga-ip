@@ -2,25 +2,27 @@
 # sv.f -- SystemVerilog Design & Simple Testbench File List
 #
 # Used by:
-#   run axilite_io modelsim sv        (simulation, all sections)
-#   run axilite_io vivado sv          (synthesis: [rtl] + [top] only)
+#   run axilite_io sv modelsim       (simulation: [rtl] + [tb:default])
 #
 # Section reference:
-#   [rtl]   -- RTL sources always compiled
-#   [tb]    -- Testbench (simulation only, skipped in synthesis)
-#   [top]   -- Synthesis wrapper (none defined here)
+#   [rtl]        -- RTL sources always compiled
+#   [tb:<name>]  -- Testbench (simulation only, skipped in synthesis)
 #
 # Notes:
 #   - util_pkg (common/rtl/util_pkg.vhd) is VHDL but required for the
 #     VHDL testbench wrappers. Mixed-language simulators (ModelSim, Questa)
 #     handle this transparently.
 #   - .sv files are compiled with vlog in sim, read_verilog -sv in Vivado.
+#   - No [top] section: this manifest is simulation-only.
 # ============================================================================
+DEFAULT_STD: 2008
+DEFAULT_LIB: work
 
-# [rtl]
+[rtl]
 axilite_io/rtl/axilite_io.sv
 
-# [tb]
+[tb:default]
+top = axilite_io_tb
 axilite_io/tb/axilite_io_wrap.sv
 common/rtl/util_pkg.vhd
 axis_fifo/rtl/axis_fifo.vhd

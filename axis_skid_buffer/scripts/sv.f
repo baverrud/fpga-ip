@@ -2,20 +2,23 @@
 # sv.f -- SystemVerilog Design & Simple Testbench File List
 #
 # Used by:
-#   run axis_skid_buffer modelsim sv      (simulation, all sections)
-#   run axis_skid_buffer vivado sv        (synthesis: [rtl] + [top] only)
+#   run axis_skid_buffer sv modelsim      (simulation: [rtl] + [tb:default])
+#   run axis_skid_buffer sv vivado        (synthesis: [rtl] + [top] only)
 #
 # Section reference:
-#   [rtl]   -- RTL sources always compiled
-#   [top]   -- Top wrapper (synthesis only, not used in sim)
-#   [tb]    -- Testbench (simulation only, skipped in synthesis)
+#   [rtl]        -- RTL sources always compiled
+#   [top]        -- Top wrapper (synthesis only, not used in sim)
+#   [tb:<name>]  -- Testbench (simulation only, skipped in synthesis)
 # ============================================================================
+DEFAULT_STD: 2008
+DEFAULT_LIB: work
 
-# [rtl]
+[rtl]
 axis_skid_buffer/rtl/axis_skid_buffer.sv
 
-# [top]
+[top]
 axis_skid_buffer/rtl/axis_skid_buffer_top.vhd
 
-# [tb]
+[tb:default]
+top = axis_skid_buffer_tb
 axis_skid_buffer/tb/axis_skid_buffer_tb.vhd

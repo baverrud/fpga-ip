@@ -2,25 +2,29 @@
 # uvvm_util.f -- Direct axis_fifo testbench using uvvm_util only
 #
 # Used by:
-#   run axis_fifo modelsim uvvm_util   (simulation, all sections)
-#   run axis_fifo xsim uvvm_util       (simulation, all sections)
+#   run axis_fifo uvvm_util modelsim   (simulation; requires UVVM libs)
+#   run axis_fifo uvvm_util questa     (simulation; requires UVVM libs)
 #
 # Section reference:
-#   [rtl]   -- RTL sources shared with the standard VHDL flow
-#   [tb]    -- Direct DUT testbench using uvvm_util only
+#   [rtl]        -- RTL sources shared with the standard VHDL flow
+#   [tb:<name>]  -- Direct DUT testbench using uvvm_util only
 #
 # Notes:
-#   - This flow intentionally does NOT reference uvvm_vvc_framework.
-#   - The testbench entity is still axis_fifo_tb so the generic launchers
-#     can reuse their default work.axis_fifo_tb top-name convention.
-#   - The purpose of this file list is to probe whether XSim can run a test
-#     using uvvm_util alone, without the VVC framework.
+#   - This flow intentionally does NOT reference uvvm_vvc_framework; it uses
+#     the uvvm_util library only.
+#   - The testbench entity is axis_fifo_tb (see axis_fifo_uvvm_util_tb.vhd).
+#   - Requires the UVVM libraries, so XSim (which has none) skips it.
 # ============================================================================
+DEFAULT_STD: 2008
+DEFAULT_LIB: work
 
-# [rtl]
+[rtl]
 common/rtl/util_pkg.vhd
 axis_fifo/rtl/axis_fifo.vhd
 
-# [tb]
+[tb:default]
+top = axis_fifo_tb
+requires = uvvm
+time_res = fs
 axis_fifo/tb/axis_fifo_tb_bfm_pkg.vhd
 axis_fifo/tb/axis_fifo_uvvm_util_tb.vhd
