@@ -48,6 +48,32 @@ tool directory below <ip>/.runs/ instead of the tracked scripts/ tree, and
 'run clean <ip>' removes them along with the build. Use --project-dir for a
 persistent user-owned ModelSim or Vivado project; run.py never deletes it.
 
+Architecture overview
+---------------------
+The flow for a single target is:
+
+  1. Parse the CLI: run <ip> <manifest> <tool> [--tb <tb>] [mode].
+  2. Load tool_capabilities.ini (the feature vocabulary + tool profiles).
+  3. Probe the tool identity (version/edition) and compute its effective
+     feature set.
+  4. Resolve <ip>/scripts/<manifest>.f, select the testbench section, and
+     build the ordered source closure ([rtl] + [tb], or [rtl] + [top] for
+     synthesis).
+  5. Validate: sources exist, requires-tokens are legal, capabilities match.
+  6. Dispatch to the matching backend (ModelSim/Questa, XSim, or Vivado),
+     which writes a generated script into <ip>/.runs/<tool>/ and runs it.
+  7. Report PASS/FAIL and map to an exit code.
+
+'run all ...' sweeps every (ip, manifest, tool) combination instead of a
+single target, printing an aligned, live PASS/FAIL/SKIP table.
+
+Exit codes
+----------
+  0   PASS   - every selected target ran cleanly.
+  1   FAIL   - compilation, elaboration, synthesis, or simulation failed.
+  2   ERROR  - usage, manifest, profile, or validation error.
+  3   WARNING - a target ran but a declared capability is missing.
+
 Spec: README.md - "User Manual", ".f Manifest Format (Specification)",
       and "tool_capabilities.ini (Specification)" sections.
 """
@@ -65,19 +91,29 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent
-INI_PATH = REPO_ROOT / "tool_capabilities.ini"
-RUNS_DIRNAME = ".runs"
+REPO_ROOT = Path(__file__).resolve().parent          # fpga-ip repo root
+INI_PATH = REPO_ROOT / "tool_capabilities.ini"        # tool capability profiles
+RUNS_DIRNAME = ".runs"                                # disposable per-tool build dirs
 
+# VHDL language standards accepted in manifests (values, not vcom flags).
 VALID_STDS = {"1993", "2002", "2008", "2019"}
+# Modes understood by the runner; each tool profile may further restrict them.
 VALID_MODES = ("batch", "gui", "project")
+# Section names with fixed meaning (not tb/wave/constraints).
 RESERVED_SECTIONS = {"rtl", "top"}
+# Global directives allowed before the first section header.
 VALID_DIRECTIVES = {"DEFAULT_STD", "DEFAULT_LIB", "DEFAULT_TB"}
+# Per-file attributes allowed after a source path.
 VALID_FILE_ATTRS = {"std", "lib", "tool"}
 
 
 def _auto_run_dir(ip: str, tool: str) -> Path:
-    """Return the disposable per-IP directory for a tool run."""
+    """Return the disposable per-IP, per-tool run directory.
+
+    ModelSim and Questa share one folder (both drive 'vsim'), so they map
+    to the same 'modelsim' subdirectory under <ip>/.runs/. Other tools use
+    their own name. The directory is recreated fresh before every run.
+    """
     tool_dir = "modelsim" if tool in ("modelsim", "questa") else tool
     return REPO_ROOT / ip / RUNS_DIRNAME / tool_dir
 
@@ -108,7 +144,13 @@ def _persistent_project_dir(value: str, ip: str) -> Path:
 
 
 def _prepare_auto_run_dir(path: Path) -> None:
-    """Delete and recreate one disposable tool-run directory."""
+    """Delete and recreate one disposable tool-run directory.
+
+    Every automated run starts from a clean directory so stale libraries,
+    transcripts, and snapshots from a previous run cannot leak into the
+    current one. The caller guarantees the path is under <ip>/.runs/ (see
+    _auto_run_dir), so this never touches tracked sources.
+    """
     shutil.rmtree(path, ignore_errors=True)
     path.mkdir(parents=True, exist_ok=True)
 
@@ -143,7 +185,10 @@ class RunnerError(Exception):
 def parse_feature_tokens(value: str) -> list[tuple[str, str]]:
     """Parse a comma-separated feature list into (op, name) tuples.
 
-    A bare token is treated as '+token'. An empty value yields no tokens.
+    'uvvm, -osvvm' -> [('+', 'uvvm'), ('-', 'osvvm')]. A bare token is
+    treated as '+token' (a convenience so manifests can write 'requires =
+    uvvm' instead of 'requires = +uvvm'). An empty value yields no tokens.
+    Used for [features], [defaults], tool profiles, and testbench 'requires'.
     """
     tokens = []
     for raw in value.split(","):
@@ -164,6 +209,14 @@ def parse_feature_tokens(value: str) -> list[tuple[str, str]]:
 
 @dataclass
 class Capabilities:
+    """The parsed tool_capabilities.ini plus per-tool identity probing.
+
+    Holds the feature vocabulary (allowed), the common baseline every tool
+    inherits (default_features), the INI section names in file order
+    (sections - order is significant for profile matching), and the raw
+    ConfigParser (data). identity_cache memoizes the probe result per tool
+    name so the probe command runs at most once per process.
+    """
     allowed: set[str]
     default_features: set[str]
     sections: list[str]          # section names in INI file order
@@ -172,6 +225,13 @@ class Capabilities:
 
     @classmethod
     def load(cls, path: Path) -> "Capabilities":
+        """Parse tool_capabilities.ini and validate its structure.
+
+        The file must begin with [features] (the whitelist) then [defaults]
+        (the common baseline); tool profiles follow in any order. These first
+        two sections are mandatory and checked explicitly so a malformed file
+        fails loudly instead of silently yielding an empty capability set.
+        """
         if not path.is_file():
             raise RunnerError(f"capability file not found: {path}")
         cfg = configparser.ConfigParser(strict=True)
@@ -209,7 +269,14 @@ class Capabilities:
         return []
 
     def detect_identity(self, tool: str) -> tuple[str | None, str | None]:
-        """Probe a tool and return its configured version and edition."""
+        """Probe a tool and return its detected (version, edition).
+
+        Runs the base profile's 'probe' command and extracts the version and
+        edition with the profile's version_re/edition_re regexes. A probe
+        that fails (tool not on PATH, non-zero exit, timeout) yields (None,
+        None), which makes matching fall back to the name-level profile.
+        Results are cached so the probe runs once per tool per process.
+        """
         if tool in self.identity_cache:
             return self.identity_cache[tool]
 
@@ -310,6 +377,14 @@ class Capabilities:
 
 @dataclass
 class FileEntry:
+    """One resolved source file in the compile closure.
+
+    path is absolute; section is the originating manifest section (for
+    reporting); std is the effective VHDL standard (None for non-VHDL or
+    unset); lib is the effective library (currently always 'work'); tools
+    is the tool= allow-list (empty means all tools); order is the 1-based
+    sequence position in the closure, used to preserve compile order.
+    """
     path: Path                 # absolute path
     section: str               # originating section (for reporting)
     std: str | None            # effective std (None for non-VHDL / unset)
@@ -330,6 +405,13 @@ class FileEntry:
 
 @dataclass
 class IncludeEntry:
+    """A deferred include of one section from another manifest.
+
+    path is the absolute path of the included manifest; section_name is the
+    section inside it to import; std_override, when set, forces the VHDL
+    standard of every VHDL file expanded from that include; order mirrors
+    FileEntry ordering for deterministic in-place expansion.
+    """
     path: Path                 # absolute path of included manifest
     section_name: str          # section to import
     std_override: str | None   # include-level std= (None = no override)
@@ -338,6 +420,12 @@ class IncludeEntry:
 
 @dataclass
 class Section:
+    """One manifest section: metadata (top/requires/...) + ordered entries.
+
+    entries holds FileEntry or IncludeEntry objects in file order. meta
+    collects the 'key = value' lines that precede file paths, such as top,
+    time_res, requires, and wave.
+    """
     name: str
     entries: list = field(default_factory=list)   # FileEntry | IncludeEntry
     meta: dict = field(default_factory=dict)      # top, time_res, requires, wave
@@ -345,6 +433,13 @@ class Section:
 
 @dataclass
 class Manifest:
+    """A parsed .f manifest: directives, sections, and their file order.
+
+    directives holds the KEY: VALUE globals (DEFAULT_STD/DEFAULT_LIB/
+    DEFAULT_TB); sections maps normalized section name -> Section;
+    section_order preserves the order sections were declared, which matters
+    for testbench enumeration and constraint ordering.
+    """
     path: Path
     directives: dict[str, str]
     sections: dict[str, Section]
@@ -358,6 +453,13 @@ class Manifest:
 
 
 def _parse_attrs(tokens: list[str], allowed: set[str]) -> dict[str, str]:
+    """Parse 'key=value' tokens into a dict, rejecting unknown keys.
+
+    Called for both file-entry attributes (std/lib/tool) and include-level
+    attributes (std only). Rejecting unknown attributes is intentional: a
+    typo like 'stt=1993' would otherwise be silently ignored and the file
+    compiled at the wrong standard.
+    """
     attrs = {}
     for tok in tokens:
         if "=" in tok:
@@ -370,6 +472,14 @@ def _parse_attrs(tokens: list[str], allowed: set[str]) -> dict[str, str]:
 
 
 def _validate_section_name(name: str) -> None:
+    """Reject section names outside the documented vocabulary.
+
+    The runner understands a deliberately small, closed set of sections:
+    [rtl], [top], [tb:<name>], [wave:<name>], and [constraints:<tool>]. An
+    unnamed [tb] is rejected (must be [tb:<name>]); a typo like [tbb] is a
+    hard error rather than a silent no-op, so a mistyped section can never
+    quietly change the build.
+    """
     if name in RESERVED_SECTIONS:
         return
     if name.startswith("tb:"):
@@ -381,8 +491,21 @@ def _validate_section_name(name: str) -> None:
     raise RunnerError(f"unknown section [{name}]")
 
 
+def _manifest_base(manifest_name: str) -> str:
+    """Strip a trailing '.f' from a manifest name ('vhdl.f' -> 'vhdl')."""
+    return manifest_name[:-2] if manifest_name.endswith(".f") else manifest_name
+
+
 def parse_manifest(path: Path) -> Manifest:
-    """Parse one .f manifest. File paths are relative to the repo root."""
+    """Parse one .f manifest into a Manifest object.
+
+    The parser is strict by design: unknown sections/directives/attributes
+    and duplicate declarations are hard errors, never silent no-ops, so a
+    typo cannot quietly change the build. File paths inside the manifest are
+    relative to the repository root (not to the manifest's own directory);
+    they are resolved to absolute paths here. Only DEFAULT_LIB/lib=work is
+    currently supported; any other library is rejected.
+    """
     if not path.is_file():
         raise RunnerError(f"manifest not found: {path}")
     directives: dict[str, str] = {}
@@ -554,6 +677,11 @@ def build_closure(manifest: Manifest, section_names: list[str],
     # Filter by tool allow-list, preserving order.
     filtered = [e for e in out if not e.tools or tool in e.tools]
     tool_skipped = len(out) - len(filtered)
+    # Deduplicate identical sources that were reached through multiple
+    # includes. Diamond dependencies are legal (shared RTL pulled in by two
+    # testbenches), but the same file must keep the SAME effective
+    # attributes everywhere; conflicting std/lib/tool is a hard error rather
+    # than a guess, because it would compile the file twice differently.
     unique: list[FileEntry] = []
     seen: dict[Path, FileEntry] = {}
     for entry in filtered:
@@ -579,7 +707,19 @@ def build_closure(manifest: Manifest, section_names: list[str],
 
 def select_testbenches(manifest: Manifest, tb_arg: str | None,
                        tool: str) -> list[str]:
-    """Return the list of [tb:<name>] sections to run."""
+    """Return the list of [tb:<name>] sections to run for this target.
+
+    Resolution order:
+      1. --tb <name>  -> exactly [tb:<name>]
+      2. --tb all     -> every testbench section in the manifest
+      3. no --tb and DEFAULT_TB set -> that named testbench
+      4. no --tb and exactly one testbench -> the only one (implicit)
+      5. no --tb and multiple, no default -> error; the user must pick
+
+    Vivado synthesis never accepts --tb and never runs testbenches (it
+    returns []); that is enforced here rather than in the backend so the
+    error is raised consistently.
+    """
     tb_sections = [n for n in manifest.section_order if n.startswith("tb:")]
 
     if tool == "vivado":
@@ -611,7 +751,14 @@ def select_testbenches(manifest: Manifest, tb_arg: str | None,
 
 
 def target_sections(manifest: Manifest, tb_name: str | None) -> list[str]:
-    """Section list for the requested target in compile order."""
+    """Section list for the requested target, in compile order.
+
+    Simulation: [rtl] (if present) + the selected [tb:<name>].
+    Synthesis:  [rtl] (if present) + [top] (if present) + [constraints:*].
+    The same manifest therefore serves both flows: the testbench sections
+    are simply not included for synthesis, and [top]/[constraints:*] are
+    not included for simulation.
+    """
     sections = []
     if "rtl" in manifest.sections:
         sections.append("rtl")
@@ -630,17 +777,24 @@ def target_sections(manifest: Manifest, tb_name: str | None) -> list[str]:
 # ModelSim / Questa backend (batch/gui simulation + native .mpf project mode)
 # ---------------------------------------------------------------------------
 
+# Map a VHDL standard to the vcom flag for ModelSim/Questa. Note the tool
+# spells VHDL-1993 as '-93' (not '-1993'); vcom otherwise treats the flag
+# as a literal switch and fails.
 STD_TO_VCOM = {"1993": "-93", "2002": "-2002", "2008": "-2008", "2019": "-2019"}
 
 # Tools that use the ModelSim/Questa (vsim) non-project backend. vsim is
 # expected to be on the PATH; no machine-specific launchers are referenced
-# from this script so it stays portable to any machine.
+# from this script so it stays portable to any machine. The two names share
+# the same backend and the same .runs/modelsim/ folder (see _auto_run_dir).
 MSIM_TOOLS = ("modelsim", "questa")
 
 
 def _compile_lines(files: list[FileEntry], indent: str = "") -> list[str]:
     """Return the vcom/vlog compile commands for the file list.
 
+    VHDL files get a per-file -<std> flag (from STD_TO_VCOM); non-VHDL
+    (SystemVerilog) files go through vlog -sv implicitly. Every file is
+    compiled into the 'work' library - the only supported library today.
     indent is prepended to each line so the same commands can be emitted
     inside the 'compile_all' proc body (two spaces) or at top level.
     """
@@ -807,6 +961,17 @@ def write_msim_script(script_path: Path, files: list[FileEntry], top: str,
         lines.append("catch { run -all }")
         lines.append("catch { wave zoom full }")
         lines.append("")
+        # The two procs below are the cleanup trick that keeps the .mpf
+        # save clean. ModelSim cannot reliably save a project file while a
+        # simulation is active, and its built-in 'quit' and 'project'
+        # commands would otherwise leave the project dirty or rename-locked.
+        # We rename the real commands, install thin wrappers, and on quit:
+        #   - make the .mpf read-only so the quit-time auto-save skips it;
+        #   - quit -sim to unload the design first;
+        #   - make the .mpf writable again and close the project cleanly;
+        #   - finally call the real quit.
+        # The 'project' wrapper also injects '-n' into 'project compileall'
+        # so a GUI Compile All skips the .mpf save while a sim is loaded.
         lines.append("# Clean exit: unload the simulation before closing the project,")
         lines.append("# so the .mpf saves without rename noise. The 'project' wrapper")
         lines.append("# also makes GUI Compile All skip the .mpf save (-n) while a")
@@ -937,6 +1102,29 @@ def _subprocess_redirect() -> tuple[int | None, int | None]:
     return None, None
 
 
+def _run_cmd(cmd: str, cwd: Path | None = None, env: dict | None = None) -> int:
+    """Run one EDA command through a CMD shell and return its exit code.
+
+    All EDA tools on this platform are launched via `cmd.exe /c <cmd>`; the
+    shell is required because the tools are .bat wrappers that replace the
+    calling process when invoked directly (see the batch-script gotchas in
+    memory/env_tools.md). This helper centralizes the console redirect and
+    the optional working directory/environment so each backend does not
+    repeat the same subprocess plumbing.
+
+    cwd, when given, is the process working directory (used by XSim and
+    Vivado, which keep their artifacts in a build dir). env, when given,
+    overrides the child environment (used by ModelSim project mode to clear
+    %MODELSIM%).
+    """
+    if not _QUIET:
+        cwd_note = f" (cwd: {cwd})" if cwd is not None else ""
+        print(f"cmd : cmd.exe /c \"{cmd}\"{cwd_note}")
+    out, err = _subprocess_redirect()
+    return subprocess.run(["cmd.exe", "/c", cmd], cwd=cwd, env=env,
+                          stdout=out, stderr=err).returncode
+
+
 def run_msim(launch_dir: Path, script_name: str, mode: str) -> int:
     """Invoke ModelSim/Questa (vsim) directly in a CMD shell.
 
@@ -971,11 +1159,9 @@ def run_msim(launch_dir: Path, script_name: str, mode: str) -> int:
         env = dict(os.environ)
         env.pop("MODELSIM", None)
     inner = f"cd /d {launch_dir} & {vsim_cmd}"
-    if not _QUIET:
-        print(f"cmd : cmd.exe /c \"{inner}\"")
-    out, err = _subprocess_redirect()
-    rc = subprocess.run(["cmd.exe", "/c", inner], env=env,
-                        stdout=out, stderr=err).returncode
+    # vsim inherits the console unless the sweep suppressed output; cwd is
+    # set via 'cd /d' inside the CMD string (vsim must start in the run dir).
+    rc = _run_cmd(inner, env=env)
     if mode == "batch" and rc == 0:
         # vsim -c exits 0 even when a VHDL assertion fails at runtime
         # (onerror only catches Tcl errors); scan the transcript instead.
@@ -1023,21 +1209,24 @@ def _xsim_log_failed(sim_dir: Path) -> bool:
     return False
 
 
-def write_xsim_script(script_path: Path, top: str, mode: str, tool: str,
-                      manifest_name: str, ip: str, tb_label: str,
-                      script_name: str) -> None:
-    """Generate the Vivado XSim simulation-phase Tcl script.
+def write_xsim_script(script_path: Path, files: list[FileEntry],
+                  top: str, mode: str, tool: str, manifest_name: str,
+                  ip: str, tb_label: str, script_name: str,
+                  std: str) -> None:
+    """Generate one self-contained XSim Tcl wrapper.
 
-    XSim's Tcl entry point (`xsim <snapshot> --tclbatch <file>`) runs only
-    after a snapshot exists, and its Tcl session cannot invoke the compile
-    tools, so run.py orchestrates compile (xvhdl/xvlog) and elaboration
-    (xelab) itself. This script covers just the run phase:
+    The same file runs in two Tcl hosts:
 
-      - batch: `run -all; quit` (launched via --tclbatch).
-      - gui:   default waves + `run -all`, launched via
-        `xsim <snapshot> --gui --tclbatch <this file>`; the GUI stays open.
+     1. Outer Vivado Tcl (`vivado -mode tcl -source <script>`): cleans the
+        XSim build, invokes xvhdl/xvlog/xelab through Tcl `exec`, then
+        launches `xsim <snapshot> --tclbatch <script>`.
+     2. XSim Tcl (`xsim <snapshot> --tclbatch <script>`): runs the already
+        elaborated snapshot, adds default waves in GUI mode, and exits in
+        batch mode.
 
-    See fpga-rules/vivado_xsim_guide.md.
+    xvhdl/xvlog/xelab are external executables rather than native XSim Tcl
+    commands, so the outer phase uses `exec`. This keeps the generated file
+    directly runnable without Python while respecting XSim's snapshot model.
     """
     run_cmd = f"run {ip} {manifest_name} {tool}"
     if tb_label not in (None, "", "default", "synthesis"):
@@ -1053,102 +1242,93 @@ def write_xsim_script(script_path: Path, top: str, mode: str, tool: str,
              f"# Re-create via run.py (from the fpga-ip repo root): ",
              f"#      {run_cmd}",
              "#",
-             "# XSim RUN phase only: run.py builds the snapshot (xvhdl/xvlog +",
-             "# xelab) in this directory, then invokes this script. The XSim Tcl",
-             "# session cannot compile. See fpga-rules/vivado_xsim_guide.md.",
+             "# Self-contained wrapper: Vivado Tcl invokes the compiler and",
+             "# elaborator through Tcl exec, then launches XSim with this file",
+             "# as its --tclbatch run script.",
              "#",
-             "# To re-run directly, cd into this directory (the snapshot must",
-             "# exist from a prior run.py invocation):",
+             "# To run directly, initialize Vivado, cd into this directory,",
+             "# and invoke the outer Tcl host:",
              f"#      cd {run_dir}",
-             f"#      xsim {snapshot} --tclbatch {script_name}       (batch)",
-             f"#      xsim {snapshot} --gui --tclbatch {script_name} (GUI; the",
-             "#      script opens the wave window, runs -all, and stays open)",
+             f"#      vivado -mode tcl -source {script_name}",
              "#",
              f"# Build artifact: regenerated by run.py; removed by 'run clean {ip}'.",
-             "# ============================================================================"]
+             "# ============================================================================",
+             "",
+             f"set repo_root [file normalize {{{REPO_ROOT.as_posix()}}}]",
+             f"set snapshot {{{snapshot}}}",
+             f"set mode {{{mode}}}",
+             "set in_xsim [expr {[llength [info commands xsim]] > 0}]",
+             "",
+             "# XSim does not expose xvhdl/xvlog/xelab as Tcl commands. The",
+             "# outer Vivado Tcl phase launches them as external processes.",
+             "proc run_external {label command} {",
+             "  puts \"== $label ==\"",
+             "  if {[catch {exec {*}$command 2>@stderr} output options]} {",
+             "    if {$output ne \"\"} { puts stderr $output }",
+             "    puts stderr \"ERROR: external command failed: $label\"",
+             "    exit 1",
+             "  }",
+             "  if {$output ne \"\"} { puts $output }",
+             "}",
+             "",
+             "if {$in_xsim} {"]
     if mode == "batch":
-        lines += ["",
-                  "# Batch: run to completion, then exit.",
-                  "run -all",
-                  "quit"]
+        lines += ["  # XSim run phase: execute the elaborated snapshot and exit.",
+                  "  run -all",
+                  "  quit"]
     else:
-        lines += ["",
-                  "# GUI: add the top-level signals and run; the GUI stays open.",
-                  f"add_wave /{top}/*",
-                  "run -all"]
+        lines += ["  # XSim GUI phase: add the top-level signals and stay open.",
+                  f"  add_wave /{top}/*",
+                  "  run -all"]
+    lines += ["} else {",
+              "  # Outer Vivado Tcl phase: start from a clean XSim build.",
+              "  foreach artifact {xsim.dir xvhdl.log xvhdl.pb xvlog.log xvlog.pb",
+              "                    xelab.log xelab.pb xsim.log xsim.jou webtalk} {",
+              "    if {[file exists $artifact]} { file delete -force $artifact }",
+              "  }",
+              ""]
+    for entry in files:
+        rel = entry.path.relative_to(REPO_ROOT).as_posix()
+        source_var = f"source_{entry.order}"
+        lines.append(f"  set {source_var} [file normalize [file join $repo_root {{{rel}}}]]")
+        if entry.path.suffix.lower() in (".vhd", ".vhdl"):
+            flag = XSIM_STD_FLAG.get(std or "2008", "--2008")
+            command = f"[list xvhdl {flag} --work work ${source_var}]"
+        else:
+            command = f"[list xvlog -sv --work work ${source_var}]"
+        lines.append(f"  run_external \"compile {rel}\" {command}")
+    lines += ["", "  # GUI waveforms require trace/debug instrumentation at elaboration."]
+    if mode == "gui":
+        lines.append(f"  run_external \"elaborate {top}\" [list xelab -debug all work.{top} -s $snapshot]")
+    else:
+        lines.append(f"  run_external \"elaborate {top}\" [list xelab work.{top} -s $snapshot]")
+    if mode == "batch":
+        lines += ["  set xsim_command [list xsim $snapshot --tclbatch [file normalize [info script]]]"]
+    else:
+        lines += ["  set xsim_command [list xsim $snapshot --gui --tclbatch [file normalize [info script]]]"]
+    lines += ["  run_external \"xsim $snapshot\" $xsim_command",
+              "  exit 0",
+              "}"]
     script_path.parent.mkdir(parents=True, exist_ok=True)
     script_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def run_xsim(launch_dir: Path, script_path: Path, files: list[FileEntry],
-             top: str, mode: str, std: str) -> int:
-    """Orchestrate the Vivado XSim flow: compile, elaborate, simulate.
+def run_xsim(launch_dir: Path, script_path: Path, mode: str) -> int:
+    """Run the self-contained XSim wrapper through Vivado Tcl.
 
-    XSim's compile/elaborate tools (xvhdl/xvlog/xelab) are separate
-    executables, and its Tcl entry point (--tclbatch) requires an existing
-    snapshot, so the whole pipeline runs from <ip>/xsim/ here:
-
-      1. compile every source at the single VHDL standard XSim requires;
-      2. elaborate work.<top> into <top>_snapshot;
-      3. batch: xsim <top>_snapshot --tclbatch <script>; gui: xsim --gui.
-
-    Compile/elaborate commands are chained with '&&' so the first failure
-    stops the run and returns its exit code.
+    The generated script owns cleanup, compilation, elaboration, and the
+    final XSim invocation. run.py only supplies the build directory and
+    checks xsim.log afterward for runtime assertion failures.
     """
     sim_dir = launch_dir.resolve()
     sim_dir.mkdir(parents=True, exist_ok=True)
-    # Remove stale artifacts from a previous run (compiled library,
-    # snapshots, logs). The directory itself is reused, not removed.
-    for name in ("xsim.dir", "xvhdl.log", "xvhdl.pb", "xvlog.log", "xvlog.pb",
-                 "xelab.log", "xelab.pb", "xsim.log", "xsim.jou", "webtalk"):
-        p = sim_dir / name
-        if p.is_dir():
-            shutil.rmtree(p, ignore_errors=True)
-        else:
-            try:
-                p.unlink(missing_ok=True)
-            except OSError:
-                pass
-
-    flag = XSIM_STD_FLAG.get(std or "2008", "--2008")
-    steps = []
-    for entry in files:
-        if entry.path.suffix.lower() in (".vhd", ".vhdl"):
-            steps.append(f"xvhdl {flag} --work work {entry.path.as_posix()}")
-        else:
-            steps.append(f"xvlog -sv --work work {entry.path.as_posix()}")
-    # GUI needs trace information to populate the waveform window; XSim
-    # otherwise errors with "compiled without trace information" when the
-    # wave window loads. Batch mode runs headless, so it skips the heavier
-    # -debug all elaboration.
-    if mode == "gui":
-        steps.append(f"xelab -debug all work.{top} -s {top}_snapshot")
-    else:
-        steps.append(f"xelab work.{top} -s {top}_snapshot")
-    # Run from sim_dir via cwd (no 'cd /d' nesting in the cmd /c string, which
-    # would break quote handling). Repo paths contain no spaces, so the tool
-    # arguments need no quoting.
-    build_cmd = " && ".join(steps)
-    if not _QUIET:
-        print(f"cmd : cmd.exe /c \"{build_cmd}\" (cwd: {sim_dir})")
-    out, err = _subprocess_redirect()
-    rc = subprocess.run(["cmd.exe", "/c", build_cmd], cwd=sim_dir,
-                        stdout=out, stderr=err).returncode
-    if rc != 0:
-        return rc
-
-    if mode == "batch":
-        sim_cmd = f"xsim {top}_snapshot --tclbatch {script_path.as_posix()}"
-    else:
-        # --gui --tclbatch: the generated script opens the wave window and
-        # runs -all; the GUI stays open until the user closes it (the script
-        # must not 'quit' - a scripted quit in GUI mode raises a Tcl thread
-        # error on exit).
-        sim_cmd = f"xsim {top}_snapshot --gui --tclbatch {script_path.as_posix()}"
-    if not _QUIET:
-        print(f"cmd : cmd.exe /c \"{sim_cmd}\" (cwd: {sim_dir})")
-    rc = subprocess.run(["cmd.exe", "/c", sim_cmd], cwd=sim_dir,
-                        stdout=out, stderr=err).returncode
+    # vivado -mode tcl supplies a Tcl interpreter on the normal Vivado PATH;
+    # unlike system tclsh, it is guaranteed to exist after Vivado setup. Use
+    # the script name relative to cwd instead of quoting an absolute path:
+    # Vivado 2023.2 passes quotes from `cmd.exe /c` into its Tcl source
+    # command, producing source {"..."} and a doubled-quote file-not-found.
+    cmd = f"vivado -mode tcl -source {script_path.name}"
+    rc = _run_cmd(cmd, cwd=sim_dir)
     if mode == "batch" and rc == 0:
         # xsim exits 0 even when a VHDL assertion fails at runtime; the
         # report lines land in xsim.log, so scan it for them.
@@ -1166,6 +1346,15 @@ def run_xsim(launch_dir: Path, script_path: Path, files: list[FileEntry],
 # pass their own part number.
 VIVADO_DEFAULT_PART = "xc7a35tftg256-1"
 
+# Per VHDL standard: the read_vhdl flag suffix and the Vivado file_type
+# property value. One table feeds both the batch/gui read commands and the
+# project-mode file_type properties so the two can never drift apart.
+_VIVADO_STD = {
+    "1993": {"read_flag": "",               "file_type": "VHDL"},
+    "2008": {"read_flag": " -vhdl2008",     "file_type": "VHDL 2008"},
+    "2019": {"read_flag": " -vhdl2019",     "file_type": "VHDL 2019"},
+}
+
 
 def _vivado_read_lines(files: list[FileEntry], indent: str = "") -> list[str]:
     """Return the read_vhdl/read_verilog/read_xdc commands for a closure."""
@@ -1175,8 +1364,8 @@ def _vivado_read_lines(files: list[FileEntry], indent: str = "") -> list[str]:
         if e.path.suffix.lower() == ".xdc":
             out.append(f'{indent}read_xdc "$repo_root/{rel}"')
         elif e.path.suffix.lower() in (".vhd", ".vhdl"):
-            flag = {"1993": "", "2019": " -vhdl2019"}.get(e.std or "2008", " -vhdl2008")
-            out.append(f'{indent}read_vhdl{flag} "$repo_root/{rel}"')
+            info = _VIVADO_STD.get(e.std or "2008", _VIVADO_STD["2008"])
+            out.append(f'{indent}read_vhdl{info["read_flag"]} "$repo_root/{rel}"')
         else:
             out.append(f'{indent}read_verilog -sv "$repo_root/{rel}"')
     return out
@@ -1186,7 +1375,7 @@ def _vivado_file_type(entry: FileEntry) -> str:
     """Map a source entry to its Vivado file_type property value."""
     if entry.path.suffix.lower() == ".sv":
         return "SystemVerilog"
-    return {"1993": "VHDL", "2019": "VHDL 2019"}.get(entry.std or "2008", "VHDL 2008")
+    return _VIVADO_STD.get(entry.std or "2008", _VIVADO_STD["2008"])["file_type"]
 
 
 def _top_entity(manifest: Manifest, files: list[FileEntry]) -> str | None:
@@ -1374,20 +1563,13 @@ def run_vivado(build_dir: Path, script_path: Path, mode: str,
     (Vivado env initialized via v23/v25/v26 in the caller's CMD shell); no
     machine-specific paths are referenced.
     """
-    out, err = _subprocess_redirect()
     if mode == "gui":
         # Non-project GUI: -mode gui runs the script and keeps the GUI open.
         cmd = f"vivado -mode gui -source {script_path.as_posix()}"
-        if not _QUIET:
-            print(f"cmd : cmd.exe /c \"{cmd}\" (cwd: {build_dir})")
-        return subprocess.run(["cmd.exe", "/c", cmd], cwd=build_dir,
-                              stdout=out, stderr=err).returncode
+        return _run_cmd(cmd, cwd=build_dir)
     # batch / project: run headless first (synthesis or project creation).
     cmd = f"vivado -mode batch -source {script_path.as_posix()}"
-    if not _QUIET:
-        print(f"cmd : cmd.exe /c \"{cmd}\" (cwd: {build_dir})")
-    rc = subprocess.run(["cmd.exe", "/c", cmd], cwd=build_dir,
-                        stdout=out, stderr=err).returncode
+    rc = _run_cmd(cmd, cwd=build_dir)
     if rc != 0 or mode == "batch":
         return rc
     # project: open the created .xpr in the Vivado GUI (blocks until closed).
@@ -1398,10 +1580,7 @@ def run_vivado(build_dir: Path, script_path: Path, mode: str,
                 print(f"ERROR: project file not found: {xpr}", file=sys.stderr)
             return 1
         cmd = f"vivado {xpr.as_posix()}"
-        if not _QUIET:
-            print(f"cmd : cmd.exe /c \"{cmd}\" (cwd: {build_dir})")
-        return subprocess.run(["cmd.exe", "/c", cmd], cwd=build_dir,
-                              stdout=out, stderr=err).returncode
+        return _run_cmd(cmd, cwd=build_dir)
     return 0
 
 
@@ -1473,7 +1652,12 @@ _STD_FEATURE = {"1993": "vhdl-93", "2002": "vhdl-2002",
 
 
 def _all_ips() -> list[str]:
-    """Names of every IP directory that has at least one .f manifest."""
+    """Names of every IP directory that has at least one .f manifest.
+
+    Drives the 'run all ...' sweep: each directory directly under the repo
+    root that has a scripts/ subdirectory containing at least one *.f file
+    is treated as an IP. Dot-directories (like .runs or .git) are skipped.
+    """
     out = []
     for p in sorted(REPO_ROOT.iterdir()):
         if not p.is_dir() or p.name.startswith("."):
@@ -1485,7 +1669,10 @@ def _all_ips() -> list[str]:
 
 
 def _all_manifests(ip: str) -> list[str]:
-    """Manifest base names (without .f) for an IP, in sorted order."""
+    """Manifest base names (without .f) for an IP, in sorted order.
+
+    Sorted so the sweep output is stable and deterministic across runs.
+    """
     return sorted(p.stem for p in (REPO_ROOT / ip / "scripts").glob("*.f"))
 
 
@@ -1642,6 +1829,14 @@ def _run_all(args, caps: Capabilities) -> int:
 # ---------------------------------------------------------------------------
 
 def build_arg_parser() -> argparse.ArgumentParser:
+    """Construct the argparse CLI parser.
+
+    Positionals are <ip> <manifest> <tool> [mode]; mode defaults to 'batch'.
+    'all' is accepted for ip/manifest/tool to trigger the sweep, and the
+    'clean' subcommand is handled separately in main() before this parser.
+    Options: --tb (testbench selection), --part (Vivado part), --version /
+    --edition (tool identity overrides), --project-dir (persistent project).
+    """
     p = argparse.ArgumentParser(
         prog="run",
         description="fpga-ip manifest runner",
@@ -1680,6 +1875,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Entry point for one command-line invocation.
+
+    Flow: parse args -> load capabilities -> (sweep or single target) ->
+    select testbench -> build closure -> validate -> dispatch to the backend
+    -> map result to an exit code. Each step validates its input and returns
+    2 (usage/validation error) with a clear message on failure, so errors
+    are reported consistently regardless of which backend would have run.
+    Returns 0 on success, nonzero on any failure (see module docstring).
+    """
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "clean":
         return cmd_clean(argv[1:])
@@ -1815,7 +2019,7 @@ def main(argv: list[str] | None = None) -> int:
                           file=sys.stderr)
                 return 2
             time_res = manifest.sections[tb_name].meta.get("time_res")
-            manifest_base = manifest_name[:-2] if manifest_name.endswith(".f") else manifest_name
+            manifest_base = _manifest_base(manifest_name)
             # Filename segments follow the command-line order:
             #   run <ip> <manifest> <tool> [--tb <tb>] [mode]
             # -> sim_<manifest>_<tool>_<tb>_<mode>.tcl  (synthesis omits tb).
@@ -1863,25 +2067,25 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"ERROR: testbench [{tb_name}] has no 'top' metadata",
                           file=sys.stderr)
                 return 2
-            manifest_base = manifest_name[:-2] if manifest_name.endswith(".f") else manifest_name
+            manifest_base = _manifest_base(manifest_name)
             script_name = f"sim_{manifest_base}_{tool}_{tb_label}_{mode}.tcl"
             # XSim runs are disposable and always use the single xsim folder.
             build_dir = _auto_run_dir(args.ip, tool)
             _prepare_auto_run_dir(build_dir)
             script_path = build_dir / script_name
-            write_xsim_script(script_path, top, mode, tool,
-                              manifest_base, args.ip, tb_label, script_name)
-            if not _QUIET:
-                print(f"script   : {script_path.relative_to(REPO_ROOT).as_posix()}")
-            # XSim needs one VHDL standard per work library, so all VHDL is
-            # compiled at the manifest default; flag mixed-std manifests.
+            # XSim requires one VHDL standard per work library, so all VHDL
+            # is compiled at the manifest default; flag mixed-std manifests.
             std = manifest.default_std()
             vhdl_stds = {e.std or std for e in files
                          if e.path.suffix.lower() in (".vhd", ".vhdl")}
             if len(vhdl_stds) > 1 and not _QUIET:
                 print(f"  NOTE: XSim compiles all VHDL at DEFAULT_STD {std} "
                       f"(one standard per work library; per-file std ignored)")
-            rc = run_xsim(script_path.parent, script_path, files, top, mode, std)
+            write_xsim_script(script_path, files, top, mode, tool,
+                              manifest_base, args.ip, tb_label, script_name, std)
+            if not _QUIET:
+                print(f"script   : {script_path.relative_to(REPO_ROOT).as_posix()}")
+            rc = run_xsim(script_path.parent, script_path, mode)
             exit_code = report_sim_result(mode, rc) or exit_code
         # Vivado synthesis backend (batch/gui/project).
         elif tool == "vivado":
@@ -1897,7 +2101,7 @@ def main(argv: list[str] | None = None) -> int:
                           "section", file=sys.stderr)
                 return 2
             part = args.part or VIVADO_DEFAULT_PART
-            manifest_base = manifest_name[:-2] if manifest_name.endswith(".f") else manifest_name
+            manifest_base = _manifest_base(manifest_name)
             script_name = f"synth_{manifest_base}_{tool}_{mode}.tcl"
             if mode in ("batch", "gui"):
                 # Non-project: batch runs headless, gui loads the design and
