@@ -114,6 +114,37 @@ class RunnerTests(unittest.TestCase):
         finally:
             path.unlink(missing_ok=True)
 
+    def test_xsim_gui_script_requests_trace_debug(self):
+        files = [
+            runner.FileEntry(
+                path=REPO_ROOT / "common/rtl/util_pkg.vhd",
+                section="rtl",
+                std="2008",
+                lib="work",
+                tools=[],
+                order=1,
+            )
+        ]
+        runs_root = REPO_ROOT / ".runs"
+        runs_root.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=runs_root) as temp_dir:
+            gui_path = Path(temp_dir) / "sim_gui.tcl"
+            batch_path = Path(temp_dir) / "sim_batch.tcl"
+            runner.write_xsim_script(
+                gui_path, files, "tb", "gui", "xsim", "vhdl.f",
+                "example_ip", "default", gui_path.name, "2008"
+            )
+            runner.write_xsim_script(
+                batch_path, files, "tb", "batch", "xsim", "vhdl.f",
+                "example_ip", "default", batch_path.name, "2008"
+            )
+            gui_text = gui_path.read_text(encoding="utf-8")
+            batch_text = batch_path.read_text(encoding="utf-8")
+            self.assertIn("xelab -debug all", gui_text)
+            self.assertIn("--gui --tclbatch", gui_text)
+            self.assertNotIn("xelab -debug all", batch_text)
+            self.assertNotIn("--gui --tclbatch", batch_text)
+
 
 if __name__ == "__main__":
     unittest.main()

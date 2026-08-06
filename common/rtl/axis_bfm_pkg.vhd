@@ -1,8 +1,8 @@
 -----------------------------------------------------------------------
---Filename         : axis_fifo_tb_bfm_pkg.vhd
---Description      : Shared AXI-Stream BFMs for axis_fifo testbenches.
---                 : Encapsulates protocol-correct valid/ready handshakes
---                 : for write, read, and pop helper operations.
+--Filename         : axis_bfm_pkg.vhd
+--Description      : Shared AXI4-Stream BFM procedures for VHDL testbenches.
+--                 : Holds valid until ready and ready until valid, so every
+--                 : helper completes only on a real rising-edge handshake.
 --Author           : Rune Baeverrud
 --Current Revision : 1.0
 --Licensing        : Zero-Clause BSD (0BSD)
@@ -10,8 +10,9 @@
 library ieee;
 use ieee.std_logic_1164.all;
 
-package axis_fifo_tb_bfm_pkg is
+package axis_bfm_pkg is
 
+  -- Push one beat into an AXI4-Stream slave.
   procedure axis_write(
     signal   clk    : in  std_logic;
     signal   tdata  : out std_logic_vector;
@@ -20,6 +21,7 @@ package axis_fifo_tb_bfm_pkg is
     constant data   : in  std_logic_vector
   );
 
+  -- Pop one beat from an AXI4-Stream master and return its payload.
   procedure axis_read(
     signal   clk    : in  std_logic;
     signal   tready : out std_logic;
@@ -28,6 +30,7 @@ package axis_fifo_tb_bfm_pkg is
     variable data   : out std_logic_vector
   );
 
+  -- Pop one beat from an AXI4-Stream master and discard its payload.
   procedure axis_pop(
     signal   clk    : in  std_logic;
     signal   tready : out std_logic;
@@ -36,7 +39,7 @@ package axis_fifo_tb_bfm_pkg is
 
 end package;
 
-package body axis_fifo_tb_bfm_pkg is
+package body axis_bfm_pkg is
 
   procedure axis_write(
     signal   clk    : in  std_logic;
@@ -46,6 +49,7 @@ package body axis_fifo_tb_bfm_pkg is
     constant data   : in  std_logic_vector
   ) is
   begin
+    -- VALID and payload remain asserted until a rising-edge handshake.
     tdata  <= data;
     tvalid <= '1';
     loop
@@ -63,6 +67,7 @@ package body axis_fifo_tb_bfm_pkg is
     variable data   : out std_logic_vector
   ) is
   begin
+    -- READY remains asserted until a rising-edge handshake.
     tready <= '1';
     loop
       wait until rising_edge(clk);

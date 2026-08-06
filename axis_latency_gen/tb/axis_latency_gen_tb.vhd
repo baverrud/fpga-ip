@@ -12,6 +12,7 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 use std.textio.all;
+use work.axis_bfm_pkg.all;
 
 entity axis_latency_gen_tb is
 end entity;
@@ -69,66 +70,6 @@ architecture sim of axis_latency_gen_tb is
   signal captured_data  : t_slv32_array(0 to 15) := (others => (others => '0'));
   signal captured_cnt   : natural := 0;
   signal capture_done   : std_logic := '0';
-
-  -- -----------------------------------------------------------------
-  -- AXI4-Stream Write BFM: drives tdata/tvalid until tready asserts.
-  -- Waits one clock cycle for the DUT to sample before releasing valid.
-  -- -----------------------------------------------------------------
-  procedure axis_write(
-    signal   clk    : in  std_logic;
-    signal   tdata  : out std_logic_vector;
-    signal   tvalid : out std_logic;
-    signal   tready : in  std_logic;
-    constant data   : in  std_logic_vector
-  ) is
-  begin
-    tdata  <= data;
-    tvalid <= '1';
-    loop
-      wait until rising_edge(clk);
-      exit when tready = '1';
-    end loop;
-    tvalid <= '0';
-  end procedure;
-
-  -- -----------------------------------------------------------------
-  -- AXI4-Stream Read BFM: asserts tready, captures tdata on valid.
-  -- Returns the data word via the `data` out parameter.
-  -- -----------------------------------------------------------------
-  procedure axis_read(
-    signal   clk    : in  std_logic;
-    signal   tready : out std_logic;
-    signal   tvalid : in  std_logic;
-    signal   tdata  : in  std_logic_vector;
-    variable data   : out std_logic_vector
-  ) is
-  begin
-    tready <= '1';
-    loop
-      wait until rising_edge(clk);
-      exit when tvalid = '1';
-    end loop;
-    data := tdata;
-    tready <= '0';
-  end procedure;
-
-  -- -----------------------------------------------------------------
-  -- AXI4-Stream Pop BFM: asserts tready until tvalid, then releases.
-  -- Used when only the handshake matters (data content not checked).
-  -- -----------------------------------------------------------------
-  procedure axis_pop(
-    signal   clk    : in  std_logic;
-    signal   tready : out std_logic;
-    signal   tvalid : in  std_logic
-  ) is
-  begin
-    tready <= '1';
-    loop
-      wait until rising_edge(clk);
-      exit when tvalid = '1';
-    end loop;
-    tready <= '0';
-  end procedure;
 
 begin
 

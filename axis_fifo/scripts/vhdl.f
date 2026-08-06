@@ -12,5 +12,5 @@ axis_fifo/rtl/axis_fifo_top.vhd
 [tb:default]
 top = axis_fifo_tb
 requires =
-axis_fifo/tb/axis_fifo_tb_bfm_pkg.vhd
+common/rtl/axis_bfm_pkg.vhd
 axis_fifo/tb/axis_fifo_tb.vhd

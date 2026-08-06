@@ -26,5 +26,5 @@ axis_fifo/rtl/axis_fifo.vhd
 top = axis_fifo_tb
 requires = uvvm
 time_res = fs
-axis_fifo/tb/axis_fifo_tb_bfm_pkg.vhd
+common/rtl/axis_bfm_pkg.vhd
 axis_fifo/tb/axis_fifo_uvvm_util_tb.vhd

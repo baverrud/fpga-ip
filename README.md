@@ -46,7 +46,7 @@ fpga-ip/
 ├── tool_capabilities.ini      # Machine-parsed EDA tool capabilities
 ├── README.md                  # This file: manual + specifications
 ├── common/
-│   └── rtl/                   # Shared synthesizable support (util_pkg.vhd)
+│   └── rtl/                   # Shared RTL and AXI-Stream BFM packages
 └── <ip_block>/
     ├── rtl/                   # Production synthesizable RTL source files
     ├── tb/                    # Simple and advanced testbenches (incl. UVVM)
@@ -255,16 +255,20 @@ run directly from their directory on a machine with the tool on `PATH`:
 | Tool | Script pattern | Direct invocation |
 |------|----------------|-------------------|
 | ModelSim/Questa | `sim_<manifest>_<tool>_<tb>_<mode>.tcl` | `cd <ip>/.runs/modelsim && vsim [-c] -do <script>` |
-| XSim | `sim_<manifest>_xsim_<tb>_<mode>.tcl` | `cd <ip>/.runs/xsim && xsim <top>_snapshot --tclbatch <script>` |
+| XSim | `sim_<manifest>_xsim_<tb>_<mode>.tcl` | `cd <ip>/.runs/xsim && vivado -mode tcl -source <script>` |
 | Vivado | `synth_<manifest>_vivado_<mode>.tcl` | `cd <ip>/.runs/vivado && vivado -mode batch -source <script>` |
 
 Notes:
 
 - For `modelsim` the tool tag is shortened to `msim` in the filename, e.g.
   `sim_vhdl_msim_default_batch.tcl`.
-- XSim scripts cover the **run phase only**; `run.py` performs the compile
-  (`xvhdl`/`xvlog`) and elaboration (`xelab`) steps itself because the XSim
-  Tcl session cannot invoke the compile tools.
+- XSim scripts are self-contained wrappers. The outer Vivado Tcl phase
+  performs compile (`xvhdl`/`xvlog`) and elaboration (`xelab`) through Tcl
+  `exec`, then launches XSim with the same file as `--tclbatch`. The inner
+  XSim phase runs the snapshot; GUI mode elaborates with `-debug all` and adds
+  the default wave view.
+- Do not launch the generated wrapper with `xsim` directly. `xsim` is launched
+  by the outer Vivado Tcl phase after the snapshot exists.
 - The scripts locate the repository via a `set repo_root ...` line and refuse
   to run if `tool_capabilities.ini` is missing.
 - ModelSim/Questa GUI scripts provide a `recompile` helper: after editing a
@@ -472,7 +476,7 @@ token contains no `=` is a file path. Testbench sections support:
 [tb:default]
 top = axis_fifo_tb
 requires =
-axis_fifo/tb/axis_fifo_tb_bfm_pkg.vhd
+common/rtl/axis_bfm_pkg.vhd
 axis_fifo/tb/axis_fifo_tb.vhd
 
 [tb:uvvm]
@@ -582,7 +586,7 @@ axis_fifo/rtl/axis_fifo_top.vhd
 [tb:default]
 top = axis_fifo_tb
 requires =
-axis_fifo/tb/axis_fifo_tb_bfm_pkg.vhd
+common/rtl/axis_bfm_pkg.vhd
 axis_fifo/tb/axis_fifo_tb.vhd
 ```
 

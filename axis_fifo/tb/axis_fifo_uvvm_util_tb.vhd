@@ -18,7 +18,7 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 use std.env.all;
 use work.util_pkg.all;
-use work.axis_fifo_tb_bfm_pkg.all;
+use work.axis_bfm_pkg.all;
 
 library uvvm_util;
 use uvvm_util.types_pkg.all;

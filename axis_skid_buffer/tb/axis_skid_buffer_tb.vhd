@@ -10,6 +10,7 @@
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
+use work.axis_bfm_pkg.all;
 
 entity axis_skid_buffer_tb is
 end entity;
@@ -42,62 +43,6 @@ architecture sim of axis_skid_buffer_tb is
 
   -- Convenience array type for short expected-data sequences.
   type t_data_vec_array is array (natural range <>) of std_logic_vector(C_TDATA_WIDTH-1 downto 0);
-
-  -- -----------------------------------------------------------------
-  -- AXI write helper
-  --
-  -- Drives one word on slave side and holds tvalid high until DUT
-  -- accepts the transfer (tready=1 on a rising edge).
-  -- -----------------------------------------------------------------
-  procedure axis_write(
-    signal   clk    : in  std_logic;
-    signal   tdata  : out std_logic_vector;
-    signal   tvalid : out std_logic;
-    signal   tready : in  std_logic;
-    constant data   : in  std_logic_vector
-  ) is
-  begin
-    -- Present payload and request transfer.
-    tdata  <= data;
-    tvalid <= '1';
-
-    -- Wait for handshake completion.
-    loop
-      wait until rising_edge(clk);
-      exit when tready = '1';
-    end loop;
-
-    -- Release valid after accepted beat.
-    tvalid <= '0';
-  end procedure;
-
-  -- -----------------------------------------------------------------
-  -- AXI read helper
-  --
-  -- Raises master tready, waits for DUT to assert tvalid, then captures
-  -- one accepted word and deasserts tready.
-  -- -----------------------------------------------------------------
-  procedure axis_read(
-    signal   clk    : in  std_logic;
-    signal   tready : out std_logic;
-    signal   tvalid : in  std_logic;
-    signal   tdata  : in  std_logic_vector;
-    variable data   : out std_logic_vector
-  ) is
-  begin
-    -- Signal sink availability.
-    tready <= '1';
-
-    -- Wait until source presents a valid beat.
-    loop
-      wait until rising_edge(clk);
-      exit when tvalid = '1';
-    end loop;
-
-    -- Sample payload and stop consuming further data.
-    data   := tdata;
-    tready <= '0';
-  end procedure;
 
   -- -----------------------------------------------------------------
   -- Data equality checker

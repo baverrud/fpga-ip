@@ -11,7 +11,7 @@
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
-use work.axis_fifo_tb_bfm_pkg.all;
+use work.axis_bfm_pkg.all;
 
 entity axis_fifo_tb is
 end entity;

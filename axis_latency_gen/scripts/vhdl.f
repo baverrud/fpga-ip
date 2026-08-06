@@ -29,4 +29,5 @@ axis_latency_gen/rtl/axis_latency_gen_top.vhd
 
 [tb:default]
 top = axis_latency_gen_tb
+common/rtl/axis_bfm_pkg.vhd
 axis_latency_gen/tb/axis_latency_gen_tb.vhd

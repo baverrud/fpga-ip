@@ -21,4 +21,5 @@ axis_skid_buffer/rtl/axis_skid_buffer_top.vhd
 
 [tb:default]
 top = axis_skid_buffer_tb
+common/rtl/axis_bfm_pkg.vhd
 axis_skid_buffer/tb/axis_skid_buffer_tb.vhd
