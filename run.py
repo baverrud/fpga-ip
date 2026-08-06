@@ -19,7 +19,16 @@ Running the axis_fifo VHDL simulation (ModelSim, GUI) -- three ways:
        cd axis_fifo/sim
        vsim -do ..\scripts\sim_vhdl_msim_default_gui.tcl
 
-Remove build artifacts for an IP (deletes <ip>/sim/):
+Project mode creates a native ModelSim/Questa project (.mpf) in
+<ip>/sim_proj/ and opens the GUI (the non-project <ip>/sim/ is untouched):
+
+       run axis_fifo vhdl modelsim project
+
+run.py copies the global %MODELSIM% ini to a writable local modelsim.ini in
+<ip>/sim_proj/ and clears %MODELSIM% before launching vsim, so the .mpf can
+be saved (see fpga-rules/questa_modelsim_project_guide.md).
+
+Remove build artifacts for an IP (deletes <ip>/sim/ and <ip>/sim_proj/):
        run clean <ip>
 
 The generated script is self-locating: it derives the repo root from its own
@@ -462,7 +471,7 @@ def target_sections(manifest: Manifest, tb_name: str | None) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# ModelSim / Questa backend (non-project simulation)
+# ModelSim / Questa backend (batch/gui simulation + native .mpf project mode)
 # ---------------------------------------------------------------------------
 
 STD_TO_VCOM = {"1993": "-93", "2002": "-2002", "2008": "-2008", "2019": "-2019"}
@@ -504,6 +513,8 @@ def write_msim_script(script_path: Path, files: list[FileEntry], top: str,
         cd <ip>/scripts
         vsim [-c] -do <this file>
     """
+    is_project = mode == "project"
+    build_dir = "sim_proj" if is_project else "sim"
     cflag = "-c " if mode == "batch" else ""
     # Reconstruct the command that generates this script.
     run_cmd = f"run {ip} {manifest_name} {tool}"
@@ -521,17 +532,17 @@ def write_msim_script(script_path: Path, files: list[FileEntry], top: str,
              "# Run (from the fpga-ip repo root), any of:",
              f"#   1. cd {ip}/scripts",
              f"#      vsim {cflag}-do {script_name}",
-             f"#   2. cd {ip}/sim",
+             f"#   2. cd {ip}/{build_dir}",
              f"#      vsim {cflag}-do ..\\scripts\\{script_name}",
              "#",
-             "# The script changes to <ip>/sim/ itself; build artifacts go there.",
+             f"# The script changes to <ip>/{build_dir}/ itself; build artifacts go there.",
              "# ============================================================================",
              "",
              "# Locate the fpga-ip repo root (one level up from <ip>/scripts/ or",
-             "# <ip>/sim/); the guard below rejects any other launch directory.",
+             f"# <ip>/{build_dir}/); the guard below rejects any other launch directory.",
              "set repo_root [file normalize [file join [pwd] .. ..]]",
              "if {![file exists $repo_root/tool_capabilities.ini]} {",
-             '  puts "ERROR: run this script from <ip>/scripts/ or <ip>/sim/"',
+             f'  puts "ERROR: run this script from <ip>/scripts/ or <ip>/{build_dir}/"',
              "  quit -code 1",
              "}",
              ""]
@@ -547,6 +558,130 @@ def write_msim_script(script_path: Path, files: list[FileEntry], top: str,
     lines.extend(_compile_lines(files, indent="  "))
     lines.append("}")
     lines.append("")
+    if is_project:
+        # Project mode: native .mpf project in <ip>/sim_proj/, GUI only.
+        # Mirrors the project section of common/scripts/sim_modelsim.do.
+        lines.append("# Native ModelSim/Questa project mode (GUI, .mpf).")
+        lines.append(f"# Build artifacts live in <ip>/{build_dir}/ (separate from the")
+        lines.append("# non-project <ip>/sim/ directory).")
+        lines.append("#")
+        lines.append("# Environment note: clean .mpf saves require %MODELSIM% to be")
+        lines.append("# cleared and a writable local modelsim.ini before vsim starts.")
+        lines.append("# 'run.py ... project' sets both up; see")
+        lines.append("# fpga-rules/questa_modelsim_project_guide.md.")
+        lines.append("#")
+        lines.append("# To reopen an already-created project after closing the GUI,")
+        lines.append("# do NOT re-run this script - it rebuilds the project from")
+        lines.append("# scratch (vdel/vlib work, project new). Instead open the")
+        lines.append("# saved .mpf directly:")
+        lines.append(f"#   1. cd {ip}/{build_dir}")
+        lines.append(f'#      vsim -do "project open {ip}.mpf"')
+        lines.append("#   2. or in the ModelSim/Questa GUI: File > Open > Project,")
+        lines.append(f"#      select {ip}.mpf; then load the design and run:")
+        lines.append(f"#      vsim work.{top}")
+        lines.append("#      run -all")
+        lines.append("")
+        lines.append("# Change into the IP build directory, creating it on first use.")
+        lines.append("set launch_dir [pwd]")
+        lines.append(f"set sim_dir [file normalize [file join [pwd] ../{build_dir}]]")
+        lines.append("file mkdir $sim_dir")
+        lines.append("cd $sim_dir")
+        lines.append("# Keep the run log in the build directory. Drop the startup")
+        lines.append("# transcript vsim wrote to the launch directory, unless that")
+        lines.append("# is the build directory itself.")
+        lines.append("transcript file [file join $sim_dir transcript]")
+        lines.append("if {![string equal $launch_dir $sim_dir]} {")
+        lines.append("  catch { file delete [file join $launch_dir transcript] }")
+        lines.append("}")
+        lines.append("# The launcher copied a writable local modelsim.ini here; make")
+        lines.append("# sure it stays writable either way.")
+        lines.append("if {[file exists modelsim.ini]} {")
+        lines.append("  catch { file attributes modelsim.ini -readonly 0 }")
+        lines.append("}")
+        lines.append("")
+        lines.append("# Rebuild a fresh work library for this run.")
+        lines.append("if {[file exists work]} { vdel -all work }")
+        lines.append("vlib work")
+        lines.append("")
+        lines.append("# Compile all sources with their per-file std flags (see")
+        lines.append("# 'compile_all' above); this is what actually builds work/.")
+        lines.append("compile_all")
+        lines.append("")
+        lines.append("# Create the native ModelSim/Questa project (.mpf) from the")
+        lines.append("# same sources. project new + addfile are the only reliable")
+        lines.append("# way; hand-written .mpf files are rejected as corrupt.")
+        lines.append(f"set proj_name {ip}")
+        lines.append('set proj_file "${proj_name}.mpf"')
+        lines.append("set ::simproj_file [file normalize $proj_file]")
+        lines.append("project new . $proj_name")
+        for entry in files:
+            rel = entry.path.relative_to(REPO_ROOT).as_posix()
+            lines.append(f'project addfile [file nativename [file normalize "$repo_root/{rel}"]]')
+        lines.append("project close")
+        lines.append("")
+        lines.append("# Questa 2025.3 'project new' defaults to VHDL-2019; force the")
+        lines.append("# manifest standard so the Project pane status matches the")
+        lines.append("# direct compiles above.")
+        lines.append("set mpf_fh [open $proj_file r]")
+        lines.append("set mpf_data [read $mpf_fh]")
+        lines.append("close $mpf_fh")
+        lines.append("regsub -all {VHDL93 = \\d+} $mpf_data {VHDL93 = 2008} mpf_data")
+        lines.append("regsub -all {vhdl_use93 \\d+} $mpf_data {vhdl_use93 2008} mpf_data")
+        lines.append("set mpf_fh [open $proj_file w]")
+        lines.append("puts -nonewline $mpf_fh $mpf_data")
+        lines.append("close $mpf_fh")
+        lines.append("")
+        lines.append("# Open the project and compile through it so the Project pane")
+        lines.append("# shows files as compiled (green). No simulation is loaded")
+        lines.append("# yet, so the .mpf save on compileall is clean.")
+        lines.append("project open [file normalize $proj_file]")
+        lines.append("project compileall")
+        lines.append("")
+        vsim_args = ['-voptargs="+acc"']
+        if time_res:
+            vsim_args.append(f"-t {time_res}")
+        vsim_args.append(f"work.{top}")
+        lines.append(f"# Elaborate and simulate the '{top}' target.")
+        lines.append("vsim " + " ".join(vsim_args))
+        lines.append("")
+        lines.append("# GUI: show a default wave window, then run.")
+        lines.append("catch { delete wave * }")
+        lines.append('add wave -divider "Default Waves"')
+        lines.append(f"add wave /{top}/*")
+        lines.append("catch { run -all }")
+        lines.append("catch { wave zoom full }")
+        lines.append("")
+        lines.append("# Clean exit: unload the simulation before closing the project,")
+        lines.append("# so the .mpf saves without rename noise. The 'project' wrapper")
+        lines.append("# also makes GUI Compile All skip the .mpf save (-n) while a")
+        lines.append("# simulation is loaded. ModelSim cannot reliably save the .mpf")
+        lines.append("# while a simulation is active.")
+        lines.append("catch { rename quit _simproj_real_quit }")
+        lines.append("catch { rename project _simproj_real_project }")
+        lines.append("proc project {args} {")
+        lines.append("  set subcmd [lindex $args 0]")
+        lines.append('  if {$subcmd eq "compileall" && [lsearch -exact $args "-n"] < 0} {')
+        lines.append("    set args [linsert $args 1 -n]")
+        lines.append("  }")
+        lines.append("  uplevel 1 [linsert $args 0 _simproj_real_project]")
+        lines.append("}")
+        lines.append("proc quit {args} {")
+        lines.append("  if {[info exists ::simproj_file]} {")
+        lines.append("    catch { file attributes $::simproj_file -readonly 1 }")
+        lines.append("  }")
+        lines.append("  catch { _simproj_real_quit -sim }")
+        lines.append("  if {[info exists ::simproj_file]} {")
+        lines.append("    catch { file attributes $::simproj_file -readonly 0 }")
+        lines.append("  }")
+        lines.append("  catch { _simproj_real_project close }")
+        lines.append("  eval _simproj_real_quit $args")
+        lines.append("}")
+        lines.append("")
+        # Project mode produces a distinct script; write it and stop. The
+        # non-project path below (recompile helper, sim/ body) is skipped.
+        script_path.parent.mkdir(parents=True, exist_ok=True)
+        script_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return
     if mode == "gui":
         lines.append("# Interactive helper (GUI): after editing a source, type")
         lines.append("# 'recompile' to rebuild and re-run.")
@@ -611,18 +746,38 @@ def run_msim(launch_dir: Path, script_name: str, mode: str) -> int:
 
     vsim must already be on the PATH.
     launch_dir is where vsim starts (the IP's scripts/ directory); the Tcl
-    script then changes into <ip>/sim/ itself. GUI mode runs `vsim -do
-    <script>` (no -c): the GUI opens and this call blocks until the user
-    closes it. Avoid `start /B`, whose empty title is mangled by the nested
-    quoting inside `cmd /c "..."`.
+    script then changes into <ip>/sim/ (or <ip>/sim_proj/ in project mode)
+    itself. GUI mode runs `vsim -do <script>` (no -c): the GUI opens and
+    this call blocks until the user closes it. Avoid `start /B`, whose
+    empty title is mangled by the nested quoting inside `cmd /c "..."`.
+
+    Project mode additionally copies the global %MODELSIM% ini to a writable
+    local modelsim.ini in <ip>/sim_proj/ and clears %MODELSIM% for the
+    child process. ModelSim/Questa cannot save the .mpf when %MODELSIM%
+    points at a shared/read-only ini ("Unable to replace existing ini file
+    ... Access is denied"). See fpga-rules/questa_modelsim_project_guide.md.
     """
     if mode == "batch":
         vsim_cmd = f"vsim -c -do {script_name}"
     else:
         vsim_cmd = f"vsim -do {script_name}"
+    env = None
+    if mode == "project":
+        sim_dir = (launch_dir / ".." / "sim_proj").resolve()
+        sim_dir.mkdir(parents=True, exist_ok=True)
+        global_ini = os.environ.get("MODELSIM")
+        if global_ini and os.path.isfile(global_ini):
+            local_ini = sim_dir / "modelsim.ini"
+            shutil.copyfile(global_ini, local_ini)
+            try:
+                os.chmod(local_ini, 0o644)  # clear any read-only attribute
+            except OSError:
+                pass
+        env = dict(os.environ)
+        env.pop("MODELSIM", None)
     inner = f"cd /d {launch_dir} & {vsim_cmd}"
     print(f"cmd : cmd.exe /c \"{inner}\"")
-    return subprocess.run(["cmd.exe", "/c", inner]).returncode
+    return subprocess.run(["cmd.exe", "/c", inner], env=env).returncode
 
 
 def cmd_clean(argv: list[str]) -> int:
@@ -630,28 +785,34 @@ def cmd_clean(argv: list[str]) -> int:
 
     Usage: run.py clean <ip>
 
-    Deletes <ip>/sim/ (work library, transcripts, wave logs). A directory
-    held open by a running simulator is reported and left in place.
+    Deletes <ip>/sim/ (non-project build: work library, transcripts, wave
+    logs) and <ip>/sim_proj/ (project-mode build: the same plus the .mpf
+    project). A directory held open by a running simulator is reported and
+    left in place.
     """
     p = argparse.ArgumentParser(
         prog="run clean",
-        description="Remove an IP's build artifacts (the <ip>/sim/ directory)",
+        description="Remove an IP's build artifacts (the <ip>/sim/ and <ip>/sim_proj/ directories)",
     )
     p.add_argument("ip", help="IP directory under the repo root")
     args = p.parse_args(argv)
 
-    sim_dir = REPO_ROOT / args.ip / "sim"
-    rel = sim_dir.relative_to(REPO_ROOT).as_posix()
-    if not sim_dir.exists():
-        print(f"nothing to clean: {rel} does not exist")
+    removed = []
+    for name in ("sim", "sim_proj"):
+        build_dir = REPO_ROOT / args.ip / name
+        if not build_dir.exists():
+            continue
+        try:
+            shutil.rmtree(build_dir)
+        except PermissionError:
+            print(f"ERROR: build directory is locked by a running tool "
+                  f"({build_dir}); close the simulator and retry.", file=sys.stderr)
+            return 2
+        removed.append(build_dir.relative_to(REPO_ROOT).as_posix())
+    if not removed:
+        print(f"nothing to clean: no sim/ or sim_proj/ under {args.ip}/")
         return 0
-    try:
-        shutil.rmtree(sim_dir)
-    except PermissionError:
-        print(f"ERROR: build directory is locked by a running tool "
-              f"({sim_dir}); close the simulator and retry.", file=sys.stderr)
-        return 2
-    print(f"removed build artifacts: {rel}")
+    print("removed build artifacts: " + ", ".join(removed))
     return 0
 
 
@@ -666,6 +827,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         epilog=(
             "examples:\n"
             "  run axis_fifo vhdl modelsim gui\n"
+            "  run axis_fifo vhdl modelsim project\n"
             "  run axis_fifo vhdl modelsim --tb default\n"
             "  run axis_fifo vhdl vivado project\n"
             "  run clean axis_fifo"
