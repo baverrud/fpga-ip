@@ -28,7 +28,8 @@
 --  [2]   led            (bit 0) - diagnostic GPIO
 --  [3]   gen enable     (bit 0) - generator enable
 --  [4]   arid
---  [5]   ar_length              - AXI arlen (beats-1); 0 = 1 beat
+--  [5]   ar_length              - AXI arlen (beats-1); 0 = 1 beat;
+--                                low log2ceil(GC_MAX_BURST) bits used
 --  [6]   pace                   - idle cycles between ARs (0 = every cycle)
 --  [7]   pace_init              - delay before first burst
 --  [8]   base_addr[31:0]
@@ -172,7 +173,7 @@ architecture rtl of axi_monitor_reg is
   -- Generator control / config
   signal gen_enable   : std_logic;
   signal arid         : std_logic_vector(GC_ID_WIDTH-1 downto 0);
-  signal ar_length    : std_logic_vector(31 downto 0);
+  signal ar_length    : std_logic_vector(log2ceil(GC_MAX_BURST)-1 downto 0);
   signal pace         : std_logic_vector(31 downto 0);
   signal pace_init    : std_logic_vector(31 downto 0);
   signal base_addr    : std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
@@ -265,7 +266,7 @@ begin
   -- Output registers -> generator control / config
   gen_enable <= o_data(3)(0);
   arid       <= o_data(4)(GC_ID_WIDTH-1 downto 0);
-  ar_length  <= o_data(5);
+  ar_length  <= o_data(5)(log2ceil(GC_MAX_BURST)-1 downto 0);
   pace       <= o_data(6);
   pace_init  <= o_data(7);
   base_addr(31 downto 0)  <= o_data(8);

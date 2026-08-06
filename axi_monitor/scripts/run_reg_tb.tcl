@@ -1,8 +1,8 @@
 # ============================================================================
-# run_reg_tb.tcl - Compile and run axi_monitor_reg_tb (VHDL-2008, ModelSim m20)
+# run_reg_tb.tcl - Compile and run axi_monitor_reg_tb (VHDL-2008)
 # ============================================================================
 # Usage (from repo root sub/fpga-ip):
-#   cmd.exe /c "m20 & vsim -c -do axi_monitor/scripts/run_reg_tb.tcl"
+#   cmd.exe /c "vsim -c -do axi_monitor/scripts/run_reg_tb.tcl"
 #
 # The script CD's into axi_monitor/sim/ so that the work library and
 # modelsim.ini stay local to that folder (it's gitignored).
@@ -13,6 +13,11 @@
 
 # CWD is <repo_root>/sub/fpga-ip
 set repo_root [pwd]
+
+# If any command errors (e.g. a vcom failure), quit immediately instead
+# of dropping to the interactive ModelSim> prompt, which would otherwise
+# make an automated run appear to hang until timeout.
+onerror {quit -f}
 
 # ---- Switch to sim/ (gitignored build directory) ----
 if {![file exists axi_monitor/sim]} { file mkdir axi_monitor/sim }

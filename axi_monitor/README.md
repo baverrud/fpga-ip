@@ -21,9 +21,13 @@ rtl/axi_monitor_top.vhd   # synthesis wrapper
 rtl/axi_ar_gen.vhd        # traffic source: AR generator (pace=0 -> every cycle)
 tb/axi_monitor_tb.vhd     # testbench (uses axi_ar_gen + axi_mem_model)
 tb/axi_monitor_reg_tb.vhd # register testbench (axilite_bfm_pkg + axi_mem_model)
+tb/axi_ar_gen_tb.vhd      # standalone axi_ar_gen corner-case testbench
+tb/axi_ar_gen_simple_tb.vhd  # hand-editable axi_ar_gen skeleton TB
 scripts/vhdl.f            # file list (sim / synth)
 scripts/run_tb.tcl        # compile + run axi_monitor_tb (CDs into sim/, gitignored)
 scripts/run_reg_tb.tcl    # compile + run axi_monitor_reg_tb (CDs into sim/, gitignored)
+scripts/run_ar_gen_tb.tcl # compile + run axi_ar_gen_tb (CDs into sim_ar_gen/, gitignored)
+scripts/run_ar_gen_simple_tb.tcl # compile + run axi_ar_gen_simple_tb (CDs into sim_ar_gen/)
 ```
 
 ## Data flow
@@ -71,10 +75,10 @@ instances keep monitoring.
 
 ## Simulation
 
-From `sub/fpga-ip/` with ModelSim on PATH (VHDL-2008, `m20`):
+From `sub/fpga-ip/` with ModelSim on PATH (VHDL-2008):
 
 ```bash
-cmd.exe /c "m20 & vsim -c -do axi_monitor/scripts/run_tb.tcl"
+cmd.exe /c "vsim -c -do axi_monitor/scripts/run_tb.tcl"
 ```
 
 The script CDs into `axi_monitor/sim/` (gitignored), compiles all RTL +
@@ -95,9 +99,13 @@ TB sources, and runs the full test suite:
   remains inert without false underflow errors
 - **T9** -- injected data, ID, RRESP, and RLAST errors, followed by
   independent `err_rst` verification
-- **T10** -- AR format, configured-window, and actual 4 KiB boundary checks
-- **T11** -- `ar_length` maximum clamp and generator configuration-error
-  reporting; includes a complete 256-beat burst
+- **T10** -- AR format, configured-window, and transfer-size alignment
+  checks; burst start near the window end is clamped/wrapped so the
+  full burst always fits
+- **T11** -- maximum burst length:  `ar_length = x"FF"` drives a full
+  256-beat burst; the `ar_length` port is sized by `GC_MAX_BURST`
+  (`log2ceil(GC_MAX_BURST)` bits), so an over-large value cannot be
+  expressed
 - **T12** -- independent AR `aperture` gating while R-side completion
   continues
 - **T13** -- scoreboard underflow:  spurious R beats with no AR
@@ -112,20 +120,22 @@ T1 additionally asserts timing-statistic bounds consistent with the
 `axi_mem_model` configuration (`latency_min >= base_latency`,
 `first_latency_min >= base_latency`, `interbeat_gap_min >= 1`).
 
-T10 found and fixed a real generator issue: the 4 KiB guard was bypassed
-in `pace=0` back-to-back mode because the FSM stayed in `S_AR_ISSUE`.
-The effective issue address is now checked on every AR issue.
+T10 exercises the generator's window-end clamp:  with a burst start
+near `base_addr+addr_range`, every issued address still satisfies
+`ar_addr + burst_bytes <= base_addr + addr_range` and is aligned to
+`C_DATA_BYTES`.
 
-T11 found and fixed a monitor issue: the R monitor's 8-bit beat index
-wrapped at the end of a 256-beat burst, corrupting burst-length statistics.
-The index is now 9 bits wide.
+T11 drives a full-length burst (`ar_length = x"FF"` at
+`GC_MAX_BURST=256`).  It previously found and fixed a monitor issue:  the
+R monitor's 8-bit beat index wrapped at the end of a 256-beat burst,
+corrupting burst-length statistics.  The index is now 9 bits wide.
 
 ### Register testbench (`axi_monitor_reg_tb`)
 
 The register wrapper is verified end-to-end via AXI4-Lite:
 
 ```bash
-cmd.exe /c "m20 & vsim -c -do axi_monitor/scripts/run_reg_tb.tcl"
+cmd.exe /c "vsim -c -do axi_monitor/scripts/run_reg_tb.tcl"
 ```
 
 It instantiates `axi_monitor_reg` (which contains `axi_monitor` +
@@ -156,19 +166,23 @@ slave, and drives the flat AXI4-Lite port with `axilite_bfm_pkg`
 A lightweight traffic source used by the TB (simulation only).  It
 issues AR bursts at a configurable pace, decoupled from R completion:
 
-- `pace=0` -> a new AR can be issued every clock cycle (back-to-back,
-  the FSM stays in `S_AR_ISSUE`)
+- `pace=0` -> a new AR can be issued every clock cycle (back-to-back)
 - `pace=1` -> every second cycle, `pace=2` -> every third, ...
 
-It supports linear sweep and pseudo-random (XOR-shift) addressing with a
-4KB boundary guard and config-error detection.  Unlike
-`axi_read_tester_ar_gen` it has no scoreboard output -- the monitor
-builds its own scoreboard from the tapped AR bus.
+It supports linear sweep and pseudo-random (XOR-shift) addressing within
+a configured window.  Every presented start address is aligned to
+`C_DATA_BYTES` and clamped to `[base, base+range-bsize]` (the full burst
+always fits inside the window).  The `ar_length` port is sized by
+`GC_MAX_BURST` (`log2ceil(GC_MAX_BURST)` bits) and carries the AXI
+ARLEN value (beats-1), so the largest expressible burst is
+`GC_MAX_BURST` beats.  Unlike `axi_read_tester_ar_gen` it has
+no scoreboard output -- the monitor builds its own scoreboard from the
+tapped AR bus.
 
 Manual compile (equivalent to what the script does):
 
 ```bash
-m20 & cd axi_monitor && mkdir -p sim && cd sim
+cd axi_monitor && mkdir -p sim && cd sim
 vlib work
 vcom -2008 -work work ../../common/rtl/util_pkg.vhd
 vcom -2008 -work work ../../axis_fifo/rtl/axis_fifo.vhd
@@ -190,4 +204,45 @@ Or use the repository launcher:
 
 ```bash
 run axi_monitor vhdl modelsim
+```
+
+## Standalone AR-generator testbench (`axi_ar_gen_tb`)
+
+A comprehensive, self-checking testbench for `axi_ar_gen` alone (no
+monitor, no memory model -- the AR channel is tapped directly).  It
+instantiates **six DUT copies** with `GC_DATA_BYTES` in
+{1,2,4,8,16,32}, all sharing one config and one `ar_ready`, so valid/
+pacing timing is checked in lockstep while address generation is
+verified per data width.
+
+A spec-based **reference model** recomputes the address the DUT must
+present every cycle (linear wrap-around, random offset mask + window
+clamp, and the `fit_addr` align/clamp), driven by a mirror
+`xorshift128` stepped in lockstep with the DUT PRNG.  A clocked checker
+compares the DUT outputs against the model and runs independent
+protocol checks:
+
+- `ar_addr` aligned to `C_DATA_BYTES`
+- full burst fits inside `[base, base+range]`
+- `ar_len == ar_length`, `ar_size == log2(GC_DATA_BYTES)`,
+  `ar_burst == INCR`, `ar_id == arid`
+- VALID held and address stable until the handshake (AXI valid/ready
+  protocol)
+
+Corner cases covered:
+
+- **T1** -- linear wrap-around, `pace=0` back-to-back
+- **T2** -- unaligned base (align-down clamp)
+- **T3** -- wrap boundary at a non-aligned window end
+- **T4** -- random mode + offset window clamp (200 issues)
+- **T5** -- `pace`/`pace_init` first-burst delay
+- **T6** -- backpressure: VALID-hold, no address skip, stall counting
+- **T7** -- enable/aperture gating, incl. VALID-hold while the gate
+  drops mid-presentation
+- **T8** -- `ar_length` extremes (1-beat and 256-beat bursts) and the
+  degenerate burst>window clamp
+- **T9** -- `stat_rst` clears counters mid-run
+
+```bash
+cmd.exe /c "vsim -c -do axi_monitor/scripts/run_ar_gen_tb.tcl"
 ```

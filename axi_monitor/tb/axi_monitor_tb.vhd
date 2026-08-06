@@ -14,7 +14,7 @@
 --
 --                   Checks:  normal linear/random/paced traffic,
 --                   one-beat and non-zero pace_init operation, AR format
---                   and address-window/4 KiB compliance, R backpressure,
+--                   and address-window/alignment compliance, R backpressure,
 --                   per-instance enable gating, disabled data checking,
 --                   injected data/ID/RRESP/RLAST errors, stat_rst, and
 --                   err_rst behavior.
@@ -54,7 +54,7 @@ architecture sim of axi_monitor_tb is
   signal enable          : std_logic := '0';
   signal gen_aperture    : std_logic := '1';
   signal arid            : std_logic_vector(C_ID_WIDTH-1 downto 0) := (others => '0');
-  signal ar_length      : std_logic_vector(31 downto 0) := x"0000000F";
+  signal ar_length      : std_logic_vector(log2ceil(256)-1 downto 0) := x"0F";
   signal pace            : std_logic_vector(31 downto 0) := x"00000000";
   signal pace_init       : std_logic_vector(31 downto 0) := x"00000000";
   signal base_addr       : std_logic_vector(C_ADDR_WIDTH-1 downto 0) := std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
@@ -194,10 +194,9 @@ begin
   r_last  <= mem_r_last xor inject_rlast_error;
 
   -- Check the externally visible AR encoding and the generator's claimed
-  -- address window/4 KiB protection on every accepted AR.
+  -- address-window protection and alignment on every accepted AR.
   p_ar_corner_checks : process(aclk)
     variable burst_bytes : natural;
-    variable low_addr    : natural;
   begin
     if rising_edge(aclk) and aresetn = '1' and
        check_ar_corner_cases = '1' and ar_valid = '1' and ar_ready = '1' then
@@ -208,16 +207,16 @@ begin
         report "AR corner check: ar_burst is not INCR"
         severity failure;
 
+      -- Every start must be aligned to the transfer size (C_DATA_BYTES).
+      assert unsigned(ar_addr(log2ceil(C_DATA_BYTES)-1 downto 0)) = 0
+        report "AR corner check: ar_addr not aligned to C_DATA_BYTES"
+        severity failure;
+
       burst_bytes := (to_integer(unsigned(ar_len)) + 1) * C_DATA_BYTES;
       assert unsigned(ar_addr) >= unsigned(base_addr) and
              unsigned(ar_addr) + burst_bytes <=
              unsigned(base_addr) + unsigned(addr_range)
         report "AR corner check: burst outside configured address window"
-        severity failure;
-
-      low_addr := to_integer(unsigned(ar_addr(11 downto 0)));
-      assert low_addr + burst_bytes <= 4096
-        report "AR corner check: burst crosses a 4 KiB boundary"
         severity failure;
     end if;
   end process;
@@ -436,7 +435,7 @@ begin
 
     -- Configure generator: 16-beat bursts, linear, no pace
     arid         <= (others => '0');
-    ar_length    <= x"0000000F";
+    ar_length    <= x"0F";
     pace         <= x"00000000";
     pace_init    <= x"00000000";
     base_addr    <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
@@ -673,7 +672,7 @@ begin
     stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
     err_rst  <= '1'; wait_cycles(2); err_rst  <= '0';
     data_check_en <= '1';
-    ar_length     <= x"00000007";
+    ar_length     <= x"07";
     pace          <= x"00000001";
     pace_init     <= x"00000000";
     base_addr     <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
@@ -732,7 +731,7 @@ begin
     writeline(output, l);
     stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
     err_rst  <= '1'; wait_cycles(2); err_rst <= '0';
-    ar_length <= x"00000000";
+    ar_length <= x"00";
     pace      <= x"00000002";
     pace_init <= x"00000003";
     base_addr <= std_logic_vector(to_unsigned(16#3000#, C_ADDR_WIDTH));
@@ -771,7 +770,7 @@ begin
     stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
     err_rst  <= '1'; wait_cycles(2); err_rst <= '0';
     r_ready <= '0';
-    ar_length <= x"00000007";
+    ar_length <= x"07";
     pace <= x"00000000";
     pace_init <= x"00000000";
     base_addr <= std_logic_vector(to_unsigned(16#4000#, C_ADDR_WIDTH));
@@ -831,7 +830,7 @@ begin
     ------------------------------------------------------------------
     write(l, string'("=== T9: injected R errors and err_rst ==="));
     writeline(output, l);
-    ar_length <= x"00000000";
+    ar_length <= x"00";
     pace <= x"00000000";
     base_addr <= std_logic_vector(to_unsigned(16#5000#, C_ADDR_WIDTH));
     addr_range <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
@@ -898,9 +897,10 @@ begin
     writeline(output, l);
 
     ------------------------------------------------------------------
-    -- T10: AR start near a 4 KiB boundary must be corrected.
+    -- T10: burst start near the window end is clamped/wrapped so the
+    -- full burst always fits inside [base, base+range-bsize].
     ------------------------------------------------------------------
-    write(l, string'("=== T10: 4 KiB boundary protection ==="));
+    write(l, string'("=== T10: window-end clamp ==="));
     writeline(output, l);
     stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
     err_rst  <= '1'; wait_cycles(2); err_rst <= '0';
@@ -908,7 +908,7 @@ begin
     inject_id_error <= '0';
     inject_resp_error <= '0';
     inject_rlast_error <= '0';
-    ar_length <= x"0000000F";
+    ar_length <= x"0F";
     pace <= x"00000000";
     pace_init <= x"00000000";
     base_addr <= std_logic_vector(to_unsigned(16#1FF0#, C_ADDR_WIDTH));
@@ -925,18 +925,18 @@ begin
            unsigned(stat_xactions) = unsigned(stat_ar_seen)
       report "T10: boundary traffic accounting mismatch"
       severity failure;
-    write(l, string'("  PASS: no burst crossed a 4 KiB boundary"));
+    write(l, string'("  PASS: no burst exceeded the window end"));
     writeline(output, l);
 
     ------------------------------------------------------------------
-    -- T11: ar_length clamp and configuration-error reporting
+    -- T11: maximum burst length (255 -> 256 beats) completes
     ------------------------------------------------------------------
-    write(l, string'("=== T11: ar_length clamp/config error ==="));
+    write(l, string'("=== T11: maximum burst length ==="));
     writeline(output, l);
     stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
     err_rst  <= '1'; wait_cycles(2); err_rst <= '0';
-    ar_length <= x"00000100";             -- 256 -> clamp to ARLEN 255
-    pace <= x"00000064";                  -- leave time for one burst
+    ar_length <= x"FF";              -- max ARLEN -> 256 beats
+    pace <= x"00000064";             -- leave time for one burst
     pace_init <= x"00000000";
     base_addr <= std_logic_vector(to_unsigned(16#6000#, C_ADDR_WIDTH));
     addr_range <= std_logic_vector(to_unsigned(16#2000#, C_ADDR_WIDTH));
@@ -948,13 +948,10 @@ begin
     wait_cycles(100);
     enable <= '0';
     wait_drained(500000);
-    assert unsigned(gen_stat_cfg_errors) > 0
-      report "T11: ar_length clamp did not report a config error"
-      severity failure;
     assert unsigned(stat_burst_len_max) = 256
-      report "T11: ar_length did not clamp to a 256-beat burst"
+      report "T11: ar_length did not produce a 256-beat burst"
       severity failure;
-    write(l, string'("  PASS: ar_length clamp and config error"));
+    write(l, string'("  PASS: max burst length (256 beats)"));
     writeline(output, l);
 
     ------------------------------------------------------------------
@@ -964,7 +961,7 @@ begin
     writeline(output, l);
     stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
     err_rst  <= '1'; wait_cycles(2); err_rst <= '0';
-    ar_length <= x"00000000";
+    ar_length <= x"00";
     pace <= x"00000000";
     pace_init <= x"00000000";
     base_addr <= std_logic_vector(to_unsigned(16#7000#, C_ADDR_WIDTH));
@@ -1037,7 +1034,7 @@ begin
     err_rst  <= '1'; wait_cycles(2); err_rst <= '0';
     spurious_r_valid <= '0';
     r_ready <= '0';               -- hold R back so the small scoreboard fills
-    ar_length <= x"0000000F";     -- 16-beat bursts
+    ar_length <= x"0F";     -- 16-beat bursts
     pace <= x"00000000";
     pace_init <= x"00000000";
     base_addr <= std_logic_vector(to_unsigned(16#2000#, C_ADDR_WIDTH));

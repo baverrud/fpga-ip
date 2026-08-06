@@ -49,7 +49,7 @@ architecture sim of axi_monitor_simple_tb is
   signal enable        : std_logic := '0';
   signal gen_aperture  : std_logic := '1';
   signal arid          : std_logic_vector(C_ID_WIDTH-1 downto 0) := (others => '0');
-  signal ar_length     : std_logic_vector(31 downto 0) := x"0000000F";  -- 16 beats
+  signal ar_length     : std_logic_vector(log2ceil(256)-1 downto 0) := x"0F";  -- 16 beats
   signal pace          : std_logic_vector(31 downto 0) := x"00000000";
   signal pace_init     : std_logic_vector(31 downto 0) := x"00000000";
   signal base_addr     : std_logic_vector(C_ADDR_WIDTH-1 downto 0) :=
@@ -291,7 +291,7 @@ begin
   begin
     -- Initial values in the sequencer
     arid         <= (others => '0');
-    ar_length    <= x"0000000F";   -- 16-beat bursts (ARLEN 15)
+    ar_length    <= x"0F";   -- 16-beat bursts (ARLEN 15)
     pace         <= x"00000000";   -- 0 = a new AR every cycle
     pace_init    <= x"00000000";
     base_addr    <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
