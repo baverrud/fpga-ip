@@ -27,6 +27,7 @@ transcript
 wave*.do
 *.mpf
 *.ini
+!tool_capabilities.ini
 vsim.wlf
 covhtmlreport/
 *.ucdb

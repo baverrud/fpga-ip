@@ -48,7 +48,8 @@ tool directory below <ip>/.runs/ instead of the tracked scripts/ tree, and
 'run clean <ip>' removes them along with the build. Use --project-dir for a
 persistent user-owned ModelSim or Vivado project; run.py never deletes it.
 
-Spec: common/doc/run-py.md and common/doc/f-format.md
+Spec: README.md - "User Manual", ".f Manifest Format (Specification)",
+      and "tool_capabilities.ini (Specification)" sections.
 """
 
 from __future__ import annotations
