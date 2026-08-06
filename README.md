@@ -274,6 +274,10 @@ Notes:
 
 - The tools must be on `PATH`: `vsim` (ModelSim/Questa), `vivado` and
   `xvhdl`/`xvlog`/`xelab`/`xsim` (Vivado/XSim).
+- Before capability matching, `run.py` executes each profile's `probe` command
+  and extracts the configured version and edition. `--version` and
+  `--edition` override the detected values; if a probe is unavailable, the
+  name-level profile is used.
 - UVVM libraries are supplied by the simulator environment (precompiled);
   `run.py` never remaps them and never issues `vmap` for external libraries.
 - ModelSim/Questa `project` mode needs a writable local `modelsim.ini` and a
@@ -383,12 +387,14 @@ DEFAULT_LIB: work
 | Directive | Meaning | Default |
 |-----------|---------|---------|
 | `DEFAULT_STD` | VHDL standard for entries without `std=` | `2008` |
-| `DEFAULT_LIB` | VHDL library for entries without `lib=` | `work` |
+| `DEFAULT_LIB` | VHDL library; currently must be `work` | `work` |
 | `DEFAULT_TB` | Named testbench used when `--tb` is omitted | unset |
 
 Valid standards are `1993`, `2002`, `2008`, `2019`. `DEFAULT_LIB` and
-`DEFAULT_TB` are optional. External libraries such as UVVM are supplied by the
-simulator environment and must not be remapped.
+`DEFAULT_TB` are optional. The runner currently supports only the local
+`work` library; non-work libraries are rejected rather than silently ignored.
+External libraries such as UVVM are supplied by the simulator environment and
+must not be remapped.
 
 ### 2.3 Sections
 
@@ -427,7 +433,7 @@ space-separated `key=value` attributes:
 | Attribute | Meaning | Default |
 |-----------|---------|---------|
 | `std=` | Explicit VHDL standard: `1993`, `2002`, `2008`, `2019` | `DEFAULT_STD` |
-| `lib=` | Explicit compile library | `DEFAULT_LIB` |
+| `lib=` | Compile library; currently must be `work` | `DEFAULT_LIB` |
 | `tool=` | Comma-separated allow-list; file is skipped for tools not listed | all tools |
 
 Example:
@@ -444,6 +450,8 @@ Notes:
 
 - SystemVerilog `.sv` files are compiled with `vlog`/`xvlog -sv`; `std=` is
   ignored for them.
+- `DEFAULT_LIB` and `lib=` are retained for format compatibility, but only
+  `work` is supported until the backends gain multi-library handling.
 - There are no `tb_top`, `feature`, or `exact_std` file attributes. Testbench
   metadata belongs to its `[tb:<name>]` section, and standards are never
   silently promoted.
@@ -731,6 +739,11 @@ Profile keys:
 | `modes` | Comma-separated supported modes: `batch,gui,project` |
 | `features` | `+`/`-` delta applied to the inherited set |
 
+`run.py` executes the base profile's `probe` command, extracts the configured
+version and edition, and uses those values for matching. Explicit
+`--version`/`--edition` values override the corresponding detected value. If
+probing fails, matching falls back to the name-level profile.
+
 Matching profiles are applied **in file order** (never reordered by
 specificity). The effective feature set is:
 
@@ -828,6 +841,19 @@ set:
 - A missing capability for an explicitly selected testbench produces a
   WARNING (exit code 3) or a skip for XSim; in a sweep it produces a `SKIP`
   row with a reason.
+
+## 8. Runner Tests
+
+The parser and capability layer have a dependency-free regression suite:
+
+```text
+python -m unittest discover -s tests -v
+```
+
+These tests do not require an EDA installation. They cover manifest parsing,
+source existence, section normalization, duplicate-source handling, invalid
+attributes, library validation, and tool identity probing. EDA simulations
+remain the authoritative backend validation.
 
 ---
 

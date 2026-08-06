@@ -215,8 +215,8 @@ axis_fifo/
 └── README.md                       # This file
 ```
 
-> All simulation artifacts are transient and land in `modelsim/`, `xsim/`,
-> or `vivado/` working directories outside version control.
+> All automated simulation and synthesis artifacts are transient and land in
+> `.runs/modelsim/`, `.runs/xsim/`, or `.runs/vivado/` outside version control.
 
 ---
 

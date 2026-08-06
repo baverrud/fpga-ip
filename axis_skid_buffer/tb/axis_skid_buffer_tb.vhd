@@ -294,18 +294,8 @@ begin
         wait until rising_edge(aclk);
         wait for 1 ps;
 
-        if s_axis_tready /= model_state(1) then
-          report "FAIL: stress: s_ready mismatch" severity failure;
-        end if;
-        if m_axis_tvalid /= model_state(0) then
-          report "FAIL: stress: m_valid mismatch" severity failure;
-        end if;
-        if model_state(0) = '1' and m_axis_tdata /= model_pipe then
-          report "FAIL: stress: m_data mismatch -- got 0x" & to_hstring(m_axis_tdata) &
-                 ", exp 0x" & to_hstring(model_pipe) severity failure;
-        end if;
-
-        -- Reference model state update
+        -- The DUT registers the next state at this edge, so update the
+        -- reference model before checking the post-edge outputs.
         case model_state is
           when "10" => -- EMPTY
             if drive_valid = '1' then
@@ -338,13 +328,23 @@ begin
           when others =>
             model_state := "10";
         end case;
+
+        if s_axis_tready /= model_state(1) then
+          report "FAIL: stress: s_ready mismatch" severity failure;
+        end if;
+        if m_axis_tvalid /= model_state(0) then
+          report "FAIL: stress: m_valid mismatch" severity failure;
+        end if;
+        if model_state(0) = '1' and m_axis_tdata /= model_pipe then
+          report "FAIL: stress: m_data mismatch -- got 0x" & to_hstring(m_axis_tdata) &
+                 ", exp 0x" & to_hstring(model_pipe) severity failure;
+        end if;
       end loop;
 
       -- Drain any residual model content.
       s_axis_tvalid <= '0';
       m_axis_tready <= '1';
       while model_state /= "10" loop
-        wait until rising_edge(aclk);
         wait for 1 ps;
 
         if m_axis_tvalid /= '1' then
@@ -354,6 +354,9 @@ begin
           report "FAIL: stress drain: m_data mismatch -- got 0x" & to_hstring(m_axis_tdata) &
                  ", exp 0x" & to_hstring(model_pipe) severity failure;
         end if;
+
+        wait until rising_edge(aclk);
+        wait for 1 ps;
 
         case model_state is
           when "11" =>

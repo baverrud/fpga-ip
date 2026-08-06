@@ -58,6 +58,7 @@ import argparse
 import configparser
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -71,6 +72,8 @@ RUNS_DIRNAME = ".runs"
 VALID_STDS = {"1993", "2002", "2008", "2019"}
 VALID_MODES = ("batch", "gui", "project")
 RESERVED_SECTIONS = {"rtl", "top"}
+VALID_DIRECTIVES = {"DEFAULT_STD", "DEFAULT_LIB", "DEFAULT_TB"}
+VALID_FILE_ATTRS = {"std", "lib", "tool"}
 
 
 def _auto_run_dir(ip: str, tool: str) -> Path:
@@ -165,6 +168,7 @@ class Capabilities:
     default_features: set[str]
     sections: list[str]          # section names in INI file order
     data: "configparser.ConfigParser"
+    identity_cache: dict[str, tuple[str | None, str | None]] = field(default_factory=dict)
 
     @classmethod
     def load(cls, path: Path) -> "Capabilities":
@@ -203,6 +207,64 @@ class Capabilities:
             if modes:
                 return [m.strip() for m in modes.split(",") if m.strip()]
         return []
+
+    def detect_identity(self, tool: str) -> tuple[str | None, str | None]:
+        """Probe a tool and return its configured version and edition."""
+        if tool in self.identity_cache:
+            return self.identity_cache[tool]
+
+        profile_name = f"tool.{tool}"
+        probe = self.data[profile_name].get("probe", "").strip()
+        if not probe:
+            identity = (None, None)
+            self.identity_cache[tool] = identity
+            return identity
+
+        try:
+            if os.name == "nt":
+                command = ["cmd.exe", "/c", probe]
+            else:
+                command = shlex.split(probe)
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            identity = (None, None)
+            self.identity_cache[tool] = identity
+            return identity
+
+        output = result.stdout + "\n" + result.stderr
+        version = None
+        edition = None
+        version_re = self.data[profile_name].get("version_re", "").strip()
+        edition_re = self.data[profile_name].get("edition_re", "").strip()
+        if version_re:
+            match = re.search(version_re, output, re.IGNORECASE)
+            if match:
+                version = match.group(1)
+        if edition_re:
+            match = re.search(edition_re, output, re.IGNORECASE)
+            if match:
+                edition = match.group(1).strip().lower()
+
+        identity = (version, edition)
+        self.identity_cache[tool] = identity
+        return identity
+
+    def effective_features_for(self, tool: str, version: str | None,
+                               edition: str | None) -> set[str]:
+        """Apply explicit identity overrides over the probed tool identity."""
+        detected_version, detected_edition = self.detect_identity(tool)
+        return self.effective_features(
+            tool,
+            version if version is not None else detected_version,
+            edition if edition is not None else detected_edition,
+        )
 
     def matching_profiles(self, tool: str, version: str | None,
                           edition: str | None) -> list[str]:
@@ -295,12 +357,15 @@ class Manifest:
         return self.directives.get("DEFAULT_LIB", "work")
 
 
-def _parse_attrs(tokens: list[str]) -> dict[str, str]:
+def _parse_attrs(tokens: list[str], allowed: set[str]) -> dict[str, str]:
     attrs = {}
     for tok in tokens:
         if "=" in tok:
             key, _, value = tok.partition("=")
-            attrs[key.strip().lower()] = value.strip()
+            key = key.strip().lower()
+            if key not in allowed:
+                raise RunnerError(f"unknown file attribute '{key}'")
+            attrs[key] = value.strip()
     return attrs
 
 
@@ -334,7 +399,7 @@ def parse_manifest(path: Path) -> Manifest:
             end = line.find("]")
             if end < 0:
                 raise RunnerError(f"malformed section header: {line}")
-            name = line[1:end].strip()
+            name = line[1:end].strip().lower()
             _validate_section_name(name)
             if name in sections:
                 raise RunnerError(f"duplicate section [{name}] in {path.name}")
@@ -348,7 +413,12 @@ def parse_manifest(path: Path) -> Manifest:
             if ":" not in line:
                 raise RunnerError(f"expected directive 'KEY: VALUE' before sections: {line}")
             key, _, value = line.partition(":")
-            directives[key.strip().upper()] = value.strip()
+            key = key.strip().upper()
+            if key not in VALID_DIRECTIVES:
+                raise RunnerError(f"unknown directive '{key}'")
+            if key in directives:
+                raise RunnerError(f"duplicate directive '{key}'")
+            directives[key] = value.strip()
             continue
 
         # Section metadata line: "key = value" (top, time_res, requires, wave,
@@ -368,9 +438,9 @@ def parse_manifest(path: Path) -> Manifest:
             attrs = {}
             for tok in tokens[2:]:
                 if tok.startswith("[") and tok.endswith("]"):
-                    section_name = tok[1:-1]
+                    section_name = tok[1:-1].lower()
                 elif "=" in tok:
-                    attrs.update(_parse_attrs([tok]))
+                    attrs.update(_parse_attrs([tok], {"std"}))
                 else:
                     raise RunnerError(f"unexpected include token: {tok}")
             if section_name is None:
@@ -386,12 +456,16 @@ def parse_manifest(path: Path) -> Manifest:
             ))
             continue
 
-        attrs = _parse_attrs(tokens[1:])
+        attrs = _parse_attrs(tokens[1:], VALID_FILE_ATTRS)
         entry_path = (REPO_ROOT / tokens[0]).resolve()
         std = attrs.get("std")
         if std is not None and std not in VALID_STDS:
             raise RunnerError(f"invalid std={std} for {tokens[0]}")
         lib = attrs.get("lib")
+        if lib is not None and lib != "work":
+            raise RunnerError(
+                f"unsupported lib={lib} for {tokens[0]}; only lib=work is supported"
+            )
         tools = [t.strip() for t in attrs.get("tool", "").split(",") if t.strip()]
         current.entries.append(FileEntry(
             path=entry_path,
@@ -402,6 +476,14 @@ def parse_manifest(path: Path) -> Manifest:
             order=len(current.entries),
         ))
 
+    default_std = directives.get("DEFAULT_STD", "2008")
+    if default_std not in VALID_STDS:
+        raise RunnerError(f"invalid DEFAULT_STD: {default_std}")
+    default_lib = directives.get("DEFAULT_LIB", "work")
+    if default_lib != "work":
+        raise RunnerError(
+            f"unsupported DEFAULT_LIB: {default_lib}; only work is supported"
+        )
     if not section_order:
         raise RunnerError(f"manifest has no sections: {path.name}")
     return Manifest(path=path, directives=directives,
@@ -471,9 +553,23 @@ def build_closure(manifest: Manifest, section_names: list[str],
         expand_section(manifest, section, None, counter, out, [], manifest_cache)
     # Filter by tool allow-list, preserving order.
     filtered = [e for e in out if not e.tools or tool in e.tools]
-    skipped = len(out) - len(filtered)
-    if skipped and not _QUIET:
-        print(f"  (skipped {skipped} file(s) by tool= allow-list for '{tool}')")
+    tool_skipped = len(out) - len(filtered)
+    unique: list[FileEntry] = []
+    seen: dict[Path, FileEntry] = {}
+    for entry in filtered:
+        previous = seen.get(entry.path)
+        if previous is None:
+            seen[entry.path] = entry
+            unique.append(entry)
+            continue
+        if (previous.std, previous.lib, previous.tools) != (
+                entry.std, entry.lib, entry.tools):
+            raise RunnerError(
+                f"source included with conflicting attributes: {entry.path}"
+            )
+    filtered = unique
+    if tool_skipped and not _QUIET:
+        print(f"  (skipped {tool_skipped} file(s) by tool= allow-list for '{tool}')")
     return filtered
 
 
@@ -1501,7 +1597,7 @@ def _run_all(args, caps: Capabilities) -> int:
                     print(f"{row(ip_c, man_c, tb_c, tool_c)}"
                           f"{RED}FAIL{RESET} ({exc})")
                     continue
-                provided = caps.effective_features(tool, args.version, args.edition)
+                provided = caps.effective_features_for(tool, args.version, args.edition)
                 reason = _skip_reason(caps, manifest_obj, tool, provided)
                 if reason:
                     skipped += 1
@@ -1645,7 +1741,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
-    provided = caps.effective_features(tool, args.version, args.edition)
+    provided = caps.effective_features_for(tool, args.version, args.edition)
     manifest_cache: dict[Path, Manifest] = {manifest.path: manifest}
 
     exit_code = 0
