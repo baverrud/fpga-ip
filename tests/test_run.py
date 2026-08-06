@@ -65,6 +65,30 @@ class RunnerTests(unittest.TestCase):
         self.assertIn("uvvm", features)
         self.assertNotIn("vhdl-2019", features)
 
+    def test_toolchain_setup_captures_child_environment(self):
+        config = runner.configparser.ConfigParser()
+        config.read_string(
+            "[toolchain.questa]\n"
+            "setup = q26\n"
+            "[toolchain.vivado.2025.2]\n"
+            "setup = v25\n"
+        )
+        toolchains = runner.Toolchains(config, Path("toolchains.ini"))
+        result = SimpleNamespace(
+            stdout="PATH=C:\\tools\\questa\nQSIM_INI=C:\\sim\\modelsim.ini\n",
+            stderr="",
+            returncode=0,
+        )
+        with patch.object(runner.subprocess, "run", return_value=result) as setup:
+            environment = toolchains.prepare("questa", None)
+            versioned = toolchains.prepare("vivado", "2025.2")
+        self.assertEqual(environment["PATH"], "C:\\tools\\questa")
+        self.assertEqual(environment["QSIM_INI"], "C:\\sim\\modelsim.ini")
+        self.assertEqual(versioned["PATH"], "C:\\tools\\questa")
+        self.assertEqual(setup.call_count, 2)
+        self.assertIn("call q26", setup.call_args_list[0].args[0][-1])
+        self.assertIn("call v25", setup.call_args_list[1].args[0][-1])
+
     def test_section_names_are_normalized(self):
         path, manifest = self.manifest(
             "[RTL]\ncommon/rtl/util_pkg.vhd\n"

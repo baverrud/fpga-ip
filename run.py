@@ -54,15 +54,17 @@ The flow for a single target is:
 
   1. Parse the CLI: run <ip> <manifest> <tool> [--tb <tb>] [mode].
   2. Load tool_capabilities.ini (the feature vocabulary + tool profiles).
-  3. Probe the tool identity (version/edition) and compute its effective
-     feature set.
-  4. Resolve <ip>/scripts/<manifest>.f, select the testbench section, and
+  3. Load the optional local toolchains.ini and prepare a child environment
+      for the requested logical tool/version.
+  4. Probe the tool identity (version/edition) in that prepared environment
+      and compute its effective feature set.
+  5. Resolve <ip>/scripts/<manifest>.f, select the testbench section, and
      build the ordered source closure ([rtl] + [tb], or [rtl] + [top] for
      synthesis).
-  5. Validate: sources exist, requires-tokens are legal, capabilities match.
-  6. Dispatch to the matching backend (ModelSim/Questa, XSim, or Vivado),
+  6. Validate: sources exist, requires-tokens are legal, capabilities match.
+  7. Dispatch to the matching backend (ModelSim/Questa, XSim, or Vivado),
      which writes a generated script into <ip>/.runs/<tool>/ and runs it.
-  7. Report PASS/FAIL and map to an exit code.
+  8. Report PASS/FAIL and map to an exit code.
 
 'run all ...' sweeps every (ip, manifest, tool) combination instead of a
 single target, printing an aligned, live PASS/FAIL/SKIP table.
@@ -94,6 +96,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent          # fpga-ip repo root
 INI_PATH = REPO_ROOT / "tool_capabilities.ini"        # tool capability profiles
 RUNS_DIRNAME = ".runs"                                # disposable per-tool build dirs
+TOOLCHAINS_ENV = "FPGA_IP_TOOLCHAINS"                 # optional local config path
 
 # VHDL language standards accepted in manifests (values, not vcom flags).
 VALID_STDS = {"1993", "2002", "2008", "2019"}
@@ -208,6 +211,124 @@ def parse_feature_tokens(value: str) -> list[tuple[str, str]]:
 # ---------------------------------------------------------------------------
 
 @dataclass
+class Toolchains:
+    """Machine-local setup commands and prepared child environments.
+
+    The repository describes logical tools and capabilities, but cannot
+    contain installation paths or launcher names. This class reads the
+    optional user-local toolchains.ini, executes the selected setup command
+    in a child shell, captures the resulting environment, and gives that
+    environment to both capability probes and EDA subprocesses.
+
+    If no local file or matching setup profile exists, prepare() returns a
+    copy of the current environment. That preserves the old PATH-based
+    behavior while allowing a configured machine to run ModelSim, Questa,
+    and multiple Vivado versions in one sweep.
+
+    Setup is deliberately applied only to child processes. A Python process
+    cannot modify the environment of its parent PowerShell/CMD session, but
+    it can give every probe and EDA subprocess the correct PATH and tool
+    variables. This is all the runner needs.
+    """
+    data: "configparser.ConfigParser"
+    path: Path | None
+    environment_cache: dict[tuple[str, str | None], dict[str, str]] = field(default_factory=dict)
+
+    @classmethod
+    def load(cls) -> "Toolchains":
+        """Load the user-local toolchain registry, if one is available.
+
+        `FPGA_IP_TOOLCHAINS` takes precedence. Otherwise a local
+        `fpga-ip/toolchains.ini` is used when present; this file is ignored by
+        Git and is intended for per-machine setup. If it is absent, Windows
+        uses `%APPDATA%/fpga-ip/toolchains.ini`; other systems use
+        `~/.config/fpga-ip/toolchains.ini`. Missing configuration is not an
+        error because users may intentionally prepare PATH themselves.
+        """
+        configured = os.environ.get(TOOLCHAINS_ENV)
+        if configured:
+            path = Path(configured).expanduser()
+        elif (REPO_ROOT / "toolchains.ini").is_file():
+            path = REPO_ROOT / "toolchains.ini"
+        elif os.name == "nt" and os.environ.get("APPDATA"):
+            path = Path(os.environ["APPDATA"]) / "fpga-ip" / "toolchains.ini"
+        else:
+            path = Path.home() / ".config" / "fpga-ip" / "toolchains.ini"
+        if not path.is_file():
+            return cls(configparser.ConfigParser(), None)
+        cfg = configparser.ConfigParser(strict=True)
+        cfg.read(path, encoding="utf-8-sig")
+        return cls(cfg, path)
+
+    def setup_command(self, tool: str, version: str | None) -> str | None:
+        """Return the most specific setup command for tool/version."""
+        candidates = []
+        if version:
+            candidates.append(f"toolchain.{tool}.{version}")
+        candidates.append(f"toolchain.{tool}")
+        for section in candidates:
+            if section in self.data and self.data[section].get("setup", "").strip():
+                return self.data[section]["setup"].strip()
+        return None
+
+    def prepare(self, tool: str, version: str | None) -> dict[str, str]:
+        """Prepare and cache the child environment for one tool/version.
+
+        On Windows, setup commands are called through `cmd.exe` and followed
+        by `set`; this captures PATH plus variables such as MODELSIM, QSIM_INI,
+        and Vivado installation variables without changing the parent shell.
+        On POSIX, the equivalent is `sh -lc '<setup>; env'`.
+        """
+        key = (tool, version)
+        if key in self.environment_cache:
+            return self.environment_cache[key]
+        base = dict(os.environ)
+        setup = self.setup_command(tool, version)
+        if not setup:
+            self.environment_cache[key] = base
+            return base
+
+        if os.name == "nt":
+            setup_call = setup if re.match(r"^\s*call\b", setup, re.IGNORECASE) else f"call {setup}"
+            # Keep the command unwrapped: the setup batch may itself contain
+            # quoted paths. Emit a marker before `set` so a setup failure can
+            # be detected without an `if errorlevel ... exit /b` compound
+            # command, which interferes with some launcher batch files.
+            marker = "__FPGA_IP_SETUP_RC="
+            command = f"{setup_call} & echo {marker}%errorlevel% & set"
+            argv = ["cmd.exe", "/d", "/s", "/c", command]
+        else:
+            argv = ["sh", "-lc", f"{setup}; status=$?; [ $status -eq 0 ] || exit $status; env"]
+        try:
+            result = subprocess.run(
+                argv, env=base, capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=30,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise RunnerError(f"toolchain setup failed for {tool}: {exc}") from exc
+        setup_rc = result.returncode
+        prepared = dict(base)
+        for line in result.stdout.splitlines():
+            if line.startswith("__FPGA_IP_SETUP_RC="):
+                try:
+                    setup_rc = int(line.split("=", 1)[1])
+                except ValueError:
+                    setup_rc = 1
+                continue
+            if "=" in line:
+                name, value = line.split("=", 1)
+                if name:
+                    prepared[name] = value
+        if setup_rc != 0:
+            raise RunnerError(
+                f"toolchain setup failed for {tool} (exit {setup_rc}); "
+                f"profile: {self.path}"
+            )
+        self.environment_cache[key] = prepared
+        return prepared
+
+
+@dataclass
 class Capabilities:
     """The parsed tool_capabilities.ini plus per-tool identity probing.
 
@@ -268,7 +389,8 @@ class Capabilities:
                 return [m.strip() for m in modes.split(",") if m.strip()]
         return []
 
-    def detect_identity(self, tool: str) -> tuple[str | None, str | None]:
+    def detect_identity(self, tool: str,
+                        env: dict[str, str] | None = None) -> tuple[str | None, str | None]:
         """Probe a tool and return its detected (version, edition).
 
         Runs the base profile's 'probe' command and extracts the version and
@@ -277,14 +399,15 @@ class Capabilities:
         None), which makes matching fall back to the name-level profile.
         Results are cached so the probe runs once per tool per process.
         """
-        if tool in self.identity_cache:
-            return self.identity_cache[tool]
+        cache_key = tool if env is None else f"{tool}:{id(env)}"
+        if cache_key in self.identity_cache:
+            return self.identity_cache[cache_key]
 
         profile_name = f"tool.{tool}"
         probe = self.data[profile_name].get("probe", "").strip()
         if not probe:
             identity = (None, None)
-            self.identity_cache[tool] = identity
+            self.identity_cache[cache_key] = identity
             return identity
 
         try:
@@ -294,6 +417,7 @@ class Capabilities:
                 command = shlex.split(probe)
             result = subprocess.run(
                 command,
+                env=env,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -302,7 +426,7 @@ class Capabilities:
             )
         except (OSError, subprocess.SubprocessError):
             identity = (None, None)
-            self.identity_cache[tool] = identity
+            self.identity_cache[cache_key] = identity
             return identity
 
         output = result.stdout + "\n" + result.stderr
@@ -320,13 +444,14 @@ class Capabilities:
                 edition = match.group(1).strip().lower()
 
         identity = (version, edition)
-        self.identity_cache[tool] = identity
+        self.identity_cache[cache_key] = identity
         return identity
 
     def effective_features_for(self, tool: str, version: str | None,
-                               edition: str | None) -> set[str]:
+                               edition: str | None,
+                               env: dict[str, str] | None = None) -> set[str]:
         """Apply explicit identity overrides over the probed tool identity."""
-        detected_version, detected_edition = self.detect_identity(tool)
+        detected_version, detected_edition = self.detect_identity(tool, env)
         return self.effective_features(
             tool,
             version if version is not None else detected_version,
@@ -1125,7 +1250,8 @@ def _run_cmd(cmd: str, cwd: Path | None = None, env: dict | None = None) -> int:
                           stdout=out, stderr=err).returncode
 
 
-def run_msim(launch_dir: Path, script_name: str, mode: str) -> int:
+def run_msim(launch_dir: Path, script_name: str, mode: str,
+             tool_env: dict[str, str] | None = None) -> int:
     """Invoke ModelSim/Questa (vsim) directly in a CMD shell.
 
     vsim must already be on the PATH.
@@ -1144,11 +1270,12 @@ def run_msim(launch_dir: Path, script_name: str, mode: str) -> int:
         vsim_cmd = f"vsim -c -do {script_name}"
     else:
         vsim_cmd = f"vsim -do {script_name}"
-    env = None
+    env = dict(tool_env) if tool_env is not None else None
     if mode == "project":
         sim_dir = launch_dir.resolve()
         sim_dir.mkdir(parents=True, exist_ok=True)
-        global_ini = os.environ.get("MODELSIM")
+        setup_env = env or os.environ
+        global_ini = setup_env.get("MODELSIM") or setup_env.get("QSIM_INI")
         if global_ini and os.path.isfile(global_ini):
             local_ini = sim_dir / "modelsim.ini"
             shutil.copyfile(global_ini, local_ini)
@@ -1156,8 +1283,9 @@ def run_msim(launch_dir: Path, script_name: str, mode: str) -> int:
                 os.chmod(local_ini, 0o644)  # clear any read-only attribute
             except OSError:
                 pass
-        env = dict(os.environ)
+        env = dict(setup_env)
         env.pop("MODELSIM", None)
+        env.pop("QSIM_INI", None)
     inner = f"cd /d {launch_dir} & {vsim_cmd}"
     # vsim inherits the console unless the sweep suppressed output; cwd is
     # set via 'cd /d' inside the CMD string (vsim must start in the run dir).
@@ -1313,7 +1441,8 @@ def write_xsim_script(script_path: Path, files: list[FileEntry],
     script_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def run_xsim(launch_dir: Path, script_path: Path, mode: str) -> int:
+def run_xsim(launch_dir: Path, script_path: Path, mode: str,
+             tool_env: dict[str, str] | None = None) -> int:
     """Run the self-contained XSim wrapper through Vivado Tcl.
 
     The generated script owns cleanup, compilation, elaboration, and the
@@ -1328,7 +1457,7 @@ def run_xsim(launch_dir: Path, script_path: Path, mode: str) -> int:
     # Vivado 2023.2 passes quotes from `cmd.exe /c` into its Tcl source
     # command, producing source {"..."} and a doubled-quote file-not-found.
     cmd = f"vivado -mode tcl -source {script_path.name}"
-    rc = _run_cmd(cmd, cwd=sim_dir)
+    rc = _run_cmd(cmd, cwd=sim_dir, env=tool_env)
     if mode == "batch" and rc == 0:
         # xsim exits 0 even when a VHDL assertion fails at runtime; the
         # report lines land in xsim.log, so scan it for them.
@@ -1550,7 +1679,8 @@ def write_vivado_project_script(script_path: Path, files: list[FileEntry],
 
 
 def run_vivado(build_dir: Path, script_path: Path, mode: str,
-               proj_dir: Path | None) -> int:
+               proj_dir: Path | None,
+               tool_env: dict[str, str] | None = None) -> int:
     """Run the Vivado synthesis/project flow from a dedicated build dir.
 
     batch:   non-project synthesis, headless (vivado -mode batch).
@@ -1566,10 +1696,10 @@ def run_vivado(build_dir: Path, script_path: Path, mode: str,
     if mode == "gui":
         # Non-project GUI: -mode gui runs the script and keeps the GUI open.
         cmd = f"vivado -mode gui -source {script_path.as_posix()}"
-        return _run_cmd(cmd, cwd=build_dir)
+        return _run_cmd(cmd, cwd=build_dir, env=tool_env)
     # batch / project: run headless first (synthesis or project creation).
     cmd = f"vivado -mode batch -source {script_path.as_posix()}"
-    rc = _run_cmd(cmd, cwd=build_dir)
+    rc = _run_cmd(cmd, cwd=build_dir, env=tool_env)
     if rc != 0 or mode == "batch":
         return rc
     # project: open the created .xpr in the Vivado GUI (blocks until closed).
@@ -1580,7 +1710,7 @@ def run_vivado(build_dir: Path, script_path: Path, mode: str,
                 print(f"ERROR: project file not found: {xpr}", file=sys.stderr)
             return 1
         cmd = f"vivado {xpr.as_posix()}"
-        return _run_cmd(cmd, cwd=build_dir)
+        return _run_cmd(cmd, cwd=build_dir, env=tool_env)
     return 0
 
 
@@ -1704,7 +1834,7 @@ def _skip_reason(caps: Capabilities, manifest: Manifest, tool: str,
     return None
 
 
-def _run_all(args, caps: Capabilities) -> int:
+def _run_all(args, caps: Capabilities, toolchains: Toolchains) -> int:
     """Run every (ip, manifest, tool) combination in batch mode.
 
     Prints each target's row immediately as it starts (progress) with its
@@ -1784,7 +1914,17 @@ def _run_all(args, caps: Capabilities) -> int:
                     print(f"{row(ip_c, man_c, tb_c, tool_c)}"
                           f"{RED}FAIL{RESET} ({exc})")
                     continue
-                provided = caps.effective_features_for(tool, args.version, args.edition)
+                try:
+                    tool_env = toolchains.prepare(tool, args.version)
+                    provided = caps.effective_features_for(
+                        tool, args.version, args.edition, tool_env
+                    )
+                except RunnerError as exc:
+                    skipped += 1
+                    skipped_list.append((ident, str(exc)))
+                    print(f"{row(ip_c, man_c, tb_c, tool_c)}"
+                          f"{YELLOW}SKIP{RESET} ({exc})")
+                    continue
                 reason = _skip_reason(caps, manifest_obj, tool, provided)
                 if reason:
                     skipped += 1
@@ -1797,7 +1937,13 @@ def _run_all(args, caps: Capabilities) -> int:
                 print(row(ip_c, man_c, tb_c, tool_c), end="", flush=True)
                 _QUIET = True
                 try:
-                    rc = main([ip, manifest, tool, "batch"])
+                    child_args = [ip, manifest, tool]
+                    if args.version:
+                        child_args += ["--version", args.version]
+                    if args.edition:
+                        child_args += ["--edition", args.edition]
+                    child_args.append("batch")
+                    rc = main(child_args)
                 finally:
                     _QUIET = False
                 if rc == 0:
@@ -1902,6 +2048,7 @@ def main(argv: list[str] | None = None) -> int:
     except RunnerError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
+    toolchains = Toolchains.load()
 
     # 'all' sweep: every ip/manifest/tool combination, batch only.
     if args.ip == "all" or args.manifest == "all" or args.tool == "all":
@@ -1909,7 +2056,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"ERROR: 'all' targets only run in batch mode (got '{mode}')",
                   file=sys.stderr)
             return 2
-        return _run_all(args, caps)
+        return _run_all(args, caps, toolchains)
 
     tool = args.tool
     if not caps.has_tool(tool):
@@ -1945,7 +2092,30 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
-    provided = caps.effective_features_for(tool, args.version, args.edition)
+    try:
+        tool_env = toolchains.prepare(tool, args.version)
+        detected_version, detected_edition = caps.detect_identity(tool, tool_env)
+    except RunnerError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    if args.version and detected_version and detected_version != args.version:
+        print(f"ERROR: requested {tool} {args.version}, but setup produced "
+              f"{tool} {detected_version}", file=sys.stderr)
+        return 2
+    if args.edition and detected_edition and detected_edition != args.edition.lower():
+        print(f"ERROR: requested {tool} edition {args.edition}, but setup produced "
+              f"edition {detected_edition}", file=sys.stderr)
+        return 2
+    provided = caps.effective_features_for(
+        tool, args.version, args.edition, tool_env
+    )
+    if not _QUIET:
+        setup_name = toolchains.setup_command(tool, args.version)
+        detected_label = detected_version or "unknown version"
+        if detected_edition:
+            detected_label += f" / {detected_edition}"
+        print(f"toolchain: {setup_name or '(current environment)'}")
+        print(f"detected  : {tool} {detected_label}")
     manifest_cache: dict[Path, Manifest] = {manifest.path: manifest}
 
     exit_code = 0
@@ -2047,7 +2217,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"script   : {script_path.relative_to(REPO_ROOT).as_posix()}")
             # The generated script rebuilds the work library itself. Use
             # 'run clean <ip>' to remove disposable .runs artifacts.
-            rc = run_msim(script_path.parent, script_name, mode)
+            rc = run_msim(script_path.parent, script_name, mode, tool_env)
             exit_code = report_sim_result(mode, rc) or exit_code
         # Vivado XSim simulation backend (batch/gui; no project mode).
         elif tb_name is not None and tool == "xsim":
@@ -2085,7 +2255,7 @@ def main(argv: list[str] | None = None) -> int:
                               manifest_base, args.ip, tb_label, script_name, std)
             if not _QUIET:
                 print(f"script   : {script_path.relative_to(REPO_ROOT).as_posix()}")
-            rc = run_xsim(script_path.parent, script_path, mode)
+            rc = run_xsim(script_path.parent, script_path, mode, tool_env)
             exit_code = report_sim_result(mode, rc) or exit_code
         # Vivado synthesis backend (batch/gui/project).
         elif tool == "vivado":
@@ -2149,7 +2319,7 @@ def main(argv: list[str] | None = None) -> int:
                                             args.ip, script_name)
             if not _QUIET:
                 print(f"script   : {script_path.relative_to(REPO_ROOT).as_posix()}")
-            rc = run_vivado(build_dir, script_path, mode, proj_dir)
+            rc = run_vivado(build_dir, script_path, mode, proj_dir, tool_env)
             exit_code = report_sim_result(mode, rc) or exit_code
 
     return exit_code

@@ -105,7 +105,7 @@ Arguments:
 | `--tb <name>` | Select exactly the `[tb:<name>]` section. |
 | `--tb all` | Run every compatible testbench in the selected manifest. |
 | `--part <part>` | Vivado target part (default: `xc7a35tftg256-1`). |
-| `--version`, `--edition` | Optional tool version/edition override for profile matching. |
+| `--version`, `--edition` | Select/verify a tool version/edition profile and its local setup. |
 | `--project-dir <dir>` | Persistent project directory (IP-relative), project mode only. |
 | `mode` | `batch` (default), `gui`, or `project`. `all` targets are batch-only. |
 
@@ -278,6 +278,17 @@ Notes:
 
 - The tools must be on `PATH`: `vsim` (ModelSim/Questa), `vivado` and
   `xvhdl`/`xvlog`/`xelab`/`xsim` (Vivado/XSim).
+- For automatic environment setup, copy
+  [`toolchains.ini.example`](toolchains.ini.example) to the ignored local
+  `toolchains.ini` beside `run.py`. Alternatively use
+  `%APPDATA%/fpga-ip/toolchains.ini`, or set `FPGA_IP_TOOLCHAINS` to another
+  path. The file maps logical tools and versions to setup commands; its
+  resulting child environment is used for both probing and the EDA run.
+  The real file is ignored because launcher names and installation paths are
+  machine-specific.
+- Example version selection:
+  `run axis_fifo vhdl vivado --version 2025.2`. If the setup command produces
+  another version, run.py stops with a clear mismatch error.
 - Before capability matching, `run.py` executes each profile's `probe` command
   and extracts the configured version and edition. `--version` and
   `--edition` override the detected values; if a probe is unavailable, the
@@ -287,6 +298,51 @@ Notes:
 - ModelSim/Questa `project` mode needs a writable local `modelsim.ini` and a
   cleared `%MODELSIM%`; `run.py` sets both up automatically (it copies the
   global ini into the run directory and clears `%MODELSIM%` for the child).
+
+### Automatic Toolchain Setup
+
+The local registry is an INI file with one base or version-qualified section
+per logical tool:
+
+```ini
+[toolchain.modelsim]
+setup = m20
+
+[toolchain.questa]
+setup = q26
+
+[toolchain.vivado.2023.2]
+setup = v23
+
+[toolchain.vivado.2025.2]
+setup = v25
+
+[toolchain.xsim.2025.2]
+setup = v25
+```
+
+When `run.py` receives `vivado --version 2025.2`, it selects
+`[toolchain.vivado.2025.2]`, executes its `setup` command in a child shell,
+captures the resulting `PATH` and tool variables, and uses that environment
+for both `vivado -version` probing and synthesis. XSim normally shares the
+corresponding Vivado setup.
+
+Lookup precedence is:
+
+1. The file named by `FPGA_IP_TOOLCHAINS`.
+2. Ignored repository-local `toolchains.ini`.
+3. `%APPDATA%/fpga-ip/toolchains.ini` on Windows.
+4. `~/.config/fpga-ip/toolchains.ini` on other systems.
+5. The current process environment if no registry is available.
+
+The setup changes only child processes; it does not change the parent
+PowerShell or CMD session. Single-target output prints the selected setup and
+the detected tool identity, for example:
+
+```text
+toolchain: q26
+detected  : questa 2025.3 / starter
+```
 
 ## How to Add a New IP Core
 

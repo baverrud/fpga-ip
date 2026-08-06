@@ -1,0 +1,34 @@
+; Copy this file to the user toolchain location and edit setup commands.
+; The real file is machine-local and must not be committed:
+;   Repository-local: toolchains.ini (ignored by Git)
+;   Windows fallback: %APPDATA%\fpga-ip\toolchains.ini
+;   Override path with FPGA_IP_TOOLCHAINS.
+;
+; setup is executed in a child shell. Its resulting PATH and tool variables
+; are captured and used for both capability probing and the EDA run.
+;
+; Use a base section for the default version and a version-qualified section
+; when several installations of the same tool are available.
+
+[toolchain.modelsim]
+setup = <command-that-activates-modelsim>
+
+[toolchain.questa]
+setup = <command-that-activates-questa>
+
+[toolchain.vivado]
+setup = <command-that-activates-vivado>
+
+; XSim is supplied by Vivado, so its setup normally matches Vivado.
+[toolchain.xsim]
+setup = <command-that-activates-vivado>
+
+; Examples of version-qualified profiles:
+; [toolchain.vivado.2023.2]
+; setup = <command-for-vivado-2023.2>
+;
+; [toolchain.vivado.2025.2]
+; setup = <command-for-vivado-2025.2>
+;
+; [toolchain.xsim.2025.2]
+; setup = <command-for-vivado-2025.2>

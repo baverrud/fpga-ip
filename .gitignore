@@ -31,7 +31,9 @@ transcript
 wave*.do
 *.mpf
 *.ini
+toolchains.ini
 !tool_capabilities.ini
+!toolchains.ini.example
 vsim.wlf
 covhtmlreport/
 *.ucdb
