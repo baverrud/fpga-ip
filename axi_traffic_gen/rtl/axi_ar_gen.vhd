@@ -15,10 +15,6 @@
 --                 : configured window and align starts to C_DATA_BYTES.
 --                 : cfg_arlen is sized by GC_MAX_BURST.
 --                 :
---                 : The scoreboard push found in axi_read_tester_ar_gen
---                 : is removed (the axi_monitor builds its own
---                 : scoreboard from the tapped AR bus).
---                 :
 --                 : Timing note: no dividers or multipliers anywhere;
 --                 : random addressing uses a bit-mask, so cfg_addr_range
 --                 : must be a power of two when cfg_addr_mode='1'.
@@ -77,8 +73,11 @@ architecture rtl of axi_ar_gen is
 
   -- Low-bit alignment mask:  forces the low log2(C_DATA_BYTES) address
   -- bits to 0 so every access starts on a C_DATA_BYTES multiple.
-  constant C_ALIGN : unsigned(GC_ADDR_WIDTH-1 downto 0) :=
-                       not to_unsigned(GC_DATA_BYTES - 1, GC_ADDR_WIDTH);
+  constant C_ALIGN    : unsigned(GC_ADDR_WIDTH-1 downto 0) :=
+                          not to_unsigned(GC_DATA_BYTES - 1, GC_ADDR_WIDTH);
+  constant C_AR_SIZE  : std_logic_vector(2 downto 0) :=
+                          std_logic_vector(to_unsigned(log2ceil(GC_DATA_BYTES), 3));
+  constant C_AR_BURST : std_logic_vector(1 downto 0) := "01";  -- INCR
 
   type reg_t is record
     cur_addr     : unsigned(GC_ADDR_WIDTH-1 downto 0);  -- next address to present
@@ -142,6 +141,8 @@ architecture rtl of axi_ar_gen is
 
 begin
 
+  ar_size  <= C_AR_SIZE;
+  ar_burst <= C_AR_BURST;
   gate <= enable and aperture;
 
   -- Instantiate xoroshiro128+ PRNG for random address generation
@@ -157,9 +158,7 @@ begin
   -- Next-state logic.  Outputs are registered through r; ar_valid and
   -- ar_addr remain unchanged until the AXI handshake is accepted.
   ---------------------------------------------------------------------
-  p_comb : process(r, cfg_id, cfg_arlen, cfg_pace, cfg_pace_init, cfg_base_addr,
-                   cfg_addr_range, cfg_addr_mode, enable, aperture,
-                   ar_ready, stat_rst, prng_data, gate)
+  p_comb : process(all)
     variable v            : reg_t;
     variable v_arlen_i    : unsigned(31 downto 0);  -- cfg_arlen after clamping
     variable v_bsize      : unsigned(31 downto 0);
@@ -174,8 +173,6 @@ begin
     ar_addr   <= std_logic_vector(r.ar_addr);
     ar_id     <= r.ar_id;
     ar_len    <= r.ar_len;
-    ar_size   <= std_logic_vector(to_unsigned(log2ceil(GC_DATA_BYTES), 3));
-    ar_burst  <= "01";  -- INCR
     prng_step <= '0';
 
     stat_ar_stall    <= std_logic_vector(r.ar_stall_cnt);

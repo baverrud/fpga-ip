@@ -26,7 +26,7 @@ end entity;
 architecture sim of axi_ar_gen_simple_tb is
 
   constant C_CLK_PERIOD : time    := 10 ns;
-  constant C_DATA_BYTES : natural := 1;
+  constant C_DATA_BYTES : natural := 16;
   constant C_ADDR_WIDTH : natural := 32;
   constant C_ID_WIDTH   : natural := 4;
 
@@ -155,7 +155,7 @@ begin
     cfg_id         <= x"A";
     cfg_arlen      <= x"00";
     cfg_pace       <= x"00000000";
-    cfg_pace_init  <= x"00000003";
+    cfg_pace_init  <= x"00000000";
     cfg_base_addr  <= x"00040000";
     cfg_addr_range <= x"00040000";
     cfg_addr_mode  <= '0';
