@@ -74,7 +74,6 @@ regenerated on every run, removed by `run clean <ip>`). See
 | [axis_skid_buffer](axis_skid_buffer/README.md) | `axis_skid_buffer/` | AXI4-Stream 2-deep skid buffer with bypass path. Absorbs one beat of backpressure. |
 | [axi_mem_model](axi_mem_model/README.md) | `axi_mem_model/` | AXI4 read-slave that models DRAM-like latency and inter-beat gaps. Configurable widths (1-128 B), zero-latency mode, 1/cycle throughput. |
 | [axilite_io](axilite_io/README.md) | `axilite_io/` | AXI4-Lite slave to register & stream bridge. Output registers (byte-strobe), input ports, AXI4-Stream push/pop channels. |
-| [axi_read_tester](axi_read_tester/README.md) | `axi_read_tester/` | AXI4 read bandwidth/latency tester with scoreboard-based data verification. Configurable burst length, pacing, addressing mode (linear / PRNG). |
 | [axi_traffic_gen](axi_traffic_gen/README.md) | `axi_traffic_gen/` | Collection of lightweight AXI4 traffic generators. Provides `axi_ar_gen`, a read-address generator with configurable pace and linear/PRNG addressing. |
 
 ---
