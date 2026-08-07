@@ -270,15 +270,15 @@ begin
 
     -- Generator config (o_data): enable=1, 16-beat bursts over 64 KiB.
     write_reg(3, u32(1));               -- gen enable
-    write_reg(4, u32(0));               -- arid
-    write_reg(5, u32(15));              -- ar_length = 15 -> 16 beats
-    write_reg(6, u32(0));               -- pace = 0 (every cycle)
-    write_reg(7, u32(0));               -- pace_init
-    write_reg(8, x"00001000");          -- base_addr[31:0]
-    write_reg(9, u32(0));               -- base_addr[48:32]
-    write_reg(10, x"00010000");         -- addr_range[31:0]
-    write_reg(11, u32(0));              -- addr_range[48:32]
-    write_reg(12, u32(0));              -- addr_mode = linear
+    write_reg(4, u32(0));               -- cfg_id
+    write_reg(5, u32(15));              -- cfg_arlen = 15 -> 16 beats
+    write_reg(6, u32(0));               -- cfg_pace = 0 (every cycle)
+    write_reg(7, u32(0));               -- cfg_pace_init
+    write_reg(8, x"00001000");          -- cfg_base_addr[31:0]
+    write_reg(9, u32(0));               -- cfg_base_addr[48:32]
+    write_reg(10, x"00010000");         -- cfg_addr_range[31:0]
+    write_reg(11, u32(0));              -- cfg_addr_range[48:32]
+    write_reg(12, u32(0));              -- cfg_addr_mode = linear
 
     aperture <= '1';
     wait_cycles(clk, C_RUN_CYCLES);
@@ -472,7 +472,7 @@ begin
     ------------------------------------------------------------------
     -- T5: partial-write (wstrb) to a generator config register
     ------------------------------------------------------------------
-    report "=== T5: partial write to ar_length (wstrb) ===" severity note;
+    report "=== T5: partial write to cfg_arlen (wstrb) ===" severity note;
 
     -- T4 left in-flight R responses draining out of the mem_model.  Pulse a
     -- full reset so the mem_model FIFOs and the monitor/generator state are
@@ -491,11 +491,11 @@ begin
     write_reg(1, u32(1));               -- data_check_en
 
     -- Verify the write strobe masks register writes.  Start from
-    -- ar_length = 0 (1 beat), then write 15 to byte 0 only using a
+    -- cfg_arlen = 0 (1 beat), then write 15 to byte 0 only using a
     -- single-lane strobe.  A masked write must update only byte 0, so
-    -- ar_length becomes 15 -> 16-beat bursts.
-    write_reg(5, u32(0));               -- ar_length = 0 (1 beat)
-    write_reg(5, x"0000000F", x"1");    -- byte 0 only -> ar_length 15
+    -- cfg_arlen becomes 15 -> 16-beat bursts.
+    write_reg(5, u32(0));               -- cfg_arlen = 0 (1 beat)
+    write_reg(5, x"0000000F", x"1");    -- byte 0 only -> cfg_arlen 15
     write_reg(3, u32(1));               -- gen enable
     aperture <= '1';
     wait_cycles(clk, C_RUN_CYCLES);
@@ -514,7 +514,7 @@ begin
       report "T5: no transactions after partial write"
       severity error;
     assert beats = xactions * 16
-      report "T5: partial byte write did not set ar_length to 15"
+      report "T5: partial byte write did not set cfg_arlen to 15"
       severity error;
     read_reg(20, data);                  -- stat_burst_len_max
     assert to_integer(unsigned(data)) = 16

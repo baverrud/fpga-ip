@@ -2,24 +2,26 @@
 --Filename         : axi_ar_gen.vhd
 --Description      : Lightweight AXI4 read-address generator.
 --                 : enable and aperture form the generation gate.
---                 : pace_init delays the first burst; pace is reloaded
---                 : after each accepted address.
+--                 : cfg_pace_init delays the first burst by
+--                 : cfg_pace_init+1 cycles (matching the cfg_pace+1 gap
+--                 : convention; the +1 comes from presenting at pace_cnt<=1);
+--                 : cfg_pace is reloaded after each accepted address.
 --                 :
---                 : ar_length is the AXI ARLEN value (beats-1), the
+--                 : cfg_arlen is the AXI ARLEN value (beats-1), the
 --                 : same encoding as the ar_len output port:  0 means
 --                 : a 1-beat burst, 15 a 16-beat burst, etc.
 --                 :
 --                 : Linear and pseudo-random addressing stay within the
 --                 : configured window and align starts to C_DATA_BYTES.
---                 : ar_length is sized by GC_MAX_BURST.
+--                 : cfg_arlen is sized by GC_MAX_BURST.
 --                 :
 --                 : The scoreboard push found in axi_read_tester_ar_gen
 --                 : is removed (the axi_monitor builds its own
 --                 : scoreboard from the tapped AR bus).
 --                 :
 --                 : Timing note: no dividers or multipliers anywhere;
---                 : random addressing uses a bit-mask, so addr_range
---                 : must be a power of two when addr_mode='1'.
+--                 : random addressing uses a bit-mask, so cfg_addr_range
+--                 : must be a power of two when cfg_addr_mode='1'.
 --Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
@@ -44,16 +46,16 @@ entity axi_ar_gen is
     aperture : in std_logic;   -- measurement window
     stat_rst : in std_logic;   -- clears statistic counters
 
-    arid         : in std_logic_vector(GC_ID_WIDTH-1 downto 0);
-    ar_length    : in std_logic_vector(log2ceil(GC_MAX_BURST)-1 downto 0);  -- AXI arlen (beats-1); 0 = 1 beat
-    pace         : in std_logic_vector(31 downto 0);  -- idle cycles between ARs (0 = every cycle)
-    pace_init    : in std_logic_vector(31 downto 0);  -- delay before first burst
-    base_addr    : in std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
-    addr_range   : in std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
-    -- NOTE: random mode (addr_mode='1') requires addr_range to be a
+    cfg_id         : in std_logic_vector(GC_ID_WIDTH-1 downto 0);
+    cfg_arlen      : in std_logic_vector(log2ceil(GC_MAX_BURST)-1 downto 0);  -- AXI arlen (beats-1); 0 = 1 beat
+    cfg_pace       : in std_logic_vector(31 downto 0);  -- idle cycles between ARs (0 = every cycle)
+    cfg_pace_init  : in std_logic_vector(31 downto 0);  -- delay before first burst
+    cfg_base_addr  : in std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
+    cfg_addr_range : in std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
+    -- NOTE: random mode (cfg_addr_mode='1') requires cfg_addr_range to be a
     -- power of two (offset is a bit-mask).  Linear mode accepts any
     -- range.
-    addr_mode    : in std_logic;  -- '0' = linear sweep, '1' = pseudo-random
+    cfg_addr_mode  : in std_logic;  -- '0' = linear sweep, '1' = pseudo-random
 
     -- AXI Read-Address Channel (master -> DUT)
     ar_valid   : out std_logic;
@@ -81,8 +83,10 @@ architecture rtl of axi_ar_gen is
   type reg_t is record
     cur_addr     : unsigned(GC_ADDR_WIDTH-1 downto 0);  -- next address to present
     ar_addr      : unsigned(GC_ADDR_WIDTH-1 downto 0);  -- registered address output
+    ar_id        : std_logic_vector(GC_ID_WIDTH-1 downto 0); -- registered ID output
+    ar_len       : std_logic_vector(7 downto 0);             -- registered ARLEN output
     ar_valid     : std_logic;                           -- registered valid output
-    pace_cnt     : unsigned(31 downto 0);               -- pace downcounter
+    pace_cnt     : unsigned(31 downto 0);               -- cfg_pace downcounter
     ar_stall_cnt : unsigned(31 downto 0);               -- AR stall events (valid, not ready)
     ar_cnt       : unsigned(31 downto 0);               -- ARs successfully issued
     cfg_err      : unsigned(31 downto 0);               -- config error count
@@ -91,6 +95,8 @@ architecture rtl of axi_ar_gen is
   constant C_REG_DEFAULT : reg_t := (
     cur_addr     => (others => '0'),
     ar_addr      => (others => '0'),
+    ar_id        => (others => '0'),
+    ar_len       => (others => '0'),
     ar_valid     => '0',
     pace_cnt     => (others => '0'),
     ar_stall_cnt => (others => '0'),
@@ -104,8 +110,9 @@ architecture rtl of axi_ar_gen is
   -- Internal enable/aperture gate
   signal gate : std_logic;
 
-  -- xoroshiro128+ PRNG -- 64-bit pseudo-random values for random mode.
-  -- Stepped once per issue when addr_mode='1'.
+  -- xoroshiro128+ PRNG from the shared xorshift128 entity -- 64-bit
+  -- pseudo-random values for random mode.
+  -- Stepped once per issue when cfg_addr_mode='1'.
   signal prng_data : std_logic_vector(63 downto 0);
   signal prng_step : std_logic;
 
@@ -150,11 +157,11 @@ begin
   -- Next-state logic.  Outputs are registered through r; ar_valid and
   -- ar_addr remain unchanged until the AXI handshake is accepted.
   ---------------------------------------------------------------------
-  p_comb : process(r, arid, ar_length, pace, pace_init, base_addr,
-                   addr_range, addr_mode, enable, aperture,
+  p_comb : process(r, cfg_id, cfg_arlen, cfg_pace, cfg_pace_init, cfg_base_addr,
+                   cfg_addr_range, cfg_addr_mode, enable, aperture,
                    ar_ready, stat_rst, prng_data, gate)
     variable v            : reg_t;
-    variable v_arlen_i    : unsigned(31 downto 0);  -- ar_length after clamping
+    variable v_arlen_i    : unsigned(31 downto 0);  -- cfg_arlen after clamping
     variable v_bsize      : unsigned(31 downto 0);
     variable v_off        : unsigned(GC_ADDR_WIDTH-1 downto 0);  -- random offset
     variable v_max_start  : unsigned(GC_ADDR_WIDTH-1 downto 0);  -- base+range-bsize
@@ -165,8 +172,8 @@ begin
 
     ar_valid  <= r.ar_valid;
     ar_addr   <= std_logic_vector(r.ar_addr);
-    ar_id     <= arid;
-    ar_len    <= (others => '0');
+    ar_id     <= r.ar_id;
+    ar_len    <= r.ar_len;
     ar_size   <= std_logic_vector(to_unsigned(log2ceil(GC_DATA_BYTES), 3));
     ar_burst  <= "01";  -- INCR
     prng_step <= '0';
@@ -184,16 +191,15 @@ begin
     ------------------------------------------------------------------
     -- Calculate burst size and the highest legal start address.
     ------------------------------------------------------------------
-    v_arlen_i := resize(unsigned(ar_length), 32);
+    v_arlen_i := resize(unsigned(cfg_arlen), 32);
     v_cfg_clamp := false;
     if v_arlen_i > GC_MAX_BURST - 1 then
       v_arlen_i := to_unsigned(GC_MAX_BURST - 1, 32);
       v_cfg_clamp := true;
     end if;
     v_bsize := resize((v_arlen_i + 1) * GC_DATA_BYTES, 32);
-    v_max_start := unsigned(base_addr) + unsigned(addr_range) -
+    v_max_start := unsigned(cfg_base_addr) + unsigned(cfg_addr_range) -
                    resize(v_bsize, GC_ADDR_WIDTH);
-    ar_len <= std_logic_vector(resize(v_arlen_i, 8));
 
     ------------------------------------------------------------------
     -- A presented address is held until accepted.  The next address is
@@ -207,40 +213,47 @@ begin
           v.cfg_err := r.cfg_err + 1;
         end if;
 
-        if addr_mode = '1' then
+        if cfg_addr_mode = '1' then
           -- Random:  offset uniform in [0, range-bsize], aligned.
           prng_step <= '1';
           v_off := unsigned(prng_data(GC_ADDR_WIDTH-1 downto 0))
-                   and (unsigned(addr_range) - 1);
+                   and (unsigned(cfg_addr_range) - 1);
           v_off := v_off and C_ALIGN;
-          if v_bsize <= unsigned(addr_range) and
-             v_off > v_max_start - unsigned(base_addr) then
-            v_off := (v_max_start - unsigned(base_addr)) and C_ALIGN;
+          if v_bsize <= unsigned(cfg_addr_range) and
+             v_off > v_max_start - unsigned(cfg_base_addr) then
+            v_off := (v_max_start - unsigned(cfg_base_addr)) and C_ALIGN;
           end if;
-          v.cur_addr := unsigned(base_addr) + v_off;
+          v.cur_addr := unsigned(cfg_base_addr) + v_off;
         else
           -- Linear:  advance by one burst; wrap to base past the end.
           v_next := r.ar_addr + resize(v_bsize, GC_ADDR_WIDTH);
-          if v_bsize <= unsigned(addr_range) and v_next > v_max_start then
-            v_next := unsigned(base_addr);
+          if v_bsize <= unsigned(cfg_addr_range) and v_next > v_max_start then
+            v_next := unsigned(cfg_base_addr);
           end if;
           v.cur_addr := v_next and C_ALIGN;
         end if;
 
-        v.pace_cnt := resize(unsigned(pace), 32);
-        if gate = '1' and unsigned(pace) = 0 then
+        v.pace_cnt := resize(unsigned(cfg_pace), 32);
+        if gate = '1' and unsigned(cfg_pace) = 0 then
           v.ar_valid := '1';
-          v.ar_addr  := fit_addr(v.cur_addr, unsigned(base_addr), v_max_start);
+          v.ar_addr  := fit_addr(v.cur_addr, unsigned(cfg_base_addr), v_max_start);
+          v.ar_id    := cfg_id;
+          v.ar_len   := std_logic_vector(resize(v_arlen_i, 8));
         else
           v.ar_valid := '0';
         end if;
       else
         v.ar_stall_cnt := r.ar_stall_cnt + 1;
       end if;
-    elsif gate = '1' and r.pace_cnt = 0 then
+    elsif gate = '1' and r.pace_cnt <= 1 then
+      -- Present now: pace_cnt is 0 (reset / first burst) or 1 (last idle
+      -- cycle of a paced gap).  Asserting here keeps the AR-to-AR gap at
+      -- cfg_pace+1 cycles (cfg_pace=1 -> every 2nd cycle).
       v.ar_valid := '1';
-      v.ar_addr  := fit_addr(r.cur_addr, unsigned(base_addr), v_max_start);
-      v.pace_cnt := resize(unsigned(pace), 32);
+      v.ar_addr  := fit_addr(r.cur_addr, unsigned(cfg_base_addr), v_max_start);
+      v.ar_id    := cfg_id;
+      v.ar_len   := std_logic_vector(resize(v_arlen_i, 8));
+      v.pace_cnt := resize(unsigned(cfg_pace), 32);
     elsif gate = '1' then
       v.ar_valid := '0';
       v.pace_cnt := r.pace_cnt - 1;
@@ -252,16 +265,20 @@ begin
   end process p_comb;
 
   ---------------------------------------------------------------------
-  -- Synchronous reset.  The first address is base_addr and the initial
-  -- pace delay is loaded from pace_init.
+  -- Synchronous reset.  The first address is cfg_base_addr and the initial
+  -- cfg_pace delay is loaded from cfg_pace_init.
   ---------------------------------------------------------------------
   p_reg : process(aclk)
   begin
     if rising_edge(aclk) then
       if aresetn = '0' then
         r <= C_REG_DEFAULT;
-        r.cur_addr <= unsigned(base_addr);
-        r.pace_cnt <= resize(unsigned(pace_init), 32);
+        r.cur_addr <= unsigned(cfg_base_addr);
+        -- Load one extra cycle: the first present fires when pace_cnt <= 1,
+        -- so an initial value of cfg_pace_init delays the first AR by
+        -- cfg_pace_init+1 cycles (cfg_pace_init=0 -> cycle 1, =1 -> cycle 2),
+        -- matching the cfg_pace+1 inter-burst gap convention.
+        r.pace_cnt <= resize(unsigned(cfg_pace_init) + 1, 32);
       else
         r <= r_in;
       end if;

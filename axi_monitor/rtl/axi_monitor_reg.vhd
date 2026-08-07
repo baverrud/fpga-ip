@@ -11,8 +11,8 @@
 --
 --                   Control signals routed via the register bank:
 --                     enable, data_check_en, led            (monitor)
---                     enable, arid, ar_length, pace, pace_init,
---                     base_addr, addr_range, addr_mode       (generator)
+--                     enable, cfg_id, cfg_arlen, cfg_pace, cfg_pace_init,
+--                     cfg_base_addr, cfg_addr_range, cfg_addr_mode       (generator)
 --                   Signals left as ports (not in the register map):
 --                     global_time, aperture, stat_rst, err_rst,
 --                     pipeline_busy
@@ -27,16 +27,16 @@
 --  [1]   data_check_en  (bit 0) - verify r_data vs expected pattern
 --  [2]   led            (bit 0) - diagnostic GPIO
 --  [3]   gen enable     (bit 0) - generator enable
---  [4]   arid
---  [5]   ar_length              - AXI arlen (beats-1); 0 = 1 beat;
+--  [4]   cfg_id
+--  [5]   cfg_arlen              - AXI arlen (beats-1); 0 = 1 beat;
 --                                low log2ceil(GC_MAX_BURST) bits used
---  [6]   pace                   - idle cycles between ARs (0 = every cycle)
---  [7]   pace_init              - delay before first burst
---  [8]   base_addr[31:0]
---  [9]   base_addr[48:32]
---  [10]  addr_range[31:0]
---  [11]  addr_range[48:32]
---  [12]  addr_mode        (bit 0) - '0' linear, '1' random
+--  [6]   cfg_pace                   - idle cycles between ARs (0 = every cycle)
+--  [7]   cfg_pace_init              - delay before first burst
+--  [8]   cfg_base_addr[31:0]
+--  [9]   cfg_base_addr[48:32]
+--  [10]  cfg_addr_range[31:0]
+--  [11]  cfg_addr_range[48:32]
+--  [12]  cfg_addr_mode        (bit 0) - '0' linear, '1' random
 --
 -- i_data (read-only) - GC_STAT_WIDTH <= 63 -> max 2 words per wide signal:
 --  [0]  stat_ar_seen
@@ -172,13 +172,13 @@ architecture rtl of axi_monitor_reg is
 
   -- Generator control / config
   signal gen_enable   : std_logic;
-  signal arid         : std_logic_vector(GC_ID_WIDTH-1 downto 0);
-  signal ar_length    : std_logic_vector(log2ceil(GC_MAX_BURST)-1 downto 0);
-  signal pace         : std_logic_vector(31 downto 0);
-  signal pace_init    : std_logic_vector(31 downto 0);
-  signal base_addr    : std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
-  signal addr_range   : std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
-  signal addr_mode    : std_logic;
+  signal cfg_id         : std_logic_vector(GC_ID_WIDTH-1 downto 0);
+  signal cfg_arlen    : std_logic_vector(log2ceil(GC_MAX_BURST)-1 downto 0);
+  signal cfg_pace         : std_logic_vector(31 downto 0);
+  signal cfg_pace_init    : std_logic_vector(31 downto 0);
+  signal cfg_base_addr    : std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
+  signal cfg_addr_range   : std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
+  signal cfg_addr_mode    : std_logic;
 
   -- AR channel (generator drives, monitor taps)
   signal ar_valid_i : std_logic;
@@ -265,15 +265,15 @@ begin
 
   -- Output registers -> generator control / config
   gen_enable <= o_data(3)(0);
-  arid       <= o_data(4)(GC_ID_WIDTH-1 downto 0);
-  ar_length  <= o_data(5)(log2ceil(GC_MAX_BURST)-1 downto 0);
-  pace       <= o_data(6);
-  pace_init  <= o_data(7);
-  base_addr(31 downto 0)  <= o_data(8);
-  base_addr(48 downto 32) <= o_data(9)(16 downto 0);
-  addr_range(31 downto 0)  <= o_data(10);
-  addr_range(48 downto 32) <= o_data(11)(16 downto 0);
-  addr_mode  <= o_data(12)(0);
+  cfg_id       <= o_data(4)(GC_ID_WIDTH-1 downto 0);
+  cfg_arlen  <= o_data(5)(log2ceil(GC_MAX_BURST)-1 downto 0);
+  cfg_pace       <= o_data(6);
+  cfg_pace_init  <= o_data(7);
+  cfg_base_addr(31 downto 0)  <= o_data(8);
+  cfg_base_addr(48 downto 32) <= o_data(9)(16 downto 0);
+  cfg_addr_range(31 downto 0)  <= o_data(10);
+  cfg_addr_range(48 downto 32) <= o_data(11)(16 downto 0);
+  cfg_addr_mode  <= o_data(12)(0);
 
   -- Read-only statistics -> i_data
   i_data(0)  <= stat_ar_seen;
@@ -329,13 +329,13 @@ begin
       enable      => gen_enable,
       aperture    => aperture,
       stat_rst    => stat_rst,
-      arid        => arid,
-      ar_length   => ar_length,
-      pace        => pace,
-      pace_init   => pace_init,
-      base_addr   => base_addr,
-      addr_range  => addr_range,
-      addr_mode   => addr_mode,
+      cfg_id        => cfg_id,
+      cfg_arlen   => cfg_arlen,
+      cfg_pace        => cfg_pace,
+      cfg_pace_init   => cfg_pace_init,
+      cfg_base_addr   => cfg_base_addr,
+      cfg_addr_range  => cfg_addr_range,
+      cfg_addr_mode   => cfg_addr_mode,
       ar_valid    => ar_valid_i,
       ar_ready    => ar_ready_i,
       ar_id       => ar_id_i,

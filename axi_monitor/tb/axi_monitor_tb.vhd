@@ -13,7 +13,7 @@
 --                   ar_gen drives the AR channel into the mem_model.
 --
 --                   Checks:  normal linear/random/paced traffic,
---                   one-beat and non-zero pace_init operation, AR format
+--                   one-beat and non-zero cfg_pace_init operation, AR format
 --                   and address-window/alignment compliance, R backpressure,
 --                   per-instance enable gating, disabled data checking,
 --                   injected data/ID/RRESP/RLAST errors, stat_rst, and
@@ -53,13 +53,13 @@ architecture sim of axi_monitor_tb is
   -- Traffic source (ar_gen) config
   signal enable          : std_logic := '0';
   signal gen_aperture    : std_logic := '1';
-  signal arid            : std_logic_vector(C_ID_WIDTH-1 downto 0) := (others => '0');
-  signal ar_length      : std_logic_vector(log2ceil(256)-1 downto 0) := x"0F";
-  signal pace            : std_logic_vector(31 downto 0) := x"00000000";
-  signal pace_init       : std_logic_vector(31 downto 0) := x"00000000";
-  signal base_addr       : std_logic_vector(C_ADDR_WIDTH-1 downto 0) := std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
-  signal addr_range      : std_logic_vector(C_ADDR_WIDTH-1 downto 0) := std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
-  signal addr_mode       : std_logic := '0';
+  signal cfg_id            : std_logic_vector(C_ID_WIDTH-1 downto 0) := (others => '0');
+  signal cfg_arlen      : std_logic_vector(log2ceil(256)-1 downto 0) := x"0F";
+  signal cfg_pace            : std_logic_vector(31 downto 0) := x"00000000";
+  signal cfg_pace_init       : std_logic_vector(31 downto 0) := x"00000000";
+  signal cfg_base_addr       : std_logic_vector(C_ADDR_WIDTH-1 downto 0) := std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
+  signal cfg_addr_range      : std_logic_vector(C_ADDR_WIDTH-1 downto 0) := std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
+  signal cfg_addr_mode       : std_logic := '0';
 
   -- AR channel (gen drives, mem accepts, monitor taps)
   signal ar_valid : std_logic;
@@ -213,9 +213,9 @@ begin
         severity failure;
 
       burst_bytes := (to_integer(unsigned(ar_len)) + 1) * C_DATA_BYTES;
-      assert unsigned(ar_addr) >= unsigned(base_addr) and
+      assert unsigned(ar_addr) >= unsigned(cfg_base_addr) and
              unsigned(ar_addr) + burst_bytes <=
-             unsigned(base_addr) + unsigned(addr_range)
+             unsigned(cfg_base_addr) + unsigned(cfg_addr_range)
         report "AR corner check: burst outside configured address window"
         severity failure;
     end if;
@@ -223,7 +223,7 @@ begin
 
   ---------------------------------------------------------------------
   -- Traffic source:  axi_ar_gen
-  -- Generates AR bursts at pace=0 (a new AR every clock cycle when the
+  -- Generates AR bursts at cfg_pace=0 (a new AR every clock cycle when the
   -- mem_model accepts).  It has no scoreboard of its own -- the monitor
   -- builds its own scoreboard from the tapped AR.
   ---------------------------------------------------------------------
@@ -240,13 +240,13 @@ begin
       enable      => enable,
       aperture    => gen_aperture,
       stat_rst    => stat_rst,
-      arid        => arid,
-      ar_length   => ar_length,
-      pace        => pace,
-      pace_init   => pace_init,
-      base_addr   => base_addr,
-      addr_range  => addr_range,
-      addr_mode   => addr_mode,
+      cfg_id        => cfg_id,
+      cfg_arlen   => cfg_arlen,
+      cfg_pace        => cfg_pace,
+      cfg_pace_init   => cfg_pace_init,
+      cfg_base_addr   => cfg_base_addr,
+      cfg_addr_range  => cfg_addr_range,
+      cfg_addr_mode   => cfg_addr_mode,
       ar_valid    => ar_valid,
       ar_ready    => ar_ready,
       ar_id       => ar_id,
@@ -433,14 +433,14 @@ begin
     write(l, string'("=== T1: Passive monitoring, 16-beat linear bursts, data check ON ==="));
     writeline(output, l);
 
-    -- Configure generator: 16-beat bursts, linear, no pace
-    arid         <= (others => '0');
-    ar_length    <= x"0F";
-    pace         <= x"00000000";
-    pace_init    <= x"00000000";
-    base_addr    <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
-    addr_range   <= std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
-    addr_mode    <= '0';
+    -- Configure generator: 16-beat bursts, linear, no cfg_pace
+    cfg_id         <= (others => '0');
+    cfg_arlen    <= x"0F";
+    cfg_pace         <= x"00000000";
+    cfg_pace_init    <= x"00000000";
+    cfg_base_addr    <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
+    cfg_addr_range   <= std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
+    cfg_addr_mode    <= '0';
     data_check_en <= '1';
 
     aperture   <= '1';
@@ -627,9 +627,9 @@ begin
     stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
     err_rst  <= '1'; wait_cycles(2); err_rst  <= '0';
     data_check_en <= '1';
-    base_addr     <= std_logic_vector(to_unsigned(16#20000#, C_ADDR_WIDTH));
-    addr_range    <= std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
-    addr_mode     <= '1';
+    cfg_base_addr     <= std_logic_vector(to_unsigned(16#20000#, C_ADDR_WIDTH));
+    cfg_addr_range    <= std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
+    cfg_addr_mode     <= '1';
     enable        <= '1';
     aperture      <= '1';
     check_ar_corner_cases <= '1';
@@ -665,19 +665,19 @@ begin
     end if;
 
     ------------------------------------------------------------------
-    -- T5: paced generation (pace=1) -- exercises the S_PACE_WAIT path
+    -- T5: paced generation (cfg_pace=1) -- exercises the S_PACE_WAIT path
     ------------------------------------------------------------------
-    write(l, string'("=== T5: Paced generation (pace=1) ==="));
+    write(l, string'("=== T5: Paced generation (cfg_pace=1) ==="));
     writeline(output, l);
     stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
     err_rst  <= '1'; wait_cycles(2); err_rst  <= '0';
     data_check_en <= '1';
-    ar_length     <= x"07";
-    pace          <= x"00000001";
-    pace_init     <= x"00000000";
-    base_addr     <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
-    addr_range    <= std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
-    addr_mode     <= '0';
+    cfg_arlen     <= x"07";
+    cfg_pace          <= x"00000001";
+    cfg_pace_init     <= x"00000000";
+    cfg_base_addr     <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
+    cfg_addr_range    <= std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
+    cfg_addr_mode     <= '0';
     enable        <= '1';
     aperture      <= '1';
     check_ar_corner_cases <= '1';
@@ -725,18 +725,18 @@ begin
     end if;
 
     ------------------------------------------------------------------
-    -- T6: pace=2, pace_init, and one-beat bursts
+    -- T6: cfg_pace=2, cfg_pace_init, and one-beat bursts
     ------------------------------------------------------------------
-    write(l, string'("=== T6: pace=2, pace_init, one-beat bursts ==="));
+    write(l, string'("=== T6: cfg_pace=2, cfg_pace_init, one-beat bursts ==="));
     writeline(output, l);
     stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
     err_rst  <= '1'; wait_cycles(2); err_rst <= '0';
-    ar_length <= x"00";
-    pace      <= x"00000002";
-    pace_init <= x"00000003";
-    base_addr <= std_logic_vector(to_unsigned(16#3000#, C_ADDR_WIDTH));
-    addr_range <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
-    addr_mode <= '0';
+    cfg_arlen <= x"00";
+    cfg_pace      <= x"00000002";
+    cfg_pace_init <= x"00000003";
+    cfg_base_addr <= std_logic_vector(to_unsigned(16#3000#, C_ADDR_WIDTH));
+    cfg_addr_range <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
+    cfg_addr_mode <= '0';
     data_check_en <= '1';
     enable <= '1';
     aperture <= '1';
@@ -759,7 +759,7 @@ begin
            unsigned(stat_sb_underflow_errors) = 0
       report "T6: unexpected paced one-beat error"
       severity failure;
-    write(l, string'("  PASS: pace/init/one-beat path"));
+    write(l, string'("  PASS: cfg_pace/init/one-beat path"));
     writeline(output, l);
 
     ------------------------------------------------------------------
@@ -770,12 +770,12 @@ begin
     stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
     err_rst  <= '1'; wait_cycles(2); err_rst <= '0';
     r_ready <= '0';
-    ar_length <= x"07";
-    pace <= x"00000000";
-    pace_init <= x"00000000";
-    base_addr <= std_logic_vector(to_unsigned(16#4000#, C_ADDR_WIDTH));
-    addr_range <= std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
-    addr_mode <= '0';
+    cfg_arlen <= x"07";
+    cfg_pace <= x"00000000";
+    cfg_pace_init <= x"00000000";
+    cfg_base_addr <= std_logic_vector(to_unsigned(16#4000#, C_ADDR_WIDTH));
+    cfg_addr_range <= std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
+    cfg_addr_mode <= '0';
     data_check_en <= '1';
     enable <= '1';
     aperture <= '1';
@@ -830,11 +830,11 @@ begin
     ------------------------------------------------------------------
     write(l, string'("=== T9: injected R errors and err_rst ==="));
     writeline(output, l);
-    ar_length <= x"00";
-    pace <= x"00000000";
-    base_addr <= std_logic_vector(to_unsigned(16#5000#, C_ADDR_WIDTH));
-    addr_range <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
-    addr_mode <= '0';
+    cfg_arlen <= x"00";
+    cfg_pace <= x"00000000";
+    cfg_base_addr <= std_logic_vector(to_unsigned(16#5000#, C_ADDR_WIDTH));
+    cfg_addr_range <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
+    cfg_addr_mode <= '0';
     aperture <= '1';
     enable <= '1';
     check_ar_corner_cases <= '1';
@@ -908,12 +908,12 @@ begin
     inject_id_error <= '0';
     inject_resp_error <= '0';
     inject_rlast_error <= '0';
-    ar_length <= x"0F";
-    pace <= x"00000000";
-    pace_init <= x"00000000";
-    base_addr <= std_logic_vector(to_unsigned(16#1FF0#, C_ADDR_WIDTH));
-    addr_range <= std_logic_vector(to_unsigned(16#2000#, C_ADDR_WIDTH));
-    addr_mode <= '0';
+    cfg_arlen <= x"0F";
+    cfg_pace <= x"00000000";
+    cfg_pace_init <= x"00000000";
+    cfg_base_addr <= std_logic_vector(to_unsigned(16#1FF0#, C_ADDR_WIDTH));
+    cfg_addr_range <= std_logic_vector(to_unsigned(16#2000#, C_ADDR_WIDTH));
+    cfg_addr_mode <= '0';
     data_check_en <= '1';
     enable <= '1';
     aperture <= '1';
@@ -935,12 +935,12 @@ begin
     writeline(output, l);
     stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
     err_rst  <= '1'; wait_cycles(2); err_rst <= '0';
-    ar_length <= x"FF";              -- max ARLEN -> 256 beats
-    pace <= x"00000064";             -- leave time for one burst
-    pace_init <= x"00000000";
-    base_addr <= std_logic_vector(to_unsigned(16#6000#, C_ADDR_WIDTH));
-    addr_range <= std_logic_vector(to_unsigned(16#2000#, C_ADDR_WIDTH));
-    addr_mode <= '0';
+    cfg_arlen <= x"FF";              -- max ARLEN -> 256 beats
+    cfg_pace <= x"00000064";             -- leave time for one burst
+    cfg_pace_init <= x"00000000";
+    cfg_base_addr <= std_logic_vector(to_unsigned(16#6000#, C_ADDR_WIDTH));
+    cfg_addr_range <= std_logic_vector(to_unsigned(16#2000#, C_ADDR_WIDTH));
+    cfg_addr_mode <= '0';
     aperture <= '1';
     gen_aperture <= '1';
     enable <= '1';
@@ -949,7 +949,7 @@ begin
     enable <= '0';
     wait_drained(500000);
     assert unsigned(stat_burst_len_max) = 256
-      report "T11: ar_length did not produce a 256-beat burst"
+      report "T11: cfg_arlen did not produce a 256-beat burst"
       severity failure;
     write(l, string'("  PASS: max burst length (256 beats)"));
     writeline(output, l);
@@ -961,12 +961,12 @@ begin
     writeline(output, l);
     stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
     err_rst  <= '1'; wait_cycles(2); err_rst <= '0';
-    ar_length <= x"00";
-    pace <= x"00000000";
-    pace_init <= x"00000000";
-    base_addr <= std_logic_vector(to_unsigned(16#7000#, C_ADDR_WIDTH));
-    addr_range <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
-    addr_mode <= '0';
+    cfg_arlen <= x"00";
+    cfg_pace <= x"00000000";
+    cfg_pace_init <= x"00000000";
+    cfg_base_addr <= std_logic_vector(to_unsigned(16#7000#, C_ADDR_WIDTH));
+    cfg_addr_range <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
+    cfg_addr_mode <= '0';
     aperture <= '0';
     gen_aperture <= '1';
     enable <= '1';
@@ -1034,12 +1034,12 @@ begin
     err_rst  <= '1'; wait_cycles(2); err_rst <= '0';
     spurious_r_valid <= '0';
     r_ready <= '0';               -- hold R back so the small scoreboard fills
-    ar_length <= x"0F";     -- 16-beat bursts
-    pace <= x"00000000";
-    pace_init <= x"00000000";
-    base_addr <= std_logic_vector(to_unsigned(16#2000#, C_ADDR_WIDTH));
-    addr_range <= std_logic_vector(to_unsigned(16#4000#, C_ADDR_WIDTH));
-    addr_mode <= '0';
+    cfg_arlen <= x"0F";     -- 16-beat bursts
+    cfg_pace <= x"00000000";
+    cfg_pace_init <= x"00000000";
+    cfg_base_addr <= std_logic_vector(to_unsigned(16#2000#, C_ADDR_WIDTH));
+    cfg_addr_range <= std_logic_vector(to_unsigned(16#4000#, C_ADDR_WIDTH));
+    cfg_addr_mode <= '0';
     aperture <= '1';
     gen_aperture <= '1';
     enable <= '1';

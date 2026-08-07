@@ -13,29 +13,30 @@
 --                   independently predicts, every clock cycle, the
 --                   address the DUT must present (linear wrap-around,
 --                   random offset mask + window clamp, and the
---                   fit_addr align/clamp), plus a mirror xorshift128
---                   stepped in lockstep with the DUT PRNG.  A clocked
+--                   fit_addr align/clamp), plus a mirror xoroshiro128+
+--                   (the shared xorshift128 entity) stepped in lockstep
+--                   with the DUT PRNG.  A clocked
 --                   checker compares the DUT outputs (sampled on the
 --                   falling edge for determinism) against the model
 --                   and runs independent protocol checks:
 --                     - ar_addr aligned to C_DATA_BYTES
 --                     - full burst fits inside [base, base+range]
---                     - ar_len == ar_length (clamped)
+--                     - ar_len == cfg_arlen (clamped)
 --                     - ar_size == log2(GC_DATA_BYTES)
---                     - ar_burst == INCR, ar_id == arid
+--                     - ar_burst == INCR, ar_id == cfg_id
 --                     - VALID held and address stable until the
 --                       handshake (AXI valid/ready protocol)
 --
 --                   Corner cases exercised:
---                     T1  linear wrap-around (pace=0, back-to-back)
+--                     T1  linear wrap-around (cfg_pace=0, back-to-back)
 --                     T2  unaligned base (align-down clamp)
 --                     T3  wrap boundary at non-aligned window end
 --                     T4  random mode + offset window clamp
---                     T5  pace / pace_init first-burst delay
+--                     T5  cfg_pace / cfg_pace_init first-burst delay
 --                     T6  backpressure: valid-hold, no address skip
 --                     T7  enable/aperture gating incl. valid-hold
 --                         while the gate drops mid-presentation
---                     T8  ar_length extremes (1-beat, 256-beat) and
+--                     T8  cfg_arlen extremes (1-beat, 256-beat) and
 --                         degenerate burst>window clamp
 --                     T9  stat_rst clears counters mid-run
 --
@@ -71,13 +72,13 @@ architecture sim of axi_ar_gen_tb is
   signal enable     : std_logic := '0';
   signal aperture   : std_logic := '0';
   signal stat_rst   : std_logic := '0';
-  signal arid       : std_logic_vector(C_ID_WIDTH-1 downto 0) := (others => '0');
-  signal ar_length  : std_logic_vector(log2ceil(C_MAX_BURST)-1 downto 0) := (others => '0');
-  signal pace       : std_logic_vector(31 downto 0) := (others => '0');
-  signal pace_init  : std_logic_vector(31 downto 0) := (others => '0');
-  signal base_addr  : std_logic_vector(C_ADDR_WIDTH-1 downto 0) := (others => '0');
-  signal addr_range : std_logic_vector(C_ADDR_WIDTH-1 downto 0) := (others => '0');
-  signal addr_mode  : std_logic := '0';
+  signal cfg_id       : std_logic_vector(C_ID_WIDTH-1 downto 0) := (others => '0');
+  signal cfg_arlen  : std_logic_vector(log2ceil(C_MAX_BURST)-1 downto 0) := (others => '0');
+  signal cfg_pace       : std_logic_vector(31 downto 0) := (others => '0');
+  signal cfg_pace_init  : std_logic_vector(31 downto 0) := (others => '0');
+  signal cfg_base_addr  : std_logic_vector(C_ADDR_WIDTH-1 downto 0) := (others => '0');
+  signal cfg_addr_range : std_logic_vector(C_ADDR_WIDTH-1 downto 0) := (others => '0');
+  signal cfg_addr_mode  : std_logic := '0';
   signal ar_ready   : std_logic := '0';
 
   -- Per-instance DUT outputs
@@ -135,7 +136,7 @@ architecture sim of axi_ar_gen_tb is
     return resize((resize(arlen, 32) + 1) * db, 32);
   end function;
 
-  -- Highest legal start address: base + addr_range - bsize.
+  -- Highest legal start address: base + cfg_addr_range - bsize.
   function f_vmax(base, addr_range : unsigned; bsize : unsigned(31 downto 0)) return unsigned is
   begin
     return base + addr_range - resize(bsize, C_ADDR_WIDTH);
@@ -155,7 +156,7 @@ architecture sim of axi_ar_gen_tb is
     return v and f_align(db);
   end function;
 
-  -- Random offset: mask to (addr_range-1), align, clamp to window end.
+  -- Random offset: mask to (cfg_addr_range-1), align, clamp to window end.
   function f_rand_off(prng : unsigned(63 downto 0);
                       addr_range, base, top : unsigned;
                       bsize : unsigned(31 downto 0); db : natural) return unsigned is
@@ -267,7 +268,7 @@ begin
   -- per accepted AR in random mode.  Both PRNGs start from the same
   -- seeds and reset together, so their outputs stay in lockstep.
   ---------------------------------------------------------------------
-  ref_prng_step <= '1' when (ar_valid(0) = '1' and ar_ready = '1' and addr_mode = '1')
+  ref_prng_step <= '1' when (ar_valid(0) = '1' and ar_ready = '1' and cfg_addr_mode = '1')
                          else '0';
 
   u_ref_prng : entity work.xorshift128
@@ -296,13 +297,13 @@ begin
         enable     => enable,
         aperture   => aperture,
         stat_rst   => stat_rst,
-        arid       => arid,
-        ar_length  => ar_length,
-        pace       => pace,
-        pace_init  => pace_init,
-        base_addr  => base_addr,
-        addr_range => addr_range,
-        addr_mode  => addr_mode,
+        cfg_id       => cfg_id,
+        cfg_arlen  => cfg_arlen,
+        cfg_pace       => cfg_pace,
+        cfg_pace_init  => cfg_pace_init,
+        cfg_base_addr  => cfg_base_addr,
+        cfg_addr_range => cfg_addr_range,
+        cfg_addr_mode  => cfg_addr_mode,
         ar_valid   => ar_valid(i),
         ar_ready   => ar_ready,
         ar_id      => ar_id(i),
@@ -332,13 +333,13 @@ begin
     s_ready <= ar_ready;
     s_gate  <= enable and aperture;
     s_rst   <= aresetn;
-    s_mode  <= addr_mode;
-    s_arlen <= ar_length;
-    s_pace  <= pace;
-    s_pace_i<= pace_init;
-    s_base  <= base_addr;
-    s_range <= addr_range;
-    s_arid  <= arid;
+    s_mode  <= cfg_addr_mode;
+    s_arlen <= cfg_arlen;
+    s_pace  <= cfg_pace;
+    s_pace_i<= cfg_pace_init;
+    s_base  <= cfg_base_addr;
+    s_range <= cfg_addr_range;
+    s_arid  <= cfg_id;
     s_prng  <= ref_prng_data;
   end process;
 
@@ -354,8 +355,10 @@ begin
     type t_ref is record
       valid : boolean;
       addr  : unsigned(C_ADDR_WIDTH-1 downto 0);
+      id    : std_logic_vector(C_ID_WIDTH-1 downto 0);
+      len   : std_logic_vector(7 downto 0);
       cur   : unsigned(C_ADDR_WIDTH-1 downto 0);
-      pace  : unsigned(31 downto 0);
+      pace_cnt  : unsigned(31 downto 0);
     end record;
     type t_ref_arr is array (0 to C_NUM_DB-1) of t_ref;
     variable v_ref    : t_ref_arr;
@@ -398,7 +401,7 @@ begin
             end if;
 
             -- Channel bundle
-            if unsigned(s_len(i)) /= resize(unsigned(s_arlen), 8) then
+            if s_len(i) /= v_ref(i).len then
               v_errors := v_errors + 1;
               report "[" & integer'image(i) & "] ar_len mismatch" severity error;
             end if;
@@ -411,7 +414,7 @@ begin
               v_errors := v_errors + 1;
               report "[" & integer'image(i) & "] ar_burst not INCR" severity error;
             end if;
-            if s_id(i) /= s_arid then
+            if s_id(i) /= v_ref(i).id then
               v_errors := v_errors + 1;
               report "[" & integer'image(i) & "] ar_id mismatch" severity error;
             end if;
@@ -447,8 +450,10 @@ begin
         for i in 0 to C_NUM_DB-1 loop
           v_ref(i).valid := false;
           v_ref(i).addr  := (others => '0');
+          v_ref(i).id    := (others => '0');
+          v_ref(i).len   := (others => '0');
           v_ref(i).cur   := unsigned(s_base);
-          v_ref(i).pace  := unsigned(s_pace_i);
+          v_ref(i).pace_cnt  := unsigned(s_pace_i) + 1;
         end loop;
         v_issues := 0;
         v_stalls := 0;
@@ -472,24 +477,28 @@ begin
                 end if;
                 v_ref(i).cur := v_next and f_align(C_DB_ARR(i));
               end if;
-              v_ref(i).pace := unsigned(s_pace);
+              v_ref(i).pace_cnt := unsigned(s_pace);
               if s_gate = '1' and unsigned(s_pace) = 0 then
                 v_ref(i).valid := true;
                 v_ref(i).addr  := f_fit(v_ref(i).cur, unsigned(s_base), v_vmax,
                                         C_DB_ARR(i));
+                v_ref(i).id    := s_arid;
+                v_ref(i).len   := std_logic_vector(resize(unsigned(s_arlen), 8));
               else
                 v_ref(i).valid := false;
               end if;
             end if;
-            -- else: backpressure -> hold valid/addr/pace (unchanged)
-          elsif s_gate = '1' and v_ref(i).pace = 0 then
+            -- else: backpressure -> hold valid/addr/cfg_pace (unchanged)
+          elsif s_gate = '1' and v_ref(i).pace_cnt <= 1 then
             v_ref(i).valid := true;
             v_ref(i).addr  := f_fit(v_ref(i).cur, unsigned(s_base), v_vmax,
                                     C_DB_ARR(i));
-            v_ref(i).pace  := unsigned(s_pace);
+            v_ref(i).id    := s_arid;
+            v_ref(i).len   := std_logic_vector(resize(unsigned(s_arlen), 8));
+            v_ref(i).pace_cnt  := unsigned(s_pace);
           elsif s_gate = '1' then
             v_ref(i).valid := false;
-            v_ref(i).pace  := v_ref(i).pace - 1;
+            v_ref(i).pace_cnt  := v_ref(i).pace_cnt - 1;
           else
             v_ref(i).valid := false;
           end if;
@@ -506,23 +515,25 @@ begin
   -- Sequencer -- drives the shared config and runs the sub-tests.
   ---------------------------------------------------------------------
   p_seq : process
+    variable v_gap    : natural := 0;  -- low cycles between consecutive ARs
+    variable v_gap_init : natural := 0;  -- first-AR delay (cycles after gate)
   begin
     aresetn <= '0';
     wait_cycles(3);
 
-    -- ================= T1: linear wrap-around, pace=0 =================
+    -- ================= T1: linear wrap-around, cfg_pace=0 =================
     set_cfg('0', 15, 0, 0, 16#1000#, 16#1000#, '1',
-            enable, aperture, arid, ar_length, pace, pace_init,
-            base_addr, addr_range, addr_mode, ar_ready);
+            enable, aperture, cfg_id, cfg_arlen, cfg_pace, cfg_pace_init,
+            cfg_base_addr, cfg_addr_range, cfg_addr_mode, ar_ready);
     pulse_reset(aresetn);
     wait_until_issues(40);
-    check_stats("T1  linear wrap-around, pace=0 (40 issues)", stat_ar_issued,
+    check_stats("T1  linear wrap-around, cfg_pace=0 (40 issues)", stat_ar_issued,
                 stat_ar_stall, stat_cfg_errors);
 
     -- ============ T2: unaligned base -> align-down clamp =============
     set_cfg('0', 3, 0, 0, 16#1234#, 16#2000#, '1',
-            enable, aperture, arid, ar_length, pace, pace_init,
-            base_addr, addr_range, addr_mode, ar_ready);
+            enable, aperture, cfg_id, cfg_arlen, cfg_pace, cfg_pace_init,
+            cfg_base_addr, cfg_addr_range, cfg_addr_mode, ar_ready);
     pulse_reset(aresetn);
     wait_until_issues(20);
     check_stats("T2  unaligned base align-down (20 issues)", stat_ar_issued,
@@ -530,8 +541,8 @@ begin
 
     -- ======= T3: wrap boundary at non-aligned window end =============
     set_cfg('0', 7, 0, 0, 16#1000#, 16#1018#, '1',
-            enable, aperture, arid, ar_length, pace, pace_init,
-            base_addr, addr_range, addr_mode, ar_ready);
+            enable, aperture, cfg_id, cfg_arlen, cfg_pace, cfg_pace_init,
+            cfg_base_addr, cfg_addr_range, cfg_addr_mode, ar_ready);
     pulse_reset(aresetn);
     wait_until_issues(30);
     check_stats("T3  wrap boundary non-aligned window end (30 issues)",
@@ -539,30 +550,123 @@ begin
 
     -- ========== T4: random mode + window clamp =======================
     set_cfg('1', 15, 0, 0, 16#2000#, 16#1000#, '1',
-            enable, aperture, arid, ar_length, pace, pace_init,
-            base_addr, addr_range, addr_mode, ar_ready);
+            enable, aperture, cfg_id, cfg_arlen, cfg_pace, cfg_pace_init,
+            cfg_base_addr, cfg_addr_range, cfg_addr_mode, ar_ready);
     pulse_reset(aresetn);
     wait_until_issues(200);
     check_stats("T4  random mode + offset clamp (200 issues)", stat_ar_issued,
                 stat_ar_stall, stat_cfg_errors);
 
-    -- ========== T5: pace=2, pace_init=3 (first-burst delay) ==========
+    -- ========== T5: cfg_pace=2, cfg_pace_init=3 (first-burst delay) ==========
     set_cfg('0', 3, 2, 3, 16#1000#, 16#1000#, '1',
-            enable, aperture, arid, ar_length, pace, pace_init,
-            base_addr, addr_range, addr_mode, ar_ready);
+            enable, aperture, cfg_id, cfg_arlen, cfg_pace, cfg_pace_init,
+            cfg_base_addr, cfg_addr_range, cfg_addr_mode, ar_ready);
     pulse_reset(aresetn);
     wait_until_issues(15);
-    check_stats("T5  pace=2 / pace_init=3 (15 issues)", stat_ar_issued,
+    check_stats("T5  cfg_pace=2 / cfg_pace_init=3 (15 issues)", stat_ar_issued,
                 stat_ar_stall, stat_cfg_errors);
+
+    -- ======== T5B: cfg_pace=1 -> every 2nd cycle (gap regression) =========
+    -- Independent of the reference model: directly counts the number of
+    -- cycles where ar_valid is low between two consecutive presentations.
+    -- With cfg_pace=1 there must be exactly one idle cycle between ARs
+    -- (old FSM presented every 3rd cycle, i.e. two idle cycles).
+    set_cfg('0', 3, 1, 0, 16#1000#, 16#1000#, '1',
+            enable, aperture, cfg_id, cfg_arlen, cfg_pace, cfg_pace_init,
+            cfg_base_addr, cfg_addr_range, cfg_addr_mode, ar_ready);
+    pulse_reset(aresetn);
+    wait until rising_edge(aclk);
+    while ar_valid(0) /= '1' loop
+      wait until rising_edge(aclk);
+    end loop;                       -- first presentation
+    wait until rising_edge(aclk);   -- step past it
+    v_gap := 0;
+    while ar_valid(0) /= '1' loop
+      v_gap := v_gap + 1;           -- count idle (low) cycles
+      wait until rising_edge(aclk);
+    end loop;                       -- second presentation
+    assert v_gap = 1
+      report "T5B FAIL: cfg_pace=1 idle gap is " & integer'image(v_gap) &
+             " cycle(s), expected 1 (every 2nd cycle)" severity failure;
+    report "T5B PASS: cfg_pace=1 issues every 2nd cycle (1 idle)";
+    wait_until_issues(15);
+    check_stats("T5B  cfg_pace=1 (15 issues)", stat_ar_issued,
+                stat_ar_stall, stat_cfg_errors);
+
+    -- ========= T5C: cfg_pace_init first-burst delay (regression) =========
+    -- Independent of the reference model: the gate is held low while the
+    -- initial delay is loaded, then raised; measures the cycle distance to
+    -- the first AR for cfg_pace_init=1 vs =0 with identical methodology.
+    -- The old FSM collapsed both to the same delay; after the fix, init=1
+    -- must be exactly one cycle later than init=0.
+    set_cfg('0', 3, 0, 1, 16#1000#, 16#1000#, '1',
+            enable, aperture, cfg_id, cfg_arlen, cfg_pace, cfg_pace_init,
+            cfg_base_addr, cfg_addr_range, cfg_addr_mode, ar_ready);
+    enable   <= '0';
+    aperture <= '0';
+    aresetn  <= '0';
+    wait_cycles(3);
+    aresetn  <= '1';
+    wait_cycles(2);                 -- pace_cnt = init+1 = 2, gate still low
+    wait until rising_edge(aclk);   -- sync edge (gate stays low this cycle)
+    aperture <= '1';
+    enable   <= '1';                -- gate rises here
+    v_gap_init := 0;
+    while ar_valid(0) /= '1' loop
+      wait until rising_edge(aclk);
+      v_gap_init := v_gap_init + 1;
+    end loop;
+    report "T5C: cfg_pace_init=1 first-AR delay = " & integer'image(v_gap_init) &
+           " cycles";
+    wait_until_issues(8);
+    check_stats("T5C  cfg_pace_init=1 (8 issues)", stat_ar_issued,
+                stat_ar_stall, stat_cfg_errors);
+
+    -- Same measurement with cfg_pace_init=0.  The absolute count depends on
+    -- delta-cycle timing of the readback, so only the difference is asserted:
+    -- init=1 must be exactly one cycle later than init=0 (they used to
+    -- collapse to the same value).
+    set_cfg('0', 3, 0, 0, 16#1000#, 16#1000#, '1',
+            enable, aperture, cfg_id, cfg_arlen, cfg_pace, cfg_pace_init,
+            cfg_base_addr, cfg_addr_range, cfg_addr_mode, ar_ready);
+    enable   <= '0';
+    aperture <= '0';
+    aresetn  <= '0';
+    wait_cycles(3);
+    aresetn  <= '1';
+    wait_cycles(2);                 -- pace_cnt = init+1 = 1, gate still low
+    wait until rising_edge(aclk);   -- sync edge (gate stays low this cycle)
+    aperture <= '1';
+    enable   <= '1';                -- gate rises here
+    v_gap := 0;
+    while ar_valid(0) /= '1' loop
+      wait until rising_edge(aclk);
+      v_gap := v_gap + 1;
+    end loop;
+    report "T5C: cfg_pace_init=0 first-AR delay = " & integer'image(v_gap) &
+           " cycles";
+    assert v_gap_init = v_gap + 1
+      report "T5C FAIL: cfg_pace_init=1 first-AR delay (" &
+             integer'image(v_gap_init) & ") is not exactly 1 cycle later than " &
+             "cfg_pace_init=0 (" & integer'image(v_gap) & ")" severity failure;
+    report "T5C PASS: cfg_pace_init first-AR delay increases with cfg_pace_init";
 
     -- ========== T6: backpressure (valid-hold, no skip) ===============
     set_cfg('0', 3, 0, 0, 16#1000#, 16#1000#, '0',
-            enable, aperture, arid, ar_length, pace, pace_init,
-            base_addr, addr_range, addr_mode, ar_ready);
+            enable, aperture, cfg_id, cfg_arlen, cfg_pace, cfg_pace_init,
+            cfg_base_addr, cfg_addr_range, cfg_addr_mode, ar_ready);
     pulse_reset(aresetn);
-    -- After reset, pace=0 keeps VALID high continuously.  Stall for 3
+    -- After reset, cfg_pace=0 keeps VALID high continuously.  Stall for 3
     -- cycles, accept for 1, repeat: each issue is preceded by 3 stalls.
     wait_cycles(2);  -- let VALID assert
+    cfg_id    <= "111001";
+    cfg_arlen <= std_logic_vector(to_unsigned(15, log2ceil(C_MAX_BURST)));
+    wait_cycles(3);
+    for i in 0 to C_NUM_DB-1 loop
+      assert ar_valid(i) = '1' and ar_id(i) = "001010" and ar_len(i) = x"03"
+        report "T6: AR payload changed while stalled" severity failure;
+    end loop;
+    report "T6A PASS: ARID/ARLEN held while configuration changed";
     for k in 1 to 12 loop
       ar_ready <= '0';
       wait_cycles(3);
@@ -604,8 +708,8 @@ begin
 
     -- Part C: valid-hold while the gate drops mid-presentation
     set_cfg('0', 3, 0, 0, 16#1000#, 16#1000#, '0',
-            enable, aperture, arid, ar_length, pace, pace_init,
-            base_addr, addr_range, addr_mode, ar_ready);
+            enable, aperture, cfg_id, cfg_arlen, cfg_pace, cfg_pace_init,
+            cfg_base_addr, cfg_addr_range, cfg_addr_mode, ar_ready);
     pulse_reset(aresetn);
     wait_cycles(2);  -- VALID asserted, READY low (held)
     aperture <= '0';  -- gate drops while a value is presented
@@ -629,31 +733,31 @@ begin
     check_stats("T7D  gating resume (6 issues)", stat_ar_issued,
                 stat_ar_stall, stat_cfg_errors);
 
-    -- ============ T8: ar_length extremes =============================
-    -- Part A: ar_length=0 (1-beat bursts)
+    -- ============ T8: cfg_arlen extremes =============================
+    -- Part A: cfg_arlen=0 (1-beat bursts)
     set_cfg('0', 0, 0, 0, 16#1000#, 16#4000#, '1',
-            enable, aperture, arid, ar_length, pace, pace_init,
-            base_addr, addr_range, addr_mode, ar_ready);
+            enable, aperture, cfg_id, cfg_arlen, cfg_pace, cfg_pace_init,
+            cfg_base_addr, cfg_addr_range, cfg_addr_mode, ar_ready);
     pulse_reset(aresetn);
     wait_until_issues(20);
-    check_stats("T8A  ar_length=0, 1-beat bursts (20 issues)", stat_ar_issued,
+    check_stats("T8A  cfg_arlen=0, 1-beat bursts (20 issues)", stat_ar_issued,
                 stat_ar_stall, stat_cfg_errors);
 
-    -- Part B: ar_length=255 (256-beat max burst)
+    -- Part B: cfg_arlen=255 (256-beat max burst)
     set_cfg('0', 255, 0, 0, 16#1000#, 16#40000#, '1',
-            enable, aperture, arid, ar_length, pace, pace_init,
-            base_addr, addr_range, addr_mode, ar_ready);
+            enable, aperture, cfg_id, cfg_arlen, cfg_pace, cfg_pace_init,
+            cfg_base_addr, cfg_addr_range, cfg_addr_mode, ar_ready);
     pulse_reset(aresetn);
     wait_until_issues(8);
-    check_stats("T8B  ar_length=255, 256-beat bursts (8 issues)", stat_ar_issued,
+    check_stats("T8B  cfg_arlen=255, 256-beat bursts (8 issues)", stat_ar_issued,
                 stat_ar_stall, stat_cfg_errors);
 
     -- Part C: degenerate burst > window -> everything clamps to the
     -- window end (db=32: bsize=512 > range=256, so top < base and
     -- fit_addr clamps every presentation to top).
     set_cfg('0', 15, 0, 0, 16#1000#, 16#100#, '1',
-            enable, aperture, arid, ar_length, pace, pace_init,
-            base_addr, addr_range, addr_mode, ar_ready);
+            enable, aperture, cfg_id, cfg_arlen, cfg_pace, cfg_pace_init,
+            cfg_base_addr, cfg_addr_range, cfg_addr_mode, ar_ready);
     pulse_reset(aresetn);
     wait_until_issues(10);
     check_stats("T8C  degenerate burst>window clamp (10 issues)", stat_ar_issued,
@@ -661,8 +765,8 @@ begin
 
     -- ============ T9: stat_rst clears counters mid-run ===============
     set_cfg('0', 3, 0, 0, 16#1000#, 16#1000#, '1',
-            enable, aperture, arid, ar_length, pace, pace_init,
-            base_addr, addr_range, addr_mode, ar_ready);
+            enable, aperture, cfg_id, cfg_arlen, cfg_pace, cfg_pace_init,
+            cfg_base_addr, cfg_addr_range, cfg_addr_mode, ar_ready);
     pulse_reset(aresetn);
     wait_until_issues(10);
     wait_cycles(2);

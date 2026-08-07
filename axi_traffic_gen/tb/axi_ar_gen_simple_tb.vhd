@@ -26,9 +26,9 @@ end entity;
 architecture sim of axi_ar_gen_simple_tb is
 
   constant C_CLK_PERIOD : time    := 10 ns;
-  constant C_DATA_BYTES : natural := 16;
-  constant C_ADDR_WIDTH : natural := 49;
-  constant C_ID_WIDTH   : natural := 6;
+  constant C_DATA_BYTES : natural := 1;
+  constant C_ADDR_WIDTH : natural := 32;
+  constant C_ID_WIDTH   : natural := 4;
 
   signal aclk     : std_logic := '0';
   signal aresetn  : std_logic := '0';
@@ -40,15 +40,15 @@ architecture sim of axi_ar_gen_simple_tb is
   signal stat_rst : std_logic := '0';
 
   -- Generator config -- initial values
-  signal arid       : std_logic_vector(C_ID_WIDTH-1 downto 0) := (others => '0');
-  signal ar_length  : std_logic_vector(log2ceil(256)-1 downto 0) := x"0F";  -- 16 beats
-  signal pace       : std_logic_vector(31 downto 0) := x"00000000";  -- every cycle
-  signal pace_init  : std_logic_vector(31 downto 0) := x"00000000";
-  signal base_addr  : std_logic_vector(C_ADDR_WIDTH-1 downto 0) :=
+  signal cfg_id         : std_logic_vector(C_ID_WIDTH-1 downto 0) := (others => '0');
+  signal cfg_arlen      : std_logic_vector(log2ceil(256)-1 downto 0) := x"0F";  -- 16 beats
+  signal cfg_pace       : std_logic_vector(31 downto 0) := x"00000000";  -- every cycle
+  signal cfg_pace_init  : std_logic_vector(31 downto 0) := x"00000000";
+  signal cfg_base_addr  : std_logic_vector(C_ADDR_WIDTH-1 downto 0) :=
                           std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
-  signal addr_range : std_logic_vector(C_ADDR_WIDTH-1 downto 0) :=
+  signal cfg_addr_range : std_logic_vector(C_ADDR_WIDTH-1 downto 0) :=
                           std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
-  signal addr_mode  : std_logic := '0';  -- linear
+  signal cfg_addr_mode  : std_logic := '0';  -- linear
 
   -- AR channel (gen drives, TB consumes)
   signal ar_valid : std_logic;
@@ -58,6 +58,13 @@ architecture sim of axi_ar_gen_simple_tb is
   signal ar_len   : std_logic_vector(7 downto 0);
   signal ar_size  : std_logic_vector(2 downto 0);
   signal ar_burst : std_logic_vector(1 downto 0);
+
+  -- Address delta (waveform aid): combinatorial difference between the
+  -- currently presented AR address and the last accepted address.  In
+  -- linear mode this equals (ar_len+1) * C_DATA_BYTES; in random mode it
+  -- is the PRNG-derived offset between consecutive bursts.
+  signal ar_addr_prev : unsigned(C_ADDR_WIDTH-1 downto 0) := (others => '0');
+  signal ar_addr_diff : signed(C_ADDR_WIDTH downto 0)     := (others => '0');
 
   -- Statistics
   signal stat_ar_stall   : std_logic_vector(31 downto 0);
@@ -86,29 +93,51 @@ begin
       GC_MAX_BURST  => 256
     )
     port map (
-      aclk        => aclk,
-      aresetn     => aresetn,
-      enable      => enable,
-      aperture    => aperture,
-      stat_rst    => stat_rst,
-      arid        => arid,
-      ar_length   => ar_length,
-      pace        => pace,
-      pace_init   => pace_init,
-      base_addr   => base_addr,
-      addr_range  => addr_range,
-      addr_mode   => addr_mode,
-      ar_valid    => ar_valid,
-      ar_ready    => ar_ready,
-      ar_id       => ar_id,
-      ar_addr     => ar_addr,
-      ar_len      => ar_len,
-      ar_size     => ar_size,
-      ar_burst    => ar_burst,
+      aclk            => aclk,
+      aresetn         => aresetn,
+      enable          => enable,
+      aperture        => aperture,
+      stat_rst        => stat_rst,
+      cfg_id          => cfg_id,
+      cfg_arlen       => cfg_arlen,
+      cfg_pace        => cfg_pace,
+      cfg_pace_init   => cfg_pace_init,
+      cfg_base_addr   => cfg_base_addr,
+      cfg_addr_range  => cfg_addr_range,
+      cfg_addr_mode   => cfg_addr_mode,
+      ar_valid        => ar_valid,
+      ar_ready        => ar_ready,
+      ar_id           => ar_id,
+      ar_addr         => ar_addr,
+      ar_len          => ar_len,
+      ar_size         => ar_size,
+      ar_burst        => ar_burst,
       stat_ar_stall   => stat_ar_stall,
       stat_ar_issued  => stat_ar_issued,
       stat_cfg_errors => stat_cfg_errors
     );
+
+  ---------------------------------------------------------------------
+  -- Address delta -- on each accepted AR, capture the previous address;
+  -- the difference (current - previous) is combinatorial, so it tracks
+  -- the live ar_addr against the last accepted address.  On reset the
+  -- previous address is seeded with cfg_base_addr.
+  ---------------------------------------------------------------------
+  p_addr_prev : process(aclk)
+  begin
+    if rising_edge(aclk) then
+      if aresetn = '0' then
+        ar_addr_prev <= unsigned(cfg_base_addr);
+      elsif ar_valid = '1' and ar_ready = '1' then
+        ar_addr_prev <= unsigned(ar_addr);
+      end if;
+    end if;
+  end process;
+
+  -- Combinatorial difference: current presented address minus the last
+  -- accepted address (signed, one bit wider to catch wrap-around).
+  ar_addr_diff <= signed(resize(unsigned(ar_addr), C_ADDR_WIDTH+1)) -
+                  signed(resize(ar_addr_prev, C_ADDR_WIDTH+1));
 
   ---------------------------------------------------------------------
   -- Sequencer -- edit here to add tests.  Initial values are set in the
@@ -118,25 +147,26 @@ begin
     variable l : line;
   begin
     -- Reset
-    aresetn    <= '0';
-    ar_ready   <= '0';
-    enable     <= '1';
-    aperture   <= '0';
-    stat_rst   <= '0';
-    arid       <= "001010";
-    ar_length  <= x"01";
-    pace       <= x"00000000";
-    pace_init  <= x"00000000";
-    base_addr  <= 17B"0" & x"00040000";
-    addr_range <= 17B"0" & x"00040000";
-    addr_mode  <= '1';
+    aresetn        <= '0';
+    ar_ready       <= '0';
+    enable         <= '1';
+    aperture       <= '0';
+    stat_rst       <= '0';
+    cfg_id         <= x"A";
+    cfg_arlen      <= x"00";
+    cfg_pace       <= x"00000000";
+    cfg_pace_init  <= x"00000003";
+    cfg_base_addr  <= x"00040000";
+    cfg_addr_range <= x"00040000";
+    cfg_addr_mode  <= '0';
+
     wait_cycles(1);
     aresetn <= '1';
     wait_cycles(1);
 
     aperture <= '1';
     ar_ready <= '1';
-    wait_cycles(2);
+    wait_cycles(16);
     aperture <= '0';
 
     wait_cycles(2);

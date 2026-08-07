@@ -48,15 +48,15 @@ architecture sim of axi_monitor_simple_tb is
   -- Traffic source (ar_gen) config -- initial values
   signal enable        : std_logic := '0';
   signal gen_aperture  : std_logic := '1';
-  signal arid          : std_logic_vector(C_ID_WIDTH-1 downto 0) := (others => '0');
-  signal ar_length     : std_logic_vector(log2ceil(256)-1 downto 0) := x"0F";  -- 16 beats
-  signal pace          : std_logic_vector(31 downto 0) := x"00000000";
-  signal pace_init     : std_logic_vector(31 downto 0) := x"00000000";
-  signal base_addr     : std_logic_vector(C_ADDR_WIDTH-1 downto 0) :=
+  signal cfg_id          : std_logic_vector(C_ID_WIDTH-1 downto 0) := (others => '0');
+  signal cfg_arlen     : std_logic_vector(log2ceil(256)-1 downto 0) := x"0F";  -- 16 beats
+  signal cfg_pace          : std_logic_vector(31 downto 0) := x"00000000";
+  signal cfg_pace_init     : std_logic_vector(31 downto 0) := x"00000000";
+  signal cfg_base_addr     : std_logic_vector(C_ADDR_WIDTH-1 downto 0) :=
                            std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
-  signal addr_range    : std_logic_vector(C_ADDR_WIDTH-1 downto 0) :=
+  signal cfg_addr_range    : std_logic_vector(C_ADDR_WIDTH-1 downto 0) :=
                            std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
-  signal addr_mode     : std_logic := '0';
+  signal cfg_addr_mode     : std_logic := '0';
 
   -- AR channel (gen drives, mem accepts, monitor taps)
   signal ar_valid : std_logic;
@@ -169,13 +169,13 @@ begin
       enable      => enable,
       aperture    => gen_aperture,
       stat_rst    => stat_rst,
-      arid        => arid,
-      ar_length   => ar_length,
-      pace        => pace,
-      pace_init   => pace_init,
-      base_addr   => base_addr,
-      addr_range  => addr_range,
-      addr_mode   => addr_mode,
+      cfg_id        => cfg_id,
+      cfg_arlen   => cfg_arlen,
+      cfg_pace        => cfg_pace,
+      cfg_pace_init   => cfg_pace_init,
+      cfg_base_addr   => cfg_base_addr,
+      cfg_addr_range  => cfg_addr_range,
+      cfg_addr_mode   => cfg_addr_mode,
       ar_valid    => ar_valid,
       ar_ready    => ar_ready,
       ar_id       => ar_id,
@@ -290,13 +290,13 @@ begin
     variable l : line;
   begin
     -- Initial values in the sequencer
-    arid         <= (others => '0');
-    ar_length    <= x"0F";   -- 16-beat bursts (ARLEN 15)
-    pace         <= x"00000000";   -- 0 = a new AR every cycle
-    pace_init    <= x"00000000";
-    base_addr    <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
-    addr_range   <= std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
-    addr_mode    <= '0';           -- linear sweep
+    cfg_id         <= (others => '0');
+    cfg_arlen    <= x"0F";   -- 16-beat bursts (ARLEN 15)
+    cfg_pace         <= x"00000000";   -- 0 = a new AR every cycle
+    cfg_pace_init    <= x"00000000";
+    cfg_base_addr    <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
+    cfg_addr_range   <= std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
+    cfg_addr_mode    <= '0';           -- linear sweep
     data_check_en <= '1';
     mon_enable   <= '1';
     aperture     <= '1';
