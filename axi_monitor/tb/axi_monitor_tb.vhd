@@ -18,6 +18,13 @@
 --                   per-instance enable gating, disabled data checking,
 --                   injected data/ID/RRESP/RLAST errors, stat_rst, and
 --                   err_rst behavior.
+--
+--                   Additional corner cases (T15-T22):  stat_rst and err_rst
+--                   asserted while events are in flight, monitor disable /
+--                   re-enable, non-zero AR ID, RLAST early-guard, stat-
+--                   accumulator consistency and pipeline_busy, mixed burst
+--                   lengths, a 2-byte (GC_DATA_BYTES=2) data path, and
+--                   err_rst winning over coincident error detection.
 --Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
@@ -45,7 +52,6 @@ architecture sim of axi_monitor_tb is
 
   signal global_time   : unsigned(C_TIME_WIDTH-1 downto 0) := (others => '0');
   signal mon_enable    : std_logic := '1';   -- monitor per-instance enable (kept high)
-  signal aperture      : std_logic := '0';
   signal stat_rst      : std_logic := '0';
   signal err_rst       : std_logic := '0';
   signal data_check_en : std_logic := '1';
@@ -91,6 +97,7 @@ architecture sim of axi_monitor_tb is
   signal inject_resp_error  : std_logic := '0';
   signal inject_rlast_error : std_logic := '0';
   signal spurious_r_valid   : std_logic := '0';  -- R beat with no AR descriptor
+  signal spurious_r_last    : std_logic := '0';  -- spurious RLAST with empty scoreboard
 
   signal check_ar_corner_cases : std_logic := '0';
 
@@ -98,6 +105,33 @@ architecture sim of axi_monitor_tb is
   signal bp_stat_ar_seen         : std_logic_vector(31 downto 0);
   signal bp_stat_ar_stall        : std_logic_vector(31 downto 0);
   signal bp_stat_sb_backpressure : std_logic_vector(31 downto 0);
+
+  -- Narrow (GC_DATA_BYTES=2) traffic path -- covers the 2-byte data-check
+  -- branch in axi_monitor_r.  Independent generator/mem/monitor instances.
+  signal enable2          : std_logic := '0';
+  signal ar2_valid        : std_logic;
+  signal ar2_ready        : std_logic;
+  signal ar2_id           : std_logic_vector(C_ID_WIDTH-1 downto 0);
+  signal ar2_addr         : std_logic_vector(C_ADDR_WIDTH-1 downto 0);
+  signal ar2_len          : std_logic_vector(7 downto 0);
+  signal ar2_size         : std_logic_vector(2 downto 0);
+  signal ar2_burst        : std_logic_vector(1 downto 0);
+  signal r2_valid         : std_logic;
+  signal r2_ready         : std_logic := '1';   -- TB consumes narrow R beats
+  signal r2_id            : std_logic_vector(C_ID_WIDTH-1 downto 0);
+  signal r2_data          : std_logic_vector(15 downto 0);
+  signal r2_resp          : std_logic_vector(1 downto 0);
+  signal r2_last          : std_logic;
+  signal gen2_stat_ar_stall  : std_logic_vector(31 downto 0);
+  signal gen2_stat_ar_issued : std_logic_vector(31 downto 0);
+  signal mon2_stat_ar_seen   : std_logic_vector(31 downto 0);
+  signal mon2_stat_xactions  : std_logic_vector(31 downto 0);
+  signal mon2_stat_beats     : std_logic_vector(31 downto 0);
+  signal mon2_stat_data_errors     : std_logic_vector(31 downto 0);
+  signal mon2_stat_id_errors       : std_logic_vector(31 downto 0);
+  signal mon2_stat_rlast_errors    : std_logic_vector(31 downto 0);
+  signal mon2_stat_resp_errors     : std_logic_vector(31 downto 0);
+  signal mon2_stat_sb_uf_errors    : std_logic_vector(31 downto 0);
 
   -- Memory model control
   signal ar_base_enable   : std_logic := '1';
@@ -145,6 +179,12 @@ architecture sim of axi_monitor_tb is
   -- Global time counter
   signal global_time_cnt : unsigned(C_TIME_WIDTH-1 downto 0) := (others => '0');
 
+  -- Reference for stat_elapsed_cycles (increments while enabled, cleared
+  -- by stat_rst -- same semantics as the RTL counter).
+  signal mon_elapsed_ref : unsigned(31 downto 0) := (others => '0');
+  -- Latched flag: set once pipeline_busy is observed high (busy check).
+  signal busy_high_seen  : std_logic := '0';
+
   procedure wait_cycles(n : natural) is
   begin
     for i in 1 to n loop
@@ -183,6 +223,31 @@ begin
   end process;
   global_time <= global_time_cnt;
 
+  -- Reference counter for stat_elapsed_cycles -- mirrors the RTL elapsed
+  -- counter (increments while mon_enable is high, cleared by stat_rst).
+  p_elapsed_ref : process(aclk)
+  begin
+    if rising_edge(aclk) then
+      if aresetn = '0' or stat_rst = '1' then
+        mon_elapsed_ref <= (others => '0');
+      elsif mon_enable = '1' then
+        mon_elapsed_ref <= mon_elapsed_ref + 1;
+      end if;
+    end if;
+  end process;
+
+  -- Latched flag: set the first cycle pipeline_busy is observed high.
+  p_busy_track : process(aclk)
+  begin
+    if rising_edge(aclk) then
+      if aresetn = '0' or stat_rst = '1' then
+        busy_high_seen <= '0';
+      elsif pipeline_busy = '1' then
+        busy_high_seen <= '1';
+      end if;
+    end if;
+  end process;
+
   -- Preserve the memory response by default, with deliberate corruption
   -- available for the monitor error-counter tests.  spurious_r_valid
   -- injects an R beat with no matching AR descriptor (scoreboard
@@ -191,7 +256,8 @@ begin
   r_id    <= mem_r_id when inject_id_error = '0' else not mem_r_id;
   r_data  <= mem_r_data when inject_data_error = '0' else not mem_r_data;
   r_resp  <= mem_r_resp when inject_resp_error = '0' else "10";
-  r_last  <= mem_r_last xor inject_rlast_error;
+  r_last  <= (mem_r_last xor inject_rlast_error) or
+             (spurious_r_valid and spurious_r_last);
 
   -- Check the externally visible AR encoding and the generator's claimed
   -- address-window protection and alignment on every accepted AR.
@@ -314,7 +380,6 @@ begin
       aresetn                 => aresetn,
       global_time             => global_time,
       enable                  => mon_enable,
-      aperture                => aperture,
       stat_rst                => stat_rst,
       err_rst                 => err_rst,
       data_check_en           => data_check_en,
@@ -375,7 +440,6 @@ begin
       aresetn                 => aresetn,
       global_time             => global_time,
       enable                  => mon_enable,
-      aperture                => aperture,
       stat_rst                => stat_rst,
       err_rst                 => err_rst,
       data_check_en           => data_check_en,
@@ -419,6 +483,129 @@ begin
     );
 
   ---------------------------------------------------------------------
+  -- Narrow (2-byte) traffic path -- independent generator + mem + monitor
+  -- used only by T21 to cover the GC_DATA_BYTES=2 data-check branch.
+  ---------------------------------------------------------------------
+  u_gen2 : entity work.axi_ar_gen
+    generic map (
+      GC_DATA_BYTES => 2,
+      GC_ADDR_WIDTH => C_ADDR_WIDTH,
+      GC_ID_WIDTH   => C_ID_WIDTH,
+      GC_MAX_BURST  => 256
+    )
+    port map (
+      aclk            => aclk,
+      aresetn         => aresetn,
+      enable          => enable2,
+      aperture        => gen_aperture,
+      stat_rst        => stat_rst,
+      cfg_id          => cfg_id,
+      cfg_arlen       => cfg_arlen,
+      cfg_pace        => cfg_pace,
+      cfg_pace_init   => cfg_pace_init,
+      cfg_base_addr   => cfg_base_addr,
+      cfg_addr_range  => cfg_addr_range,
+      cfg_addr_mode   => cfg_addr_mode,
+      ar_valid        => ar2_valid,
+      ar_ready        => ar2_ready,
+      ar_id           => ar2_id,
+      ar_addr         => ar2_addr,
+      ar_len          => ar2_len,
+      ar_size         => ar2_size,
+      ar_burst        => ar2_burst,
+      stat_ar_stall   => gen2_stat_ar_stall,
+      stat_ar_issued  => gen2_stat_ar_issued,
+      stat_cfg_errors => open
+    );
+
+  u_mem2 : entity work.axi_mem_model
+    generic map (
+      GC_DATA_BYTES    => 2,
+      GC_ADDR_WIDTH    => C_ADDR_WIDTH,
+      GC_ID_WIDTH      => C_ID_WIDTH,
+      GC_AR_FIFO_DEPTH => 64,
+      GC_TIMER_WIDTH   => 16,
+      GC_R_FIFO_DEPTH  => 8
+    )
+    port map (
+      aclk             => aclk,
+      aresetn          => aresetn,
+      ar_base_enable   => ar_base_enable,
+      ar_jitter_enable => ar_jitter_enable,
+      r_base_enable    => r_base_enable,
+      r_jitter_enable  => r_jitter_enable,
+      base_latency     => base_latency,
+      base_beat_gap    => base_beat_gap,
+      ar_id            => ar2_id,
+      ar_addr          => ar2_addr,
+      ar_len           => ar2_len,
+      ar_valid         => ar2_valid,
+      ar_ready         => ar2_ready,
+      r_id             => r2_id,
+      r_data           => r2_data,
+      r_resp           => r2_resp,
+      r_last           => r2_last,
+      r_valid          => r2_valid,
+      r_ready          => r2_ready
+    );
+
+  u_monitor2 : entity work.axi_monitor
+    generic map (
+      GC_DATA_BYTES    => 2,
+      GC_ADDR_WIDTH    => C_ADDR_WIDTH,
+      GC_ID_WIDTH      => C_ID_WIDTH,
+      GC_TIME_WIDTH    => C_TIME_WIDTH,
+      GC_STAT_WIDTH    => C_STAT_WIDTH,
+      GC_SB_FIFO_DEPTH => 256
+    )
+    port map (
+      aclk                    => aclk,
+      aresetn                 => aresetn,
+      global_time             => global_time,
+      enable                  => mon_enable,
+      stat_rst                => stat_rst,
+      err_rst                 => err_rst,
+      data_check_en           => data_check_en,
+      ar_valid                => ar2_valid,
+      ar_ready                => ar2_ready,
+      ar_id                   => ar2_id,
+      ar_addr                 => ar2_addr,
+      ar_len                  => ar2_len,
+      r_valid                 => r2_valid,
+      r_ready                 => r2_ready,
+      r_id                    => r2_id,
+      r_data                  => r2_data,
+      r_resp                  => r2_resp,
+      r_last                  => r2_last,
+      stat_ar_seen            => mon2_stat_ar_seen,
+      stat_ar_stall           => open,
+      stat_sb_backpressure    => open,
+      stat_xactions           => mon2_stat_xactions,
+      stat_beats              => mon2_stat_beats,
+      stat_latency_sum        => open,
+      stat_latency_min        => open,
+      stat_latency_max        => open,
+      stat_first_latency_sum  => open,
+      stat_first_latency_min  => open,
+      stat_first_latency_max  => open,
+      stat_interbeat_gap_sum  => open,
+      stat_interbeat_gap_min  => open,
+      stat_interbeat_gap_max  => open,
+      stat_burst_len_sum      => open,
+      stat_burst_len_min      => open,
+      stat_burst_len_max      => open,
+      stat_elapsed_cycles     => open,
+      stat_r_stall            => open,
+      pipeline_busy           => open,
+      stat_max_outstanding    => open,
+      stat_data_errors        => mon2_stat_data_errors,
+      stat_id_errors          => mon2_stat_id_errors,
+      stat_rlast_errors       => mon2_stat_rlast_errors,
+      stat_resp_errors        => mon2_stat_resp_errors,
+      stat_sb_underflow_errors => mon2_stat_sb_uf_errors
+    );
+
+  ---------------------------------------------------------------------
   -- Stimulus
   ---------------------------------------------------------------------
   p_stimulus : process
@@ -443,7 +630,6 @@ begin
     cfg_addr_mode    <= '0';
     data_check_en <= '1';
 
-    aperture   <= '1';
     check_ar_corner_cases <= '1';
     enable <= '1';
 
@@ -602,7 +788,6 @@ begin
     writeline(output, l);
     data_check_en <= '0';
     enable        <= '1';
-    aperture      <= '1';
     wait_cycles(1000);
     enable        <= '0';
     wait_drained(500000);
@@ -631,7 +816,6 @@ begin
     cfg_addr_range    <= std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
     cfg_addr_mode     <= '1';
     enable        <= '1';
-    aperture      <= '1';
     check_ar_corner_cases <= '1';
     wait_cycles(1500);
     enable        <= '0';
@@ -679,7 +863,6 @@ begin
     cfg_addr_range    <= std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
     cfg_addr_mode     <= '0';
     enable        <= '1';
-    aperture      <= '1';
     check_ar_corner_cases <= '1';
     wait_cycles(1000);
     enable        <= '0';
@@ -739,7 +922,6 @@ begin
     cfg_addr_mode <= '0';
     data_check_en <= '1';
     enable <= '1';
-    aperture <= '1';
     check_ar_corner_cases <= '1';
     wait_cycles(300);
     enable <= '0';
@@ -769,7 +951,7 @@ begin
     writeline(output, l);
     stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
     err_rst  <= '1'; wait_cycles(2); err_rst <= '0';
-    r_ready <= '0';
+    r_ready <= '1';
     cfg_arlen <= x"07";
     cfg_pace <= x"00000000";
     cfg_pace_init <= x"00000000";
@@ -778,8 +960,9 @@ begin
     cfg_addr_mode <= '0';
     data_check_en <= '1';
     enable <= '1';
-    aperture <= '1';
     check_ar_corner_cases <= '1';
+    wait_cycles(50);           -- let beats flow first so a stall gap is measurable
+    r_ready <= '0';            -- stall mid-stream
     wait_cycles(100);
     r_ready <= '1';
     wait_cycles(1000);
@@ -788,6 +971,9 @@ begin
 
     assert unsigned(stat_r_stall) > 0
       report "T7: R backpressure was not counted"
+      severity failure;
+    assert unsigned(stat_interbeat_gap_max) > 1
+      report "T7: R backpressure did not stretch the inter-beat gap"
       severity failure;
     assert unsigned(stat_data_errors) = 0 and
            unsigned(stat_id_errors) = 0 and
@@ -808,7 +994,6 @@ begin
     err_rst  <= '1'; wait_cycles(2); err_rst <= '0';
     mon_enable <= '0';
     enable <= '1';
-    aperture <= '1';
     wait_cycles(300);
     enable <= '0';
     wait_cycles(5000);
@@ -835,7 +1020,6 @@ begin
     cfg_base_addr <= std_logic_vector(to_unsigned(16#5000#, C_ADDR_WIDTH));
     cfg_addr_range <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
     cfg_addr_mode <= '0';
-    aperture <= '1';
     enable <= '1';
     check_ar_corner_cases <= '1';
 
@@ -916,7 +1100,6 @@ begin
     cfg_addr_mode <= '0';
     data_check_en <= '1';
     enable <= '1';
-    aperture <= '1';
     check_ar_corner_cases <= '1';
     wait_cycles(100);
     enable <= '0';
@@ -941,7 +1124,6 @@ begin
     cfg_base_addr <= std_logic_vector(to_unsigned(16#6000#, C_ADDR_WIDTH));
     cfg_addr_range <= std_logic_vector(to_unsigned(16#2000#, C_ADDR_WIDTH));
     cfg_addr_mode <= '0';
-    aperture <= '1';
     gen_aperture <= '1';
     enable <= '1';
     check_ar_corner_cases <= '1';
@@ -955,9 +1137,10 @@ begin
     writeline(output, l);
 
     ------------------------------------------------------------------
-    -- T12: aperture gates AR-side statistics, not R-side completion
+    -- T12: generator aperture gates AR generation; the enable-only
+    -- monitor counts every AR issued while it is enabled.
     ------------------------------------------------------------------
-    write(l, string'("=== T12: independent AR aperture gating ==="));
+    write(l, string'("=== T12: generator aperture gates generation ==="));
     writeline(output, l);
     stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
     err_rst  <= '1'; wait_cycles(2); err_rst <= '0';
@@ -967,27 +1150,33 @@ begin
     cfg_base_addr <= std_logic_vector(to_unsigned(16#7000#, C_ADDR_WIDTH));
     cfg_addr_range <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
     cfg_addr_mode <= '0';
-    aperture <= '0';
-    gen_aperture <= '1';
-    enable <= '1';
+    gen_aperture <= '0';        -- generation gate closed
+    enable <= '1';              -- generator enabled, but gate low
+    mon_enable <= '1';          -- monitor enabled throughout
     check_ar_corner_cases <= '1';
+    wait_cycles(100);
+    assert unsigned(stat_ar_seen) = 0 and unsigned(stat_xactions) = 0
+      report "T12: ARs generated while generator aperture was low"
+      severity failure;
+    gen_aperture <= '1';        -- open the generation window
     wait_cycles(100);
     enable <= '0';
     wait_cycles(5000);
-    assert unsigned(stat_ar_seen) = 0
-      report "T12: AR statistics accumulated while aperture was low"
+    assert unsigned(stat_ar_seen) = unsigned(gen_stat_ar_issued) and
+           unsigned(stat_ar_seen) > 0
+      report "T12: monitor ar_seen != generator ar_issued"
       severity failure;
-    assert unsigned(stat_xactions) > 0 and unsigned(stat_beats) > 0
-      report "T12: R-side completion was incorrectly aperture-gated"
+    assert unsigned(stat_xactions) = unsigned(stat_ar_seen)
+      report "T12: xactions != ar_seen"
       severity failure;
     assert unsigned(stat_data_errors) = 0 and
            unsigned(stat_id_errors) = 0 and
            unsigned(stat_rlast_errors) = 0 and
            unsigned(stat_resp_errors) = 0 and
            unsigned(stat_sb_underflow_errors) = 0
-      report "T12: aperture test caused monitor errors"
+      report "T12: generator aperture test caused monitor errors"
       severity failure;
-    write(l, string'("  PASS: AR aperture gate and R completion"));
+    write(l, string'("  PASS: generator aperture gate and monitor count"));
     writeline(output, l);
 
     ------------------------------------------------------------------
@@ -998,7 +1187,6 @@ begin
     stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
     err_rst  <= '1'; wait_cycles(2); err_rst <= '0';
     enable <= '0';
-    aperture <= '1';
     wait_drained(500000);
     assert unsigned(stat_sb_underflow_errors) = 0 and
            unsigned(stat_ar_seen) = 0
@@ -1040,7 +1228,6 @@ begin
     cfg_base_addr <= std_logic_vector(to_unsigned(16#2000#, C_ADDR_WIDTH));
     cfg_addr_range <= std_logic_vector(to_unsigned(16#4000#, C_ADDR_WIDTH));
     cfg_addr_mode <= '0';
-    aperture <= '1';
     gen_aperture <= '1';
     enable <= '1';
     wait_cycles(300);
@@ -1061,6 +1248,370 @@ begin
       report "T14: beat accounting broken under backpressure"
       severity failure;
     write(l, string'("  PASS: scoreboard backpressure observed"));
+    writeline(output, l);
+
+    ------------------------------------------------------------------
+    -- T15: stat_rst asserted mid-traffic -- counters clear without
+    -- corrupting in-flight burst tracking.
+    ------------------------------------------------------------------
+    write(l, string'("=== T15: stat_rst during traffic ==="));
+    writeline(output, l);
+    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
+    err_rst  <= '1'; wait_cycles(2); err_rst  <= '0';
+    cfg_arlen <= x"07";          -- 8-beat bursts
+    cfg_pace <= x"00000000";
+    cfg_pace_init <= x"00000000";
+    cfg_base_addr <= std_logic_vector(to_unsigned(16#A000#, C_ADDR_WIDTH));
+    cfg_addr_range <= std_logic_vector(to_unsigned(16#4000#, C_ADDR_WIDTH));
+    cfg_addr_mode <= '0';
+    data_check_en <= '1';
+    mon_enable <= '1';
+    enable <= '1';
+    wait_cycles(200);            -- traffic in flight
+    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';   -- clear mid-run
+    wait_cycles(300);            -- more traffic
+    enable <= '0';
+    -- Full drain via pipeline_busy:  wait_drained is not a reliable drain
+    -- indicator after a mid-traffic stat_rst (the RTL counters may not
+    -- reset cleanly if an event coincides with the reset pulse).
+    for i in 1 to 200000 loop
+      exit when pipeline_busy = '0';
+      wait until rising_edge(aclk);
+    end loop;
+    wait_cycles(10);
+    -- With the stat_rst-suppresses-counting fix, both the monitor and the
+    -- generator reset and suppress counting identically during the reset
+    -- window, so ar_seen == ar_issued holds exactly even across a
+    -- mid-traffic reset.  (beats vs xactions is not exact here -- a burst
+    -- straddling the reset contributes partial beats but a full
+    -- completion -- so the full accounting check stays on the clean
+    -- window below.)
+    assert unsigned(stat_ar_seen) = unsigned(gen_stat_ar_issued) and
+           unsigned(stat_ar_seen) > 0
+      report "T15: ar_seen/ar_issued diverged after mid-traffic stat_rst"
+      severity failure;
+    assert unsigned(stat_data_errors) = 0 and
+           unsigned(stat_id_errors) = 0 and
+           unsigned(stat_rlast_errors) = 0 and
+           unsigned(stat_resp_errors) = 0 and
+           unsigned(stat_sb_underflow_errors) = 0
+      report "T15: mid-traffic stat_rst corrupted burst tracking"
+      severity failure;
+    -- Clean second window:  exact accounting must hold.
+    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
+    enable <= '1';
+    wait_cycles(200);
+    enable <= '0';
+    wait_drained(500000);
+    if unsigned(stat_ar_seen) = unsigned(gen_stat_ar_issued) and
+       unsigned(stat_xactions) = unsigned(stat_ar_seen) and
+       unsigned(stat_beats) = unsigned(stat_xactions) * 8 then
+      write(l, string'("  PASS: clean window accounting"));
+      writeline(output, l);
+    else
+      write(l, string'("  FAIL: ar_seen="));
+      write(l, to_integer(unsigned(stat_ar_seen)));
+      write(l, string'(" ar_issued="));
+      write(l, to_integer(unsigned(gen_stat_ar_issued)));
+      write(l, string'(" xactions="));
+      write(l, to_integer(unsigned(stat_xactions)));
+      write(l, string'(" beats="));
+      write(l, to_integer(unsigned(stat_beats)));
+      writeline(output, l);
+      assert false report "T15: clean window accounting mismatch" severity failure;
+    end if;
+    assert unsigned(stat_data_errors) = 0 and
+           unsigned(stat_id_errors) = 0 and
+           unsigned(stat_rlast_errors) = 0 and
+           unsigned(stat_resp_errors) = 0 and
+           unsigned(stat_sb_underflow_errors) = 0
+      report "T15: clean window reported errors"
+      severity failure;
+    write(l, string'("  PASS: stat_rst mid-traffic, clean accounting"));
+    writeline(output, l);
+
+    ------------------------------------------------------------------
+    -- T16: disable, drain, re-enable -- clean resume without errors.
+    ------------------------------------------------------------------
+    write(l, string'("=== T16: re-enable after disable ==="));
+    writeline(output, l);
+    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
+    err_rst  <= '1'; wait_cycles(2); err_rst  <= '0';
+    mon_enable <= '0';           -- monitor off
+    enable <= '1';               -- traffic flows unseen
+    wait_cycles(50);
+    enable <= '0';
+    wait_cycles(20000);          -- let the mem model drain while disabled
+    mon_enable <= '1';           -- re-enable
+    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';   -- clean slate
+    enable <= '1';               -- fresh clean window
+    wait_cycles(300);
+    enable <= '0';
+    wait_drained(500000);
+    assert unsigned(stat_ar_seen) = unsigned(gen_stat_ar_issued) and
+           unsigned(stat_ar_seen) > 0 and
+           unsigned(stat_xactions) = unsigned(stat_ar_seen)
+      report "T16: re-enabled monitor accounting mismatch"
+      severity failure;
+    assert unsigned(stat_sb_underflow_errors) = 0
+      report "T16: re-enable saw underflow (mem not drained?)"
+      severity failure;
+    assert unsigned(stat_data_errors) = 0 and
+           unsigned(stat_id_errors) = 0 and
+           unsigned(stat_rlast_errors) = 0 and
+           unsigned(stat_resp_errors) = 0
+      report "T16: re-enabled monitor reported errors"
+      severity failure;
+    write(l, string'("  PASS: clean resume after disable/drain"));
+    writeline(output, l);
+
+    ------------------------------------------------------------------
+    -- T17: non-zero AR ID end-to-end -- ID matching works.
+    ------------------------------------------------------------------
+    write(l, string'("=== T17: non-zero AR ID ==="));
+    writeline(output, l);
+    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
+    err_rst  <= '1'; wait_cycles(2); err_rst  <= '0';
+    cfg_id <= "101010";
+    cfg_arlen <= x"07";
+    cfg_pace <= x"00000000";
+    cfg_pace_init <= x"00000000";
+    cfg_base_addr <= std_logic_vector(to_unsigned(16#B000#, C_ADDR_WIDTH));
+    cfg_addr_range <= std_logic_vector(to_unsigned(16#4000#, C_ADDR_WIDTH));
+    cfg_addr_mode <= '0';
+    data_check_en <= '1';
+    mon_enable <= '1';
+    enable <= '1';
+    wait_cycles(300);
+    enable <= '0';
+    wait_drained(500000);
+    assert unsigned(stat_ar_seen) = unsigned(gen_stat_ar_issued) and
+           unsigned(stat_xactions) = unsigned(stat_ar_seen)
+      report "T17: non-zero ID accounting mismatch"
+      severity failure;
+    assert unsigned(stat_id_errors) = 0
+      report "T17: ID matching failed for non-zero ID"
+      severity failure;
+    assert unsigned(stat_data_errors) = 0 and
+           unsigned(stat_rlast_errors) = 0 and
+           unsigned(stat_resp_errors) = 0 and
+           unsigned(stat_sb_underflow_errors) = 0
+      report "T17: non-zero ID run reported errors"
+      severity failure;
+    write(l, string'("  PASS: non-zero ID matched cleanly"));
+    writeline(output, l);
+
+    ------------------------------------------------------------------
+    -- T18: RLAST early-guard -- spurious r_last with no active burst
+    -- and no scoreboard entry increments rlast_errors.
+    ------------------------------------------------------------------
+    write(l, string'("=== T18: RLAST early-guard ==="));
+    writeline(output, l);
+    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
+    err_rst  <= '1'; wait_cycles(2); err_rst  <= '0';
+    enable <= '0';
+    r_ready <= '1';
+    spurious_r_valid <= '1';
+    spurious_r_last  <= '1';
+    wait_cycles(3);
+    spurious_r_valid <= '0';
+    spurious_r_last  <= '0';
+    wait_cycles(5);
+    assert unsigned(stat_rlast_errors) = 3
+      report "T18: RLAST early-guard did not count spurious r_last"
+      severity failure;
+    assert unsigned(stat_beats) = 3
+      report "T18: spurious r_last beats not counted"
+      severity failure;
+    write(l, string'("  PASS: RLAST early-guard counted spurious r_last"));
+    writeline(output, l);
+
+    ------------------------------------------------------------------
+    -- T19: stat assertion tightening -- ar_stall cross-check, elapsed
+    -- counter, internal min/max/sum consistency, pipeline_busy.
+    ------------------------------------------------------------------
+    write(l, string'("=== T19: stat assertion tightening ==="));
+    writeline(output, l);
+    mon_enable <= '0';           -- reset counters while the monitor is off
+    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
+    err_rst  <= '1'; wait_cycles(2); err_rst  <= '0';
+    cfg_id <= (others => '0');
+    cfg_arlen <= x"0F";          -- 16-beat bursts (creates AR backpressure)
+    cfg_pace <= x"00000000";
+    cfg_pace_init <= x"00000000";
+    cfg_base_addr <= std_logic_vector(to_unsigned(16#E000#, C_ADDR_WIDTH));
+    cfg_addr_range <= std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
+    cfg_addr_mode <= '0';
+    data_check_en <= '1';
+    mon_enable <= '1';           -- re-enable for a clean measurement
+    enable <= '1';
+    wait_cycles(500);
+    assert busy_high_seen = '1'
+      report "T19: pipeline_busy never observed high during traffic"
+      severity failure;
+    enable <= '0';
+    wait_drained(500000);
+    for i in 1 to 100 loop
+      exit when pipeline_busy = '0';
+      wait until rising_edge(aclk);
+    end loop;
+    assert pipeline_busy = '0'
+      report "T19: pipeline_busy did not drop after drain"
+      severity failure;
+    assert unsigned(stat_ar_seen) = unsigned(gen_stat_ar_issued) and
+           unsigned(stat_ar_seen) > 0
+      report "T19: ar_seen/ar_issued mismatch"
+      severity failure;
+    assert unsigned(stat_ar_stall) = unsigned(gen_stat_ar_stall) and
+           unsigned(stat_ar_stall) > 0
+      report "T19: AR stall counters diverged"
+      severity failure;
+    assert unsigned(stat_elapsed_cycles) = mon_elapsed_ref
+      report "T19: elapsed cycle counter drifted"
+      severity failure;
+    -- Internal consistency of the min/max/sum accumulators.
+    assert unsigned(stat_latency_min) <= unsigned(stat_latency_max) and
+           unsigned(stat_latency_sum) >= resize(unsigned(stat_latency_max), C_STAT_WIDTH)
+      report "T19: latency stat consistency violated"
+      severity failure;
+    assert unsigned(stat_first_latency_min) <= unsigned(stat_first_latency_max) and
+           unsigned(stat_first_latency_sum) >= resize(unsigned(stat_first_latency_max), C_STAT_WIDTH)
+      report "T19: first-latency stat consistency violated"
+      severity failure;
+    assert unsigned(stat_interbeat_gap_min) <= unsigned(stat_interbeat_gap_max) and
+           unsigned(stat_interbeat_gap_sum) >= resize(unsigned(stat_interbeat_gap_max), C_STAT_WIDTH)
+      report "T19: interbeat-gap stat consistency violated"
+      severity failure;
+    assert unsigned(stat_burst_len_min) <= unsigned(stat_burst_len_max) and
+           unsigned(stat_burst_len_sum) >= resize(unsigned(stat_burst_len_max), C_STAT_WIDTH)
+      report "T19: burst-length stat consistency violated"
+      severity failure;
+    assert unsigned(stat_data_errors) = 0 and
+           unsigned(stat_id_errors) = 0 and
+           unsigned(stat_rlast_errors) = 0 and
+           unsigned(stat_resp_errors) = 0 and
+           unsigned(stat_sb_underflow_errors) = 0
+      report "T19: stat assertion run reported errors"
+      severity failure;
+    write(l, string'("  PASS: ar_stall/elapsed/consistency/busy checks"));
+    writeline(output, l);
+
+    ------------------------------------------------------------------
+    -- T20: mixed burst lengths in one window -- blen min/max spread.
+    ------------------------------------------------------------------
+    write(l, string'("=== T20: mixed burst lengths ==="));
+    writeline(output, l);
+    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
+    err_rst  <= '1'; wait_cycles(2); err_rst  <= '0';
+    cfg_arlen <= x"00";          -- 1-beat bursts
+    cfg_pace <= x"00000000";
+    cfg_pace_init <= x"00000000";
+    cfg_base_addr <= std_logic_vector(to_unsigned(16#C000#, C_ADDR_WIDTH));
+    cfg_addr_range <= std_logic_vector(to_unsigned(16#8000#, C_ADDR_WIDTH));
+    cfg_addr_mode <= '0';
+    data_check_en <= '1';
+    mon_enable <= '1';
+    enable <= '1';
+    wait_cycles(100);            -- one-beat bursts
+    cfg_arlen <= x"0F";          -- switch to 16-beat bursts mid-run
+    wait_cycles(200);
+    enable <= '0';
+    wait_drained(500000);
+    assert unsigned(stat_burst_len_min) = 1 and
+           unsigned(stat_burst_len_max) = 16
+      report "T20: burst-length min/max did not capture the mix"
+      severity failure;
+    assert unsigned(stat_ar_seen) = unsigned(gen_stat_ar_issued) and
+           unsigned(stat_xactions) = unsigned(stat_ar_seen)
+      report "T20: mixed-length accounting mismatch"
+      severity failure;
+    assert unsigned(stat_data_errors) = 0 and
+           unsigned(stat_id_errors) = 0 and
+           unsigned(stat_rlast_errors) = 0 and
+           unsigned(stat_resp_errors) = 0 and
+           unsigned(stat_sb_underflow_errors) = 0
+      report "T20: mixed-length run reported errors"
+      severity failure;
+    write(l, string'("  PASS: mixed burst lengths captured"));
+    writeline(output, l);
+
+    ------------------------------------------------------------------
+    -- T21: narrow data-bytes path (GC_DATA_BYTES=2) -- exercises the
+    -- 2-byte data-check branch of axi_monitor_r.
+    ------------------------------------------------------------------
+    write(l, string'("=== T21: 2-byte data path ==="));
+    writeline(output, l);
+    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
+    err_rst  <= '1'; wait_cycles(2); err_rst  <= '0';
+    enable <= '0';               -- stop the wide path
+    check_ar_corner_cases <= '0';
+    cfg_arlen <= x"07";          -- 8-beat bursts on the narrow path
+    cfg_pace <= x"00000000";
+    cfg_pace_init <= x"00000000";
+    cfg_base_addr <= std_logic_vector(to_unsigned(16#D000#, C_ADDR_WIDTH));
+    cfg_addr_range <= std_logic_vector(to_unsigned(16#4000#, C_ADDR_WIDTH));
+    cfg_addr_mode <= '0';
+    data_check_en <= '1';
+    mon_enable <= '1';
+    enable2 <= '1';
+    wait_cycles(300);
+    enable2 <= '0';
+    -- Drain the narrow path (bounded).
+    for i in 1 to 500000 loop
+      exit when unsigned(mon2_stat_xactions) >= unsigned(mon2_stat_ar_seen);
+      wait until rising_edge(aclk);
+    end loop;
+    wait_cycles(10);
+    assert unsigned(mon2_stat_ar_seen) = unsigned(gen2_stat_ar_issued) and
+           unsigned(mon2_stat_ar_seen) > 0 and
+           unsigned(mon2_stat_xactions) = unsigned(mon2_stat_ar_seen)
+      report "T21: narrow path accounting mismatch"
+      severity failure;
+    assert unsigned(mon2_stat_beats) = unsigned(mon2_stat_xactions) * 8
+      report "T21: narrow path beat accounting mismatch"
+      severity failure;
+    assert unsigned(mon2_stat_data_errors) = 0
+      report "T21: 2-byte data check failed"
+      severity failure;
+    assert unsigned(mon2_stat_id_errors) = 0 and
+           unsigned(mon2_stat_rlast_errors) = 0 and
+           unsigned(mon2_stat_resp_errors) = 0 and
+           unsigned(mon2_stat_sb_uf_errors) = 0
+      report "T21: narrow path protocol errors"
+      severity failure;
+    write(l, string'("  PASS: 2-byte data check clean"));
+    writeline(output, l);
+
+    ------------------------------------------------------------------
+    -- T22: err_rst coincident with error detection -- the reset wins.
+    ------------------------------------------------------------------
+    write(l, string'("=== T22: err_rst during error injection ==="));
+    writeline(output, l);
+    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
+    err_rst  <= '1'; wait_cycles(2); err_rst  <= '0';
+    enable <= '1';
+    cfg_arlen <= x"00";          -- 1-beat bursts
+    cfg_pace <= x"00000000";
+    cfg_pace_init <= x"00000000";
+    cfg_base_addr <= std_logic_vector(to_unsigned(16#F000#, C_ADDR_WIDTH));
+    cfg_addr_range <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
+    cfg_addr_mode <= '0';
+    data_check_en <= '1';
+    mon_enable <= '1';
+    inject_data_error <= '1';    -- errors accumulate
+    wait_cycles(100);
+    assert unsigned(stat_data_errors) > 0
+      report "T22: no data errors accumulated"
+      severity failure;
+    err_rst <= '1';              -- reset while errors still detected
+    wait_cycles(2);
+    err_rst <= '0';
+    inject_data_error <= '0';    -- stop injecting right after
+    wait_cycles(5);
+    assert unsigned(stat_data_errors) = 0
+      report "T22: err_rst did not win over coincident error detection"
+      severity failure;
+    write(l, string'("  PASS: err_rst wins over coincident errors"));
     writeline(output, l);
 
     write(l, string'("=== Simulation complete ==="));

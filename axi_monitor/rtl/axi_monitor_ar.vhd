@@ -33,7 +33,6 @@ entity axi_monitor_ar is
 
     -- Control
     enable   : in  std_logic;   -- per-instance enable (0 = tap inert)
-    aperture : in  std_logic;   -- measurement window
     stat_rst : in  std_logic;
 
     -- AR channel taps (all inputs -- passive monitor)
@@ -68,9 +67,21 @@ architecture rtl of axi_monitor_ar is
   constant C_ADDR_LOW   : natural := C_ID_HIGH + 1;
   constant C_ADDR_HIGH  : natural := C_ADDR_LOW + GC_ADDR_WIDTH - 1;
 
-  signal ar_seen    : unsigned(31 downto 0) := (others => '0');
-  signal ar_stall   : unsigned(31 downto 0) := (others => '0');
-  signal sb_bp_cnt  : unsigned(31 downto 0) := (others => '0');
+  -- State record -- the three AR-side counters.
+  type rec_t is record
+    ar_seen   : unsigned(31 downto 0);  -- AR handshakes counted
+    ar_stall  : unsigned(31 downto 0);  -- valid-not-ready cycles
+    sb_bp_cnt : unsigned(31 downto 0);  -- handshakes with FIFO full
+  end record;
+
+  constant C_DEFAULT : rec_t := (
+    ar_seen   => (others => '0'),
+    ar_stall  => (others => '0'),
+    sb_bp_cnt => (others => '0')
+  );
+
+  signal r    : rec_t := C_DEFAULT;  -- current state (registered)
+  signal r_in : rec_t;               -- next state (combinational output)
 
 begin
 
@@ -86,40 +97,59 @@ begin
   sb_tvalid <= ar_valid and ar_ready and enable;
 
   ---------------------------------------------------------------------
-  -- Counter process -- single clocked process (simple counters only).
+  -- Combinational process -- computes next counter state.
   -- Every AR handshake is counted; a stalled-valid cycle (ar_valid=1,
   -- ar_ready=0) is counted separately.  A handshake while the
   -- scoreboard FIFO is full (sb_tready=0) is recorded as backpressure
   -- (the corresponding R beats will report as underflow downstream).
+  -- All counters are gated by enable only:  the tap counts every
+  -- handshake while the instance is enabled.  Aperture is a generator
+  -- concept (see axi_ar_gen) and does not reach the monitor.
   ---------------------------------------------------------------------
-  p_counters : process(aclk)
+  p_comb : process(all)
+    variable v : rec_t;
+  begin
+    v := r;  -- recover current state as default for all fields
+
+    if enable = '1' then
+      if ar_valid = '1' and ar_ready = '1' then
+        v.ar_seen := r.ar_seen + 1;
+        if sb_tready = '0' then
+          v.sb_bp_cnt := r.sb_bp_cnt + 1;
+        end if;
+      elsif ar_valid = '1' and ar_ready = '0' then
+        v.ar_stall := r.ar_stall + 1;
+      end if;
+    end if;
+
+    -- stat_rst takes priority:  override the counters at the end so a
+    -- coincident handshake cannot resurrect them.  Reset values are
+    -- single-sourced from C_DEFAULT.
+    if stat_rst = '1' then
+      v.ar_seen   := C_DEFAULT.ar_seen;
+      v.ar_stall  := C_DEFAULT.ar_stall;
+      v.sb_bp_cnt := C_DEFAULT.sb_bp_cnt;
+    end if;
+
+    r_in <= v;  -- latch next state
+  end process p_comb;
+
+  ---------------------------------------------------------------------
+  -- Register process -- updates state on rising clock edge.
+  ---------------------------------------------------------------------
+  p_reg : process(aclk)
   begin
     if rising_edge(aclk) then
       if aresetn = '0' then
-        ar_seen   <= (others => '0');
-        ar_stall  <= (others => '0');
-        sb_bp_cnt <= (others => '0');
-      elsif stat_rst = '1' then
-        ar_seen   <= (others => '0');
-        ar_stall  <= (others => '0');
-        sb_bp_cnt <= (others => '0');
+        r <= C_DEFAULT;
       else
-        if enable = '1' and aperture = '1' then
-          if ar_valid = '1' and ar_ready = '1' then
-            ar_seen <= ar_seen + 1;
-            if sb_tready = '0' then
-              sb_bp_cnt <= sb_bp_cnt + 1;
-            end if;
-          elsif ar_valid = '1' and ar_ready = '0' then
-            ar_stall <= ar_stall + 1;
-          end if;
-        end if;
+        r <= r_in;
       end if;
     end if;
-  end process p_counters;
+  end process p_reg;
 
-  stat_ar_seen         <= std_logic_vector(ar_seen);
-  stat_ar_stall        <= std_logic_vector(ar_stall);
-  stat_sb_backpressure <= std_logic_vector(sb_bp_cnt);
+  stat_ar_seen         <= std_logic_vector(r.ar_seen);
+  stat_ar_stall        <= std_logic_vector(r.ar_stall);
+  stat_sb_backpressure <= std_logic_vector(r.sb_bp_cnt);
 
 end architecture;

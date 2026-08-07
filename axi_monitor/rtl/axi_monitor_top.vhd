@@ -28,7 +28,6 @@ entity axi_monitor_top is
     global_time : in  unsigned(GC_TIME_WIDTH-1 downto 0);
 
     enable        : in  std_logic;
-    aperture      : in  std_logic;
     stat_rst      : in  std_logic;
     err_rst       : in  std_logic;
     data_check_en : in  std_logic;
@@ -95,7 +94,6 @@ begin
       aresetn                 => aresetn,
       global_time             => global_time,
       enable                  => enable,
-      aperture                => aperture,
       stat_rst                => stat_rst,
       err_rst                 => err_rst,
       data_check_en           => data_check_en,

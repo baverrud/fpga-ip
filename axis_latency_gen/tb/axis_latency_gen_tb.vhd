@@ -156,6 +156,9 @@ begin
     variable i         : natural;
     variable cnt_rx    : natural;
     variable v_rx_data : std_logic_vector(31 downto 0);
+    type t_jitter_seq is array (natural range <>) of natural;
+    constant C_EXPECTED_JITTER : t_jitter_seq := (0, 3, 1, 0);
+    variable v_delay_cycles : natural;
   begin
     -- ============================================================
     -- Reset
@@ -646,6 +649,45 @@ begin
       end if;
     end loop;
     write(l, string'("  OK: all 8 entries captured and verified at full rate."));
+    writeline(output, l);
+
+    -- ============================================================
+    -- Phase 14: Deterministic jitter sequence
+    --   Default xorshift32 seed/CDF produces jitter 0, 3, 1, 0 for
+    --   the first four accepted writes (the first write uses the
+    --   reset jitter value). Verify the measured delay includes the
+    --   write-handshake cycle, one-cycle FIFO floor, and expected jitter.
+    -- ============================================================
+    write(l, string'("=== Phase 14: Deterministic jitter sequence ==="));
+    writeline(output, l);
+    aresetn <= '0';
+    s_axis_tvalid <= '0';
+    m_axis_tready <= '1';
+    base_delay <= to_unsigned(0, 32);
+    enable_base_delay <= '0';
+    enable_jitter <= '1';
+    wait for C_CLK_PERIOD * 3;
+    aresetn <= '1';
+    wait for C_CLK_PERIOD * 3;
+
+    for i in C_EXPECTED_JITTER'range loop
+      t_sent := now;
+      axis_write(aclk, s_axis_tdata, s_axis_tvalid, s_axis_tready,
+                 std_logic_vector(to_unsigned(16#600# + i, 32)));
+      axis_read(aclk, m_axis_tready, m_axis_tvalid, m_axis_tdata, v_rx_data);
+      t_rcvd := now;
+      if v_rx_data /= std_logic_vector(to_unsigned(16#600# + i, 32)) then
+        report "FAIL: deterministic jitter data mismatch" severity failure;
+      end if;
+      v_delay_cycles := (t_rcvd - t_sent) / C_CLK_PERIOD;
+      if v_delay_cycles /= 2 + C_EXPECTED_JITTER(i) then
+        report "FAIL: deterministic jitter delay mismatch at entry " &
+               integer'image(i) & ", got " & integer'image(v_delay_cycles) &
+               ", expected " & integer'image(2 + C_EXPECTED_JITTER(i))
+               severity failure;
+      end if;
+    end loop;
+    write(l, string'("  OK: jitter sequence 0,3,1,0 verified"));
     writeline(output, l);
 
     -- ============================================================

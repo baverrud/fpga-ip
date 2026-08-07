@@ -26,7 +26,7 @@ Licensed under Zero-Clause BSD (0BSD).
 | Generic | Type | Default | Description |
 |---------|------|---------|-------------|
 | `GC_DATA_WIDTH` | positive | 32 | Width of TDATA on both AXI-Stream interfaces |
-| `GC_FIFO_DEPTH` | positive | 16 | Depth of internal FIFO (entries) |
+| `GC_FIFO_DEPTH` | positive, minimum 2 | 16 | Depth of internal FIFO (entries) |
 | `GC_TIMER_WIDTH` | positive | 32 | Width of internal global timer and `base_delay` |
 | `GC_JG_JITTER_WIDTH` | positive | 8 | Jitter output width |
 | `GC_USE_XORSHIFT128` | boolean | false | PRNG selection: false=xorshift32, true=xorshift128 |
@@ -41,6 +41,12 @@ Licensed under Zero-Clause BSD (0BSD).
 | `GC_JG_TH_1` | integer | 192 | Second CDF threshold |
 | `GC_JG_TH_2` | integer | 240 | Third CDF threshold |
 
+`GC_JG_VAL_0` through `GC_JG_VAL_3` must be non-negative and fit within
+`GC_JG_JITTER_WIDTH`.  The maximum configured jitter must remain below
+half the `GC_TIMER_WIDTH` timer range.  At runtime, `base_delay` is also
+checked against the same half-range limit; an unsafe configuration reports
+a configuration error with severity failure.
+
 ### Ports
 
 | Port | Direction | Width | Description |
@@ -51,7 +57,7 @@ Licensed under Zero-Clause BSD (0BSD).
 | `s_axis_tvalid` | in | 1 | Slave valid |
 | `s_axis_tready` | out | 1 | Slave ready (FIFO backpressure) |
 | `m_axis_tdata` | out | GC_DATA_WIDTH | Master AXI-Stream data |
-| `m_axis_tvalid` | out | 1 | Master valid (gated by time) |
+| `m_axis_tvalid` | out | 1 | Master valid when the FIFO head delay has elapsed |
 | `m_axis_tready` | in | 1 | Master ready (downstream backpressure) |
 | `base_delay` | in | GC_TIMER_WIDTH | Base delay added to every entry |
 | `enable_base_delay` | in | 1 | Gates base_delay addition |
@@ -81,7 +87,7 @@ On `s_axis_tvalid & s_axis_tready`:
 
 When FIFO not empty and `signed(timer - head.t_departure) >= 0`:
 1. Pop FIFO, split `{data, timestamp}`
-2. Drive `m_axis_tdata`, assert `m_axis_tvalid` (gated by `m_axis_tready`)
+2. Drive `m_axis_tdata` and assert `m_axis_tvalid` when the head is due
 
 ### Timer wrap (deep dive)
 
@@ -195,7 +201,7 @@ IP.
 | **Back-to-back writes** | Each write steps `jitter_gen`; the new sample is used by the **next** write (one-beat delayed). Independent departure times. |
 | **`aresetn` during operation** | Timer resets to 0. FIFO and `jitter_gen` reset. All in-flight entries discarded. |
 | **Timer wraps mid-queue** | Same-width modular subtraction keeps the entry waiting until the wrapped timer reaches `t_departure`. No premature release. |
-| **Max delay exceeded** | Ambiguous if `base_delay + jitter >= 2^(GC_TIMER_WIDTH-1)`. At `GC_TIMER_WIDTH=32` and 100 MHz: safe delay range is < 21.5 s. |
+| **Max delay exceeded** | The module reports a configuration error if `base_delay + maximum jitter + 1` reaches the timer half-range. At `GC_TIMER_WIDTH=32` and 100 MHz: safe delay range is < 21.5 s. |
 
 ## File Structure
 
@@ -208,7 +214,8 @@ axis_latency_gen/
 ├── scripts/
 │   └── vhdl.f
 └── tb/
-    └── axis_latency_gen_tb.vhd  — Testbench
+  ├── axis_latency_gen_tb.vhd        — Comprehensive testbench
+  └── axis_latency_gen_simple_tb.vhd — Hand-editable simple testbench
 ```
 
 ## Verification
@@ -217,5 +224,10 @@ Before running, initialize your EDA tool environment. Then, from the fpga-ip
 root:
 
 ```
-run axis_latency_gen all
+run axis_latency_gen vhdl modelsim
+run axis_latency_gen vhdl modelsim --tb simple
 ```
+
+The comprehensive testbench covers FIFO backpressure, reset while entries
+are in flight, timer rollover, simultaneous push/pop, full-rate ordering,
+minimum-delay behavior, and the deterministic default jitter sequence.

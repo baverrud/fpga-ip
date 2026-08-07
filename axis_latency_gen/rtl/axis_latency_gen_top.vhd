@@ -20,7 +20,7 @@ entity axis_latency_gen_top is
     -- Data path width (bits)
     GC_DATA_WIDTH  : positive := 32;
     -- FIFO depth (entries)
-    GC_FIFO_DEPTH  : positive := 16;
+    GC_FIFO_DEPTH  : positive range 2 to positive'high := 16;
     -- Width of internal timer and base_delay port (bits)
     GC_TIMER_WIDTH : positive := 32;
 

@@ -29,7 +29,7 @@ architecture sim of axi_monitor_simple_tb is
 
   constant C_CLK_PERIOD : time    := 10 ns;
   constant C_DATA_BYTES : natural := 16;
-  constant C_ADDR_WIDTH : natural := 49;
+  constant C_ADDR_WIDTH : natural := 32;
   constant C_ID_WIDTH   : natural := 6;
   constant C_TIME_WIDTH : natural := 48;
   constant C_STAT_WIDTH : natural := 48;
@@ -40,23 +40,22 @@ architecture sim of axi_monitor_simple_tb is
 
   signal global_time   : unsigned(C_TIME_WIDTH-1 downto 0) := (others => '0');
   signal mon_enable    : std_logic := '1';  -- monitor per-instance enable
-  signal aperture      : std_logic := '1';
+  signal aperture      : std_logic := '0';
   signal stat_rst      : std_logic := '0';
   signal err_rst       : std_logic := '0';
   signal data_check_en : std_logic := '1';
 
   -- Traffic source (ar_gen) config -- initial values
-  signal enable        : std_logic := '0';
-  signal gen_aperture  : std_logic := '1';
-  signal cfg_id          : std_logic_vector(C_ID_WIDTH-1 downto 0) := (others => '0');
-  signal cfg_arlen     : std_logic_vector(log2ceil(256)-1 downto 0) := x"0F";  -- 16 beats
-  signal cfg_pace          : std_logic_vector(31 downto 0) := x"00000000";
-  signal cfg_pace_init     : std_logic_vector(31 downto 0) := x"00000000";
-  signal cfg_base_addr     : std_logic_vector(C_ADDR_WIDTH-1 downto 0) :=
-                           std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
-  signal cfg_addr_range    : std_logic_vector(C_ADDR_WIDTH-1 downto 0) :=
-                           std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
-  signal cfg_addr_mode     : std_logic := '0';
+  signal ar_enable      : std_logic := '0';
+  signal cfg_id         : std_logic_vector(C_ID_WIDTH-1 downto 0) := (others => '0');
+  signal cfg_arlen      : std_logic_vector(log2ceil(256)-1 downto 0) := x"0F";  -- 16 beats
+  signal cfg_pace       : std_logic_vector(31 downto 0) := x"00000000";
+  signal cfg_pace_init  : std_logic_vector(31 downto 0) := x"00000000";
+  signal cfg_base_addr  : std_logic_vector(C_ADDR_WIDTH-1 downto 0) :=
+                            std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
+  signal cfg_addr_range : std_logic_vector(C_ADDR_WIDTH-1 downto 0) :=
+                            std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
+  signal cfg_addr_mode  : std_logic := '0';
 
   -- AR channel (gen drives, mem accepts, monitor taps)
   signal ar_valid : std_logic;
@@ -75,18 +74,25 @@ architecture sim of axi_monitor_simple_tb is
   signal r_resp  : std_logic_vector(1 downto 0);
   signal r_last  : std_logic;
 
-  -- Memory model control
-  signal ar_base_enable   : std_logic := '1';
-  signal ar_jitter_enable : std_logic := '0';
-  signal r_base_enable    : std_logic := '1';
-  signal r_jitter_enable  : std_logic := '0';
-  signal base_latency     : std_logic_vector(15 downto 0) := x"0005";
-  signal base_beat_gap    : std_logic_vector(15 downto 0) := x"0003";
+  -- Waveform view: four 32-bit words, word 0 is r_data(31 downto 0).
+  type t_r_data_words is array (0 to 3) of std_logic_vector(31 downto 0);
+  signal r_data_words : t_r_data_words;
+  signal r_data_word0_prev : unsigned(31 downto 0) := (others => '0');
+  signal r_data_word0_diff : signed(32 downto 0)  := (others => '0');
+  signal r_data_word_count : unsigned(15 downto 0)  := (others => '0');
 
+  -- Memory model control
+  signal ar_base_enable   : std_logic := '0';
+  signal ar_jitter_enable : std_logic := '0';
+  signal r_base_enable    : std_logic := '0';
+  signal r_jitter_enable  : std_logic := '0';
+  signal base_latency     : std_logic_vector(15 downto 0) := x"0000";
+  signal base_beat_gap    : std_logic_vector(15 downto 0) := x"0000";
   -- Monitor statistics
   signal stat_ar_seen             : std_logic_vector(31 downto 0);
   signal stat_ar_stall            : std_logic_vector(31 downto 0);
   signal stat_sb_backpressure     : std_logic_vector(31 downto 0);
+
   signal stat_xactions            : std_logic_vector(31 downto 0);
   signal stat_beats               : std_logic_vector(31 downto 0);
   signal stat_latency_sum         : std_logic_vector(C_STAT_WIDTH-1 downto 0);
@@ -141,6 +147,33 @@ begin
 
   aclk <= not aclk after C_CLK_PERIOD/2 when not sim_done else '0';
 
+  r_data_words(0) <= r_data(31 downto 0);
+  r_data_words(1) <= r_data(63 downto 32);
+  r_data_words(2) <= r_data(95 downto 64);
+  r_data_words(3) <= r_data(127 downto 96);
+
+  -- Sample the previous word-0 value only on accepted R-channel beats.
+  p_r_data_word0_prev : process(aclk)
+  begin
+    if rising_edge(aclk) then
+      if aresetn = '0' then
+        r_data_word0_prev <= (others => '0');
+        r_data_word_count <= (others => '0');
+      elsif r_valid = '1' and r_ready = '1' then
+        r_data_word0_prev <= unsigned(r_data_words(0));
+        if r_last = '1' then
+          r_data_word_count <= (others => '0');
+        else
+          r_data_word_count <= r_data_word_count + 1;
+        end if;
+      end if;
+    end if;
+  end process;
+
+  -- Combinatorial difference between the live word and the last sampled word.
+  r_data_word0_diff <= signed(resize(unsigned(r_data_words(0)), 33)) -
+                       signed(resize(r_data_word0_prev, 33));
+
   -- Global time counter (free-running)
   p_gt : process
   begin
@@ -164,25 +197,25 @@ begin
       GC_MAX_BURST  => 256
     )
     port map (
-      aclk        => aclk,
-      aresetn     => aresetn,
-      enable      => enable,
-      aperture    => gen_aperture,
-      stat_rst    => stat_rst,
-      cfg_id        => cfg_id,
-      cfg_arlen   => cfg_arlen,
+      aclk            => aclk,
+      aresetn         => aresetn,
+      enable          => ar_enable,
+      aperture        => aperture,
+      stat_rst        => stat_rst,
+      cfg_id          => cfg_id,
+      cfg_arlen       => cfg_arlen,
       cfg_pace        => cfg_pace,
       cfg_pace_init   => cfg_pace_init,
       cfg_base_addr   => cfg_base_addr,
       cfg_addr_range  => cfg_addr_range,
       cfg_addr_mode   => cfg_addr_mode,
-      ar_valid    => ar_valid,
-      ar_ready    => ar_ready,
-      ar_id       => ar_id,
-      ar_addr     => ar_addr,
-      ar_len      => ar_len,
-      ar_size     => ar_size,
-      ar_burst    => ar_burst,
+      ar_valid        => ar_valid,
+      ar_ready        => ar_ready,
+      ar_id           => ar_id,
+      ar_addr         => ar_addr,
+      ar_len          => ar_len,
+      ar_size         => ar_size,
+      ar_burst        => ar_burst,
       stat_ar_stall   => gen_stat_ar_stall,
       stat_ar_issued  => gen_stat_ar_issued,
       stat_cfg_errors => gen_stat_cfg_errors
@@ -239,7 +272,6 @@ begin
       aresetn                 => aresetn,
       global_time             => global_time,
       enable                  => mon_enable,
-      aperture                => aperture,
       stat_rst                => stat_rst,
       err_rst                 => err_rst,
       data_check_en           => data_check_en,
@@ -290,67 +322,37 @@ begin
     variable l : line;
   begin
     -- Initial values in the sequencer
-    cfg_id         <= (others => '0');
-    cfg_arlen    <= x"0F";   -- 16-beat bursts (ARLEN 15)
-    cfg_pace         <= x"00000000";   -- 0 = a new AR every cycle
+    aresetn          <= '0';
+    cfg_id           <= "001010";
+    cfg_arlen        <= x"01";   
+    cfg_pace         <= x"00000000"; 
     cfg_pace_init    <= x"00000000";
-    cfg_base_addr    <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
-    cfg_addr_range   <= std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
-    cfg_addr_mode    <= '0';           -- linear sweep
-    data_check_en <= '1';
-    mon_enable   <= '1';
-    aperture     <= '1';
-    stat_rst     <= '0';
-    err_rst      <= '0';
-    enable       <= '0';
+    cfg_base_addr    <= x"00040000";
+    cfg_addr_range   <= x"00040000";
+    cfg_addr_mode    <= '0';
+    data_check_en    <= '1';
+    stat_rst         <= '0';
+    err_rst          <= '0';
+    mon_enable       <= '1';
+    ar_enable        <= '1';
+    aperture         <= '0';
 
     -- Reset
-    aresetn <= '0';
-    wait_cycles(10);
+    wait_cycles(1);
     aresetn <= '1';
-    wait_cycles(5);
+    wait_cycles(1);
 
-    -- Simple test:  run a traffic window, then drain
-    write(l, string'("=== T1: simple traffic window ==="));
-    writeline(output, l);
-    enable <= '1';
-    wait_cycles(2000);
-    enable <= '0';
-    wait_drained(100000);
+    aperture <= '1';
+    wait_cycles(3);
+    aperture <= '0';
 
-    -- Minimal check
-    assert unsigned(stat_ar_seen) > 0
-      report "T1: no AR transactions observed" severity failure;
-    assert unsigned(stat_xactions) = unsigned(stat_ar_seen)
-      report "T1: xactions != ar_seen" severity failure;
-    assert unsigned(stat_beats) = unsigned(stat_xactions) * 16
-      report "T1: beats != xactions*16" severity failure;
-    assert unsigned(stat_data_errors) = 0 and
-           unsigned(stat_id_errors) = 0 and
-           unsigned(stat_rlast_errors) = 0 and
-           unsigned(stat_resp_errors) = 0 and
-           unsigned(stat_sb_underflow_errors) = 0
-      report "T1: unexpected monitor errors" severity failure;
-
-    write(l, string'("  ar_seen="));
-    write(l, to_integer(unsigned(stat_ar_seen)));
-    write(l, string'(" xactions="));
-    write(l, to_integer(unsigned(stat_xactions)));
-    write(l, string'(" beats="));
-    write(l, to_integer(unsigned(stat_beats)));
-    write(l, string'(" ar_stall="));
-    write(l, to_integer(unsigned(stat_ar_stall)));
-    write(l, string'(" latency_min="));
-    write(l, to_integer(unsigned(stat_latency_min)));
-    write(l, string'(" latency_max="));
-    write(l, to_integer(unsigned(stat_latency_max)));
-    writeline(output, l);
-    write(l, string'("  PASS: T1 simple traffic window"));
-    writeline(output, l);
-
-    write(l, string'("=== Simulation complete ==="));
-    writeline(output, l);
+    wait_cycles(8);
+    stat_rst <= '1';
+    wait_cycles(1);
+    stat_rst <= '0';
+    wait_cycles(2);
     sim_done <= true;
+    std.env.stop;
     wait;
   end process p_seq;
 

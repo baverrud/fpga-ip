@@ -362,7 +362,6 @@ begin
       aresetn                 => aresetn,
       global_time             => global_time,
       enable                  => enable,
-      aperture                => aperture,
       stat_rst                => stat_rst,
       err_rst                 => err_rst,
       data_check_en           => data_check_en,

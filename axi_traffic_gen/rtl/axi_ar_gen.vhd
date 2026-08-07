@@ -179,12 +179,6 @@ begin
     stat_ar_issued   <= std_logic_vector(r.ar_cnt);
     stat_cfg_errors  <= std_logic_vector(r.cfg_err);
 
-    if stat_rst = '1' then
-      v.ar_stall_cnt := (others => '0');
-      v.ar_cnt       := (others => '0');
-      v.cfg_err      := (others => '0');
-    end if;
-
     ------------------------------------------------------------------
     -- Calculate burst size and the highest legal start address.
     ------------------------------------------------------------------
@@ -256,6 +250,16 @@ begin
       v.pace_cnt := r.pace_cnt - 1;
     else
       v.ar_valid := '0';
+    end if;
+
+    -- stat_rst takes priority:  override the counters at the end so a
+    -- coincident handshake cannot resurrect them (the generator keeps
+    -- presenting addresses regardless).  Reset values are single-sourced
+    -- from C_REG_DEFAULT.
+    if stat_rst = '1' then
+      v.ar_stall_cnt := C_REG_DEFAULT.ar_stall_cnt;
+      v.ar_cnt       := C_REG_DEFAULT.ar_cnt;
+      v.cfg_err      := C_REG_DEFAULT.cfg_err;
     end if;
 
     r_in <= v;  -- latch next state

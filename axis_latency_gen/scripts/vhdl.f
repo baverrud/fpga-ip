@@ -15,6 +15,7 @@
 # ============================================================================
 DEFAULT_STD: 2008
 DEFAULT_LIB: work
+DEFAULT_TB: default
 
 [rtl]
 common/rtl/util_pkg.vhd
@@ -31,3 +32,8 @@ axis_latency_gen/rtl/axis_latency_gen_top.vhd
 top = axis_latency_gen_tb
 common/rtl/axis_bfm_pkg.vhd
 axis_latency_gen/tb/axis_latency_gen_tb.vhd
+
+[tb:simple]
+top = axis_latency_gen_simple_tb
+common/rtl/axis_bfm_pkg.vhd
+axis_latency_gen/tb/axis_latency_gen_simple_tb.vhd

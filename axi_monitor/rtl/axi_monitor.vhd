@@ -38,7 +38,6 @@ entity axi_monitor is
 
     -- Control
     enable        : in  std_logic;   -- per-instance enable (0 = monitor inert)
-    aperture      : in  std_logic;   -- measurement window
     stat_rst      : in  std_logic;
     err_rst       : in  std_logic;
     data_check_en : in  std_logic;
@@ -63,6 +62,7 @@ entity axi_monitor is
     stat_ar_seen             : out std_logic_vector(31 downto 0);
     stat_ar_stall            : out std_logic_vector(31 downto 0);
     stat_sb_backpressure     : out std_logic_vector(31 downto 0);
+
     stat_xactions            : out std_logic_vector(31 downto 0);
     stat_beats               : out std_logic_vector(31 downto 0);
     stat_latency_sum         : out std_logic_vector(GC_STAT_WIDTH-1 downto 0);
@@ -129,7 +129,6 @@ begin
       aresetn             => aresetn,
       global_time         => global_time,
       enable              => enable,
-      aperture            => aperture,
       stat_rst            => stat_rst,
       ar_valid            => ar_valid,
       ar_ready            => ar_ready,

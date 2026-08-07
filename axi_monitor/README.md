@@ -41,6 +41,15 @@ The scoreboard FIFO decouples AR capture from R completion (one
 descriptor per burst, FWFT).  The AR tap pushes when it sees
 `ar_valid & ar_ready`; the R tap pops when the first R beat arrives.
 
+> **Known limitation:** the R tap tracks a single burst at a time and
+> assumes bursts complete in AR-issue order (one scoreboard entry popped
+> per burst).  It does **not** support interleaved / out-of-order R
+> responses from multiple outstanding transactions (different IDs): an
+> interleaved beat would be attributed to the wrong burst and flagged as
+> an ID/data error.  For such traffic a per-ID scoreboard is required.
+> The `axi_mem_model` used in the testbenches responds in-order, so this
+> case is deliberately out of scope here.
+
 ## Statistics
 
 - AR side: `stat_ar_seen`, `stat_ar_stall`, `stat_sb_backpressure`
@@ -54,15 +63,73 @@ descriptor per burst, FWFT).  The AR tap pushes when it sees
   `stat_id_errors`, `stat_rlast_errors`, `stat_resp_errors`,
   `stat_sb_underflow_errors`
 
+All values are integer counts or clock-cycle counts, captured while
+`enable` is high (the monitor has no aperture input -- that is a
+generator concept).  Sums are `GC_STAT_WIDTH` bits (default 48);
+counters and min/max are 32 bits.  Latency/gap values are measured
+against the free-running `global_time` counter (`GC_TIME_WIDTH` bits,
+default 48).
+
+| Signal | Width | Reset | Definition |
+|---|---|---|---|
+| `stat_ar_seen` | 32 | 0 | Number of AR handshakes (`ar_valid & ar_ready`) captured. Counted while `enable` is high. One per issued read transaction. |
+| `stat_ar_stall` | 32 | 0 | Number of cycles where the master presented an AR request but the slave did not accept (`ar_valid=1`, `ar_ready=0`) -- AR-channel backpressure applied by the slave. Gated by `enable`. |
+| `stat_sb_backpressure` | 32 | 0 | Number of AR handshakes that occurred while the scoreboard FIFO was full (`sb_tready=0`). The descriptor for that transaction was **dropped**; its R beats will be counted but flagged as `stat_sb_underflow_errors` downstream. Indicates the scoreboard depth (`GC_SB_FIFO_DEPTH`) was exceeded. |
+| `stat_xactions` | 32 | 0 | Completed read transactions (bursts) -- incremented on the last accepted beat of each burst (when the burst's remaining-beat count reaches 0). Only counts bursts that had a matching scoreboard entry. |
+| `stat_beats` | 32 | 0 | Total accepted R beats (`r_valid & r_ready`, with `enable` high). Counted **unconditionally** on every accepted beat -- including beats with no scoreboard entry (those also increment `stat_sb_underflow_errors`) and beats where data validation is disabled. |
+| `stat_latency_sum` | 48 | 0 | Sum of per-transaction latencies, in clock cycles. A transaction's latency = `global_time - ts_ar` taken on its **last** beat, where `ts_ar` is the timestamp captured at the AR handshake. Divide by `stat_xactions` for mean latency. |
+| `stat_latency_min` | 32 | all-ones ("unset") | Minimum transaction latency in cycles. The all-ones reset means "no sample yet"; after the first transaction it always holds a real value. |
+| `stat_latency_max` | 32 | 0 | Maximum transaction latency in cycles. |
+| `stat_first_latency_sum` | 48 | 0 | Sum of **first-beat** latencies (latency from AR handshake to the first R beat of that transaction, `global_time - ts_ar` at `beat_idx=1`). Distinct from `stat_latency_*`, which measures to the *last* beat. Divide by `stat_xactions` for mean first-beat latency. |
+| `stat_first_latency_min` | 32 | all-ones ("unset") | Minimum first-beat latency in cycles. |
+| `stat_first_latency_max` | 32 | 0 | Maximum first-beat latency in cycles. |
+| `stat_interbeat_gap_sum` | 48 | 0 | Sum of inter-beat intervals, in clock cycles. For every beat after the first in a burst (`beat_idx > 1`), gap = `global_time - ts_prev_beat`. This is the **elapsed time between consecutive accepted beats** (a modular time difference, always >= 1). Back-to-back beats give a gap of 1 (zero idle cycles). Divide by `stat_beats - stat_xactions` for the mean. |
+| `stat_interbeat_gap_min` | 32 | all-ones ("unset") | Minimum inter-beat interval in cycles. A value of 1 means at least one pair of beats transferred back-to-back with no idle cycles. |
+| `stat_interbeat_gap_max` | 32 | 0 | Maximum inter-beat interval in cycles. Any value > 1 means the R channel stalled between beats (slave or consumer backpressure). |
+| `stat_burst_len_sum` | 48 | 0 | Sum of observed burst lengths, in beats (one sample per completed transaction). Divide by `stat_xactions` for the mean burst length. |
+| `stat_burst_len_min` | 32 | all-ones ("unset") | Minimum observed burst length in beats. |
+| `stat_burst_len_max` | 32 | 0 | Maximum observed burst length in beats. |
+| `stat_elapsed_cycles` | 32 | 0 | Free-running clock-cycle counter, incremented every cycle while `enable` is high. Gives the length of the measurement window (in cycles) so rates can be computed (e.g. beats/cycle). Cleared by `stat_rst`. |
+| `stat_r_stall` | 32 | 0 | Number of cycles where the consumer backpressured the R channel (`r_valid=1`, `r_ready=0`), while `enable` is high. R-channel stall/backpressure counter. |
+| `stat_max_outstanding` | 32 | 0 | Peak occupancy of the scoreboard FIFO -- the maximum number of read transactions issued but not yet completed (in-flight bursts) at any instant. Derived from the FIFO fill count; reset by `stat_rst`. A value well below `GC_SB_FIFO_DEPTH` indicates the scoreboard never bottlenecked. |
+| `stat_data_errors` | 32 | 0 | Number of accepted beats whose `r_data` did not match the expected address-derived pattern. Only counted when `data_check_en=1` (the check is skipped when `data_check_en=0`, so this stays 0). |
+| `stat_id_errors` | 32 | 0 | Number of accepted beats whose `r_id` did not match the `ar_id` from the matching scoreboard entry. Checked regardless of `data_check_en`. |
+| `stat_rlast_errors` | 32 | 0 | Number of RLAST protocol violations: `r_last` asserted early (burst still has beats remaining), a missing `r_last` (burst ends without RLAST), or a spurious `r_last` with no active burst and no scoreboard entry. |
+| `stat_resp_errors` | 32 | 0 | Number of accepted beats whose `r_resp` was not `OKAY` (0b00) -- any slave error/retry response. |
+| `stat_sb_underflow_errors` | 32 | 0 | Number of accepted R beats for which **no scoreboard entry was available** when the burst began. The beat is still counted in `stat_beats` and validated where possible, but its data/ID/latency checks are skipped. Usually caused by `stat_sb_backpressure` (dropped descriptors) or by real traffic with no preceding AR capture. |
+
+> Related status output: `pipeline_busy` (1 bit, not a counter) is high
+> while the scoreboard has entries or a burst is in flight.
+
+Notes:
+
+- `stat_rst` clears all counters (AR-side, R-side, and
+  `stat_max_outstanding`) without disrupting in-flight burst tracking.
+- `err_rst` clears only the five error counters
+  (`stat_data_errors` ... `stat_sb_underflow_errors`).
+- The `min` stats reset to all-ones ("unset") so a genuine zero never
+  reads as "no data"; the `max`/sum/counter stats reset to 0.
+- `stat_rst` / `err_rst` take priority over the next-state logic:  an
+  event (AR handshake, accepted R beat, burst completion, or error) that
+  coincides with the reset cycle is suppressed -- it cannot resurrect a
+  counter the reset just cleared.  Burst tracking is never affected.
+- `stat_xactions` requires a scoreboard entry (a burst with an underflow
+  cannot complete a transaction), whereas `stat_beats` counts everything
+  -- so in a clean run `beats == xactions * mean_burst_len`, but after
+  underflows the two diverge.
+
 `data_check_en` selects whether R data is verified against the
 address-derived pattern (suited for `axi_mem_model` / known-pattern
 slaves).  When low, beats are still counted and all protocol checks
 (ID/RLAST/RRESP) still run, but data is not compared -- for monitoring
 real traffic where the slave's data pattern is unknown.
 
-`aperture` defines the measurement window:  statistics accumulate only
-while it is high, and `pipeline_busy` extends gating until in-flight
-bursts drain.
+`aperture` is a traffic-generator concept (see
+[`axi_traffic_gen`](../axi_traffic_gen/README.md)):  the AR generator
+only issues requests while `aperture` is high.  The monitor itself is
+purely `enable`-gated -- it counts every AR handshake and R beat while
+`enable` is high, regardless of the generator window.  Use `stat_rst`
+to reset statistics at a measurement-window boundary.
 
 `enable` is the per-instance master switch:  when low the whole monitor
 is inert (no scoreboard descriptors pushed, no stats counted, no data
@@ -106,8 +173,8 @@ sources and runs the full test suite:
   256-beat burst; the `cfg_arlen` port is sized by `GC_MAX_BURST`
   (`log2ceil(GC_MAX_BURST)` bits), so an over-large value cannot be
   expressed
-- **T12** -- independent AR `aperture` gating while R-side completion
-  continues
+- **T12** -- generator `aperture` gates AR generation; the enable-only
+  monitor counts every AR issued while enabled (`ar_seen == ar_issued`)
 - **T13** -- scoreboard underflow:  spurious R beats with no AR
   descriptor are counted as beats and flagged as underflow errors,
   without spurious data errors
@@ -115,6 +182,26 @@ sources and runs the full test suite:
   tiny (depth-4) scoreboard FIFO reports `stat_sb_backpressure` when R
   is held back under load, while the deep instance drains error-free
   with correct beat accounting
+- **T15** -- `stat_rst` asserted mid-traffic:  counters clear without
+  corrupting in-flight burst tracking; a clean second window shows
+  exact accounting
+- **T16** -- disable, drain, re-enable:  the monitor resumes cleanly
+  with no underflow or protocol errors
+- **T17** -- non-zero AR ID end-to-end:  ID matching holds for a
+  non-zero `cfg_id`
+- **T18** -- RLAST early-guard:  a spurious `r_last` with no active
+  burst and no scoreboard entry increments `stat_rlast_errors`
+- **T19** -- stat tightening:  AR-stall counter cross-checked against
+  the generator, elapsed-cycle counter vs a reference, internal
+  min/max/sum consistency for latency/first-latency/gap/burst-length,
+  and `pipeline_busy` high-during-traffic / low-after-drain
+- **T20** -- mixed burst lengths in one window (1-beat then 16-beat):
+  `burst_len` min/max capture the spread
+- **T21** -- narrow data-bytes path (`GC_DATA_BYTES=2`):  exercises the
+  2-byte data-check branch of `axi_monitor_r` on an independent
+  generator/mem/monitor path
+- **T22** -- `err_rst` asserted while data errors are still being
+  detected:  the reset wins over the coincident error detection
 
 T1 additionally asserts timing-statistic bounds consistent with the
 `axi_mem_model` configuration (`latency_min >= base_latency`,

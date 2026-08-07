@@ -15,8 +15,8 @@
 --                   disabled, beats are still counted and all protocol
 --                   checks still run, but r_data is not compared.
 --
---                   Statistics are gated on the aperture measurement
---                   window; every event within the window is captured.
+--                   Statistics accumulate while the instance is
+--                   enabled; every event while enabled is captured.
 --Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
@@ -199,41 +199,14 @@ begin
   begin
     v := r;  -- recover current state as default for all fields
 
-    -- Stat/error reset -- clears counters without disrupting burst progress
-    if stat_rst = '1' then
-      v.xactions       := (others => '0');
-      v.beats          := (others => '0');
-      v.latency_sum    := (others => '0');
-      v.latency_min    := (others => '1');
-      v.latency_max    := (others => '0');
-      v.first_lat_sum  := (others => '0');
-      v.first_lat_min  := (others => '1');
-      v.first_lat_max  := (others => '0');
-      v.interbeat_gap_sum := (others => '0');
-      v.interbeat_gap_min := (others => '1');
-      v.interbeat_gap_max := (others => '0');
-      v.blen_sum       := (others => '0');
-      v.blen_min       := (others => '1');
-      v.blen_max       := (others => '0');
-      v.elapsed        := (others => '0');
-      v.r_stall        := (others => '0');
-    end if;
-    if err_rst = '1' then
-      v.data_errs      := (others => '0');
-      v.id_errs        := (others => '0');
-      v.rlast_errs     := (others => '0');
-      v.resp_errs      := (others => '0');
-      v.sb_uf_errs     := (others => '0');
-    end if;
-
     -- Pipeline busy:  active if scoreboard has entries or a burst is in
-    -- progress.  Used to extend the gating window past aperture de-assert.
+    -- progress.  Used to indicate the measurement window is still draining.
     v.busy := '0';
     if enable = '1' and (sb_tvalid = '1' or r.burst_beats > 0) then
       v.busy := '1';
     end if;
 
-    -- Elapsed cycle counter (free-running while enabled)
+    -- Elapsed cycle counter (free-running while enabled).
     if enable = '1' then
       v.elapsed := r.elapsed + 1;
     end if;
@@ -367,11 +340,10 @@ begin
 
         v.ts_prev_beat := global_time;
 
-        -- Transaction completed -- record burst length and clear state
+        -- Transaction completed -- clear burst state and record length.
         if v.burst_beats = 0 then
-          v.xactions := r.xactions + 1;
           v.latency_started := '0';
-
+          v.xactions := r.xactions + 1;
           v.blen_sum := r.blen_sum + resize(v.beat_idx, GC_STAT_WIDTH);
           if v.beat_idx < r.blen_min then
             v.blen_min := resize(v.beat_idx, 32);
@@ -381,6 +353,38 @@ begin
           end if;
         end if;
       end if;
+    end if;
+
+    ------------------------------------------------------------------
+    -- Soft-reset overrides -- take priority over the next-state logic.
+    -- stat_rst clears the stat fields; err_rst clears the error
+    -- counters.  Burst-tracking fields are intentionally untouched.
+    -- Reset values are single-sourced from C_DEFAULT.
+    ------------------------------------------------------------------
+    if stat_rst = '1' then
+      v.xactions       := C_DEFAULT.xactions;
+      v.beats          := C_DEFAULT.beats;
+      v.latency_sum    := C_DEFAULT.latency_sum;
+      v.latency_min    := C_DEFAULT.latency_min;
+      v.latency_max    := C_DEFAULT.latency_max;
+      v.first_lat_sum  := C_DEFAULT.first_lat_sum;
+      v.first_lat_min  := C_DEFAULT.first_lat_min;
+      v.first_lat_max  := C_DEFAULT.first_lat_max;
+      v.interbeat_gap_sum := C_DEFAULT.interbeat_gap_sum;
+      v.interbeat_gap_min := C_DEFAULT.interbeat_gap_min;
+      v.interbeat_gap_max := C_DEFAULT.interbeat_gap_max;
+      v.blen_sum       := C_DEFAULT.blen_sum;
+      v.blen_min       := C_DEFAULT.blen_min;
+      v.blen_max       := C_DEFAULT.blen_max;
+      v.elapsed        := C_DEFAULT.elapsed;
+      v.r_stall        := C_DEFAULT.r_stall;
+    end if;
+    if err_rst = '1' then
+      v.data_errs      := C_DEFAULT.data_errs;
+      v.id_errs        := C_DEFAULT.id_errs;
+      v.rlast_errs     := C_DEFAULT.rlast_errs;
+      v.resp_errs      := C_DEFAULT.resp_errs;
+      v.sb_uf_errs     := C_DEFAULT.sb_uf_errs;
     end if;
 
     r_in <= v;  -- latch next state

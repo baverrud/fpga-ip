@@ -49,7 +49,7 @@ used by `axi_ar_gen` for random-address mode.
 | `aclk` / `aresetn` | in | 1 | Clock / synchronous active-low reset |
 | `enable` | in | 1 | Per-instance enable (gates generation) |
 | `aperture` | in | 1 | Measurement window (gates generation) |
-| `stat_rst` | in | 1 | Clears statistic counters (not the FSM) |
+| `stat_rst` | in | 1 | Clears statistic counters (not the FSM); takes priority over a coincident handshake |
 | `cfg_id` | in | `GC_ID_WIDTH` | AR ID to tag each burst |
 | `cfg_arlen` | in | `log2ceil(GC_MAX_BURST)` | AXI ARLEN value (beats-1); 0 = 1 beat |
 | `cfg_pace` | in | 32 | Idle cycles between ARs (0 = every cycle) |

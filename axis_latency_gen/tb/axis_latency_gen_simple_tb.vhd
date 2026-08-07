@@ -117,8 +117,8 @@ begin
     s_axis_tvalid <= '0';
     m_axis_tready <= '1';
 
-    base_delay        <=  to_unsigned(2, 8);
-    enable_base_delay <= '0';
+    base_delay        <=  to_unsigned(1, 8);
+    enable_base_delay <= '1';
     enable_jitter     <= '0';
 
 
