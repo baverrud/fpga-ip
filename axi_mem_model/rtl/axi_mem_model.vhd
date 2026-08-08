@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------
 --Filename         : axi_mem_model.vhd
---Description      : AXI4 read-slave with configurable first-beat
+--Description      : AXI3/AXI4 read-slave with configurable first-beat
 --                 : latency and per-beat inter-beat gaps.
 --                 :
 --                 : Top wrapper that instantiates:

@@ -1,6 +1,6 @@
 # axi_traffic_gen
 
-Collection of lightweight AXI4 traffic generators.  Each generator is a
+Collection of lightweight AXI3/AXI4 traffic generators.  Each generator is a
 self-contained entity; today the IP provides the read-address generator
 (`axi_ar_gen`) with room for additional specialized generators (e.g. a
 write-address generator) in the same IP.
@@ -9,7 +9,7 @@ Licensed under Zero-Clause BSD (0BSD).
 
 ## AR generator (`axi_ar_gen`)
 
-A lightweight AXI4 read-address generator.  It issues AR bursts at a
+A lightweight AXI3/AXI4 read-address generator.  It issues AR bursts at a
 configurable cfg_pace, decoupled from R completion:
 
 - `cfg_pace=0` -> a new AR can be issued every clock cycle (back-to-back)

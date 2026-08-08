@@ -1,6 +1,6 @@
-# axi_mem_model — AXI4 Memory Latency Model
+# axi_mem_model — AXI3/AXI4 Memory Latency Model
 
-AXI4 read-slave that models DRAM-like first-beat latency and per-beat
+AXI3/AXI4 read-slave that models DRAM-like first-beat latency and per-beat
 inter-beat gaps. Delegates all timing to reusable `axis_latency_gen`
 instances; the core module only handles burst sequencing and address-based
 data generation.

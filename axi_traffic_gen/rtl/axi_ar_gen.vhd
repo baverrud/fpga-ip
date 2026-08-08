@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------
 --Filename         : axi_ar_gen.vhd
---Description      : Lightweight AXI4 read-address generator.
+--Description      : Lightweight AXI3/AXI4 read-address generator.
 --                 : enable and aperture form the generation gate.
 --                 : cfg_pace_init delays the first burst by
 --                 : cfg_pace_init+1 cycles (matching the cfg_pace+1 gap

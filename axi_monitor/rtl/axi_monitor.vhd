@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------
 --Filename         : axi_monitor.vhd
---Description      : Passive AXI4 Read Transaction Monitor.
+--Description      : Passive AXI3/AXI4 Read Transaction Monitor.
 --                   Non-intrusively taps the AR and R channels of a
 --                   bus (all AR/R signals are inputs -- it never
 --                   drives them).  Captures every AR transaction into

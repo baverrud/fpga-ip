@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------
 --Filename         : axi_monitor_r.vhd
---Description      : Passive AXI4 Read-Data (R) channel monitor with
+--Description      : Passive AXI3/AXI4 Read-Data (R) channel monitor with
 --                   statistics.  Taps the R channel (r_valid and
 --                   r_ready are both inputs -- this block never drives
 --                   the bus, so it cannot stall or alter real traffic).

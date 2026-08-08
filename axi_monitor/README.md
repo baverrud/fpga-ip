@@ -1,6 +1,6 @@
 # axi_monitor
 
-Passive AXI4 read-transaction monitor.  Non-intrusively taps the AR and
+Passive AXI3/AXI4 read-transaction monitor.  Non-intrusively taps the AR and
 R channels of a bus (all AR/R signals are inputs -- it never drives
 them), captures every AR transaction into a scoreboard FIFO, and
 validates every R beat against it while accumulating transaction,

@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------
 --Filename         : axi_monitor_ar.vhd
---Description      : Passive AXI4 Read-Address (AR) channel monitor.
+--Description      : Passive AXI3/AXI4 Read-Address (AR) channel monitor.
 --                   Taps the AR channel (ar_valid/ar_ready are both
 --                   inputs -- this block never drives the bus).  On
 --                   every ar_valid & ar_ready handshake it captures a
