@@ -21,6 +21,9 @@ DEFAULT_LIB: work
 [rtl]
 axilite_io/rtl/axilite_io.sv
 
+[top]
+top = axilite_io
+
 [tb:default]
 top = axilite_io_tb
 axilite_io/tb/axilite_io_wrap.sv

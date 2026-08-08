@@ -20,6 +20,9 @@ DEFAULT_LIB: work
 common/rtl/util_pkg.vhd
 axilite_io/rtl/axilite_io.vhd
 
+[top]
+top = axilite_io
+
 [tb:default]
 top = axilite_io_tb
 axilite_io/tb/axilite_io_wrap.vhd
