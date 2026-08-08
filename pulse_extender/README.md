@@ -64,7 +64,8 @@ pulse_extender/
 ├── README.md
 ├── rtl/
 │   ├── pulse_extender.vhd
-│   └── pulse_extender_top.vhd
+│   ├── pulse_extender_top.vhd
+│   └── pulse_extender_top.sv
 ├── scripts/
 │   └── vhdl.f
 └── tb/
@@ -88,12 +89,31 @@ registered-output timing, single-trigger pulse length, held-high trigger
 
 ## Instantiation
 
-Ready-to-copy template. Signal names match the ports. Set `GC_PULSE_LEN`
-to the desired pulse length in clock cycles (8 here); if your enclosing
-entity declares its own `GC_PULSE_LEN` generic, map it directly instead.
+Ready-to-copy templates for instantiating `pulse_extender` in a design.
+Signal names match the ports; the pulse length is set via the
+`C_PULSE_LEN` constant.
+
+### Synthesis wrappers
+
+Ready-made synthesis tops are provided in both languages, so
+`pulse_extender` can be used as a standalone netlist top without writing an
+instance by hand. Each passes the `GC_PULSE_LEN` generic through to the
+core:
+
+- [rtl/pulse_extender_top.vhd](rtl/pulse_extender_top.vhd) - VHDL wrapper:
+  `entity pulse_extender_top` instantiates the core with a direct
+  `entity work.pulse_extender` binding.
+- [rtl/pulse_extender_top.sv](rtl/pulse_extender_top.sv) - SystemVerilog
+  wrapper: `module pulse_extender_top` instantiates the VHDL core directly
+  via mixed-language binding (no extra glue), passing `GC_PULSE_LEN`
+  through.
+
+### VHDL
 
 ```vhdl
 architecture rtl of <your_design> is
+
+  constant C_PULSE_LEN : positive := 8;  -- output pulse length in clock cycles
 
   -- Signal list (names match the ports)
   signal clk       : std_logic;
@@ -105,7 +125,7 @@ begin
 
   u_pulse_extender : entity work.pulse_extender
     generic map (
-      GC_PULSE_LEN => 8   -- output pulse length in clock cycles
+      GC_PULSE_LEN => C_PULSE_LEN
     )
     port map (
       clk       => clk,
@@ -117,14 +137,12 @@ begin
 end architecture;
 ```
 
-### SystemVerilog
-
-Mixed-language instantiation of the VHDL entity from a SystemVerilog
-module. Signal names match the ports; the VHDL generic `GC_PULSE_LEN`
-is mapped like a module parameter.
+### Verilog/SystemVerilog
 
 ```systemverilog
-module <your_module> (/* ports */);
+module <your_module>;
+
+  localparam int unsigned C_PULSE_LEN = 8;  // output pulse length in clock cycles
 
   // Signal list (names match the ports)
   logic clk;
@@ -133,7 +151,7 @@ module <your_module> (/* ports */);
   logic pulse_out;
 
   pulse_extender #(
-    .GC_PULSE_LEN (8)   // output pulse length in clock cycles
+    .GC_PULSE_LEN (C_PULSE_LEN)
   ) u_pulse_extender (
     .clk       (clk),
     .rstn      (rstn),
