@@ -85,3 +85,61 @@ The testbench covers no-reset power-on operation, reset, idle, synchronous
 registered-output timing, single-trigger pulse length, held-high trigger
 (no extension, re-trigger after expiry), two pulses with a gap, and the
 `GC_PULSE_LEN = 1` edge case.
+
+## Instantiation
+
+Ready-to-copy template. Signal names match the ports. Set `GC_PULSE_LEN`
+to the desired pulse length in clock cycles (8 here); if your enclosing
+entity declares its own `GC_PULSE_LEN` generic, map it directly instead.
+
+```vhdl
+architecture rtl of <your_design> is
+
+  -- Signal list (names match the ports)
+  signal clk       : std_logic;
+  signal rstn      : std_logic;
+  signal trigger   : std_logic;
+  signal pulse_out : std_logic;
+
+begin
+
+  u_pulse_extender : entity work.pulse_extender
+    generic map (
+      GC_PULSE_LEN => 8   -- output pulse length in clock cycles
+    )
+    port map (
+      clk       => clk,
+      rstn      => rstn,
+      trigger   => trigger,
+      pulse_out => pulse_out
+    );
+
+end architecture;
+```
+
+### SystemVerilog
+
+Mixed-language instantiation of the VHDL entity from a SystemVerilog
+module. Signal names match the ports; the VHDL generic `GC_PULSE_LEN`
+is mapped like a module parameter.
+
+```systemverilog
+module <your_module> (/* ports */);
+
+  // Signal list (names match the ports)
+  logic clk;
+  logic rstn;
+  logic trigger;
+  logic pulse_out;
+
+  pulse_extender #(
+    .GC_PULSE_LEN (8)   // output pulse length in clock cycles
+  ) u_pulse_extender (
+    .clk       (clk),
+    .rstn      (rstn),
+    .trigger   (trigger),
+    .pulse_out (pulse_out)
+  );
+
+endmodule
+```
