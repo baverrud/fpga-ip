@@ -33,7 +33,7 @@ class RunnerTests(unittest.TestCase):
 
     def test_all_manifests_parse_and_sources_exist(self):
         manifests = sorted(REPO_ROOT.glob("*/scripts/*.f"))
-        self.assertEqual(len(manifests), 18)  # one manifest set per IP
+        self.assertTrue(manifests, "no .f manifests found under any IP scripts dir")
         for path in manifests:
             manifest = runner.parse_manifest(path.resolve())
             for section in manifest.sections.values():

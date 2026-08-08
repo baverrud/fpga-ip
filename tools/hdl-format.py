@@ -165,14 +165,49 @@ def _vhd_decl_cells(body, cmt):
     return None
 
 
-def _align_vhd_decl(lines):
+class _Cfg:
+    """Per-style column alignment flags for one block kind.
+
+    Each flag enables padding/alignment of a column for the active style;
+    a zero flag leaves that column at its natural width.  comment_align
+    selects block-aligned inline comments (extreme/moderate) vs. compact
+    ones (collapsed).  The per-kind/per-style tables live in _STYLE_CFGS.
+    """
+
+    __slots__ = ("pad_kind", "pad_dir", "pad_name", "pad_tail", "pad_value",
+                 "rjust_value", "pad_expr", "align_vectors", "outer_type",
+                 "comment_align")
+
+    def __init__(self, pad_kind=0, pad_dir=0, pad_name=0, pad_tail=0,
+                 pad_value=0, rjust_value=0, pad_expr=0, align_vectors=0,
+                 outer_type=0, comment_align=1):
+        self.pad_kind = pad_kind
+        self.pad_dir = pad_dir
+        self.pad_name = pad_name
+        self.pad_tail = pad_tail
+        self.pad_value = pad_value
+        self.rjust_value = rjust_value
+        self.pad_expr = pad_expr
+        self.align_vectors = align_vectors
+        self.outer_type = outer_type
+        self.comment_align = comment_align
+
+
+def _attach_comments(rows, cfg):
+    """Attach inline comments per the style's comment mode."""
+    if cfg.comment_align:
+        return _align_inline_comments(rows)
+    return _compact_inline_comments(rows)
+
+
+def _align_vhd_decl(lines, cfg):
     """Align VHDL generic/port/signal declarations.
 
     Columns: name, ':', direction, type head, 'to'/'downto' keyword, range
     index (right-aligned), ':=' value (right-aligned), trailing ';'/','.
 
-    The trailing punctuation shares a column across the block; only lines
-    with a range participate in 'to'/'downto' alignment.
+    Which columns are padded and right-aligned is driven by cfg (see _Cfg
+    and _STYLE_CFGS); non-uniform or mixed-kind blocks are left untouched.
     """
     parsed = []
     for ln in lines:
@@ -188,43 +223,50 @@ def _align_vhd_decl(lines):
         return lines
 
     gens = parsed[0]["is_gen"]
-    name_w = max(len(p["name"]) for p in parsed)
+    name_w = max(len(p["name"]) for p in parsed) if cfg.pad_name else 0
     has_dir = (not gens) and all(p["dir"] for p in parsed)
-    dir_w = max(len(p["dir"]) for p in parsed) if has_dir else 0
+    dir_w = max(len(p["dir"]) for p in parsed) if (has_dir and cfg.pad_dir) else 0
 
     ranged = [p for p in parsed if p["kw"]]
-    has_kw = bool(ranged)
-    prefix_w = max(len(p["prefix"]) for p in ranged) if has_kw else 0
-    idx_w = max(len(p["idx"]) for p in ranged) if has_kw else 0
-    kw_w = max(len(p["kw"]) for p in ranged) if has_kw else 0
-    post_w = max(len(p["post"]) for p in ranged) if has_kw else 0
-    value_w = max(len(p["value"]) for p in parsed) if gens else 0
+    prefix_w = max(len(p["prefix"]) for p in ranged) if cfg.align_vectors else 0
+    idx_w = max(len(p["idx"]) for p in ranged) if cfg.align_vectors else 0
+    kw_w = max(len(p["kw"]) for p in ranged) if cfg.align_vectors else 0
+    post_w = max(len(p["post"]) for p in ranged) if cfg.align_vectors else 0
+    value_w = max(len(p["value"]) for p in parsed) if (gens and cfg.pad_value) else 0
 
-    out = []
+    cores = []
     for p in parsed:
         decl_kind = (p["kind"] + " ") if p["kind"] else ""
         line = p["ind"] + decl_kind + p["name"].ljust(name_w) + " : "
-        if has_dir:
-            line += p["dir"].ljust(dir_w) + " "
-        if p["kw"]:
+        if cfg.pad_dir:
+            if has_dir:
+                line += p["dir"].ljust(dir_w) + " "
+        elif p["dir"]:
+            line += p["dir"] + " "
+        if cfg.align_vectors and p["kw"]:
             line += p["prefix"].ljust(prefix_w) + p["idx"].rjust(idx_w)
             line += " " + p["kw"].ljust(kw_w) + " " + p["post"].ljust(post_w)
         else:
-            line += p["head"]
+            line += (p["head"] if cfg.align_vectors
+                     else _normalize_vhdl_type(p["type"]))
         if gens:
-            line += " := " + p["value"].rjust(value_w)
+            val = p["value"].rjust(value_w) if cfg.pad_value else p["value"].strip()
+            line += " := " + val
         cores.append((line, p["tail"], p["cmt"]))
 
-    tail_col = max(len(line) for line, _, _ in cores)
-    out = []
-    for line, tail, cmt in cores:
-        if tail:
-            line = line.ljust(tail_col) + tail
-        out.append((line, cmt))
-    return _align_inline_comments(out)
+    if cfg.pad_tail:
+        tail_col = max(len(line) for line, _, _ in cores)
+        out = []
+        for line, tail, cmt in cores:
+            if tail:
+                line = line.ljust(tail_col) + tail
+            out.append((line, cmt))
+        return _align_inline_comments(out)
+    out = [(line + tail, cmt) for line, tail, cmt in cores]
+    return _attach_comments(out, cfg)
 
 
-def _align_vhd_map(lines):
+def _align_vhd_map(lines, cfg):
     """Align VHDL generic/port maps ('name => expr')."""
     parsed = []
     for ln in lines:
@@ -234,13 +276,13 @@ def _align_vhd_map(lines):
             return lines
         parsed.append((m.group("ind"), m.group("name"), m.group("expr").strip(),
                        m.group("tail"), cmt))
-    name_w = max(len(p[1]) for p in parsed)
-    expr_w = max(len(p[2]) for p in parsed)
+    name_w = max(len(p[1]) for p in parsed) if cfg.pad_name else 0
+    expr_w = max(len(p[2]) for p in parsed) if cfg.pad_expr else 0
     out = []
     for ind, name, expr, tail, cmt in parsed:
         line = ind + name.ljust(name_w) + " => " + expr.ljust(expr_w) + tail
         out.append((line, cmt))
-    return _align_inline_comments(out)
+    return _attach_comments(out, cfg)
 
 
 def _normalize_vhdl_type(type_str):
@@ -252,95 +294,6 @@ def _normalize_vhdl_type(type_str):
         post = re.sub(r"\s+", " ", post).strip()
         return head + " " + keyword + " " + post
     return re.sub(r"\s+", " ", type_str.strip())
-
-
-def _align_vhd_decl_moderate(lines):
-    """Align VHDL declarations without padding ranges or values."""
-    parsed = []
-    for ln in lines:
-        body, cmt = split_comment(ln, "--")
-        c = _vhd_decl_cells(body, cmt)
-        if c is None:
-            return lines
-        parsed.append(c)
-    if any(p["is_gen"] != parsed[0]["is_gen"] or
-           p["kind"] != parsed[0]["kind"] for p in parsed):
-        return lines
-
-    gens = parsed[0]["is_gen"]
-    name_w = max(len(p["name"]) for p in parsed)
-    has_dir = (not gens) and all(p["dir"] for p in parsed)
-    dir_w = max(len(p["dir"]) for p in parsed) if has_dir else 0
-    out = []
-    for p in parsed:
-        decl_kind = (p["kind"] + " ") if p["kind"] else ""
-        line = p["ind"] + decl_kind + p["name"].ljust(name_w) + " : "
-        if has_dir:
-            line += p["dir"].ljust(dir_w) + " "
-        line += _normalize_vhdl_type(p["type"])
-        if gens:
-            line += " := " + p["value"].strip()
-        out.append((line + p["tail"], p["cmt"]))
-    return _align_inline_comments(out)
-
-
-def _align_vhd_map_moderate(lines):
-    """Align VHDL map names while keeping expressions and commas compact."""
-    parsed = []
-    for ln in lines:
-        body, cmt = split_comment(ln, "--")
-        m = _VHD_MAP_RE.match(body)
-        if not m:
-            return lines
-        parsed.append((m.group("ind"), m.group("name"),
-                       m.group("expr").strip(), m.group("tail"), cmt))
-    name_w = max(len(p[1]) for p in parsed)
-    out = []
-    for ind, name, expr, tail, cmt in parsed:
-        line = ind + name.ljust(name_w) + " => " + expr + tail
-        out.append((line, cmt))
-    return _align_inline_comments(out)
-
-
-def _align_vhd_decl_collapsed(lines):
-    """Format VHDL declarations without block-wide column padding."""
-    parsed = []
-    for ln in lines:
-        body, cmt = split_comment(ln, "--")
-        c = _vhd_decl_cells(body, cmt)
-        if c is None:
-            return lines
-        parsed.append(c)
-    if any(p["is_gen"] != parsed[0]["is_gen"] or
-           p["kind"] != parsed[0]["kind"] for p in parsed):
-        return lines
-
-    gens = parsed[0]["is_gen"]
-    out = []
-    for p in parsed:
-        decl_kind = (p["kind"] + " ") if p["kind"] else ""
-        line = p["ind"] + decl_kind + p["name"] + " : "
-        if p["dir"]:
-            line += p["dir"] + " "
-        line += _normalize_vhdl_type(p["type"])
-        if gens:
-            line += " := " + p["value"].strip()
-        out.append((line + p["tail"], p["cmt"]))
-    return _compact_inline_comments(out)
-
-
-def _align_vhd_map_collapsed(lines):
-    """Format VHDL maps without block-wide column padding."""
-    out = []
-    for ln in lines:
-        body, cmt = split_comment(ln, "--")
-        m = _VHD_MAP_RE.match(body)
-        if not m:
-            return lines
-        line = (m.group("ind") + m.group("name") + " => " +
-                m.group("expr").strip() + m.group("tail"))
-        out.append((line, cmt))
-    return _compact_inline_comments(out)
 
 
 # ---------------------------------------------------------------------------
@@ -417,90 +370,6 @@ def _sv_type_aligner(types):
     return emit
 
 
-def _align_sv_params(lines):
-    parsed = []
-    for ln in lines:
-        body, cmt = split_comment(ln, "//")
-        m = _SV_PARAM_RE.match(body)
-        if not m:
-            return lines
-        parsed.append((m.group("ind"), m.group("kind"), m.group("type").strip(),
-                       m.group("name"),
-                       m.group("value").strip(), m.group("tail"), cmt))
-    emit_type = _sv_type_aligner([p[2] for p in parsed])
-    kind_w = max(len(p[1]) for p in parsed)
-    name_w = max(len(p[3]) for p in parsed)
-    value_w = max(len(p[4]) for p in parsed)
-    tail_w = max(len(p[5]) for p in parsed)
-    out = []
-    for ind, kind, typ, name, value, tail, cmt in parsed:
-        line = ind + kind.ljust(kind_w) + " " + emit_type(typ) + " " + name.ljust(name_w)
-        line += " = " + value.rjust(value_w) + (tail or "").ljust(tail_w)
-        out.append((line, cmt))
-    return _align_inline_comments(out)
-
-
-def _align_sv_ports(lines):
-    parsed = []
-    for ln in lines:
-        body, cmt = split_comment(ln, "//")
-        m = _SV_PORT_RE.match(body)
-        if not m:
-            return lines
-        parsed.append((m.group("ind"), m.group("dir"), m.group("type").strip(),
-                       m.group("name"), m.group("tail"), cmt))
-    dir_w = max(len(p[1]) for p in parsed)
-    emit_type = _sv_type_aligner([p[2] for p in parsed])
-    name_w = max(len(p[3]) for p in parsed)
-    tail_w = max(len(p[4]) for p in parsed)
-    out = []
-    for ind, d, typ, name, tail, cmt in parsed:
-        line = ind + d.ljust(dir_w) + " " + emit_type(typ) + " " + name.ljust(name_w)
-        line += (tail or "").ljust(tail_w)
-        out.append((line, cmt))
-    return _align_inline_comments(out)
-
-
-def _align_sv_decls(lines):
-    parsed = []
-    for ln in lines:
-        body, cmt = split_comment(ln, "//")
-        m = _SV_DECL_RE.match(body)
-        if not m:
-            return lines
-        parsed.append((m.group("ind"), m.group("kind"), m.group("type").strip(),
-                       m.group("name"), m.group("tail"), cmt))
-    emit_type = _sv_type_aligner([p[2] for p in parsed])
-    name_w = max(len(p[3]) for p in parsed)
-    tail_w = max(len(p[4]) for p in parsed)
-    out = []
-    for ind, kind, typ, name, tail, cmt in parsed:
-        line = ind + kind + " " + emit_type(typ) + " " + name.ljust(name_w)
-        line += (tail or "").ljust(tail_w)
-        out.append((line, cmt))
-    return _align_inline_comments(out)
-
-
-def _align_sv_maps(lines):
-    parsed = []
-    for ln in lines:
-        body, cmt = split_comment(ln, "//")
-        m = _SV_MAP_RE.match(body)
-        if not m:
-            return lines
-        parsed.append((m.group("ind"), m.group("name"), m.group("expr").strip(),
-                       m.group("tail"), cmt))
-    name_w = max(len(p[1]) for p in parsed)
-    expr_w = max(len(p[2]) for p in parsed)
-    tail_w = max(len(p[3]) for p in parsed)
-    out = []
-    for ind, name, expr, tail, cmt in parsed:
-        line = ind + name.ljust(name_w) + " (" + expr.ljust(expr_w) + ")"
-        line += (tail or "").ljust(tail_w)
-        out.append((line, cmt))
-    return _align_inline_comments(out)
-
-
 def _normalize_sv_type(type_str):
     """Return a SystemVerilog type with natural internal spacing."""
     pre, lo, hi, is_vector = _sv_type_fields(type_str.strip())
@@ -520,8 +389,17 @@ def _sv_moderate_type_aligner(types):
     return emit
 
 
-def _align_sv_params_moderate(lines):
-    """Align SV parameter names and '=' without padding values."""
+def _sv_type_emitter(types, cfg):
+    """Return an emit(typ) function matching the style's type alignment."""
+    if cfg.align_vectors:
+        return _sv_type_aligner(types)
+    if cfg.outer_type:
+        return _sv_moderate_type_aligner(types)
+    return lambda typ: _normalize_sv_type(typ)
+
+
+def _align_sv_params(lines, cfg):
+    """Align SV parameters ('kind type name = value')."""
     parsed = []
     for ln in lines:
         body, cmt = split_comment(ln, "//")
@@ -529,21 +407,25 @@ def _align_sv_params_moderate(lines):
         if not m:
             return lines
         parsed.append((m.group("ind"), m.group("kind"), m.group("type").strip(),
-                       m.group("name"), m.group("value").strip(),
-                       m.group("tail"), cmt))
-    emit_type = _sv_moderate_type_aligner([p[2] for p in parsed])
-    kind_w = max(len(p[1]) for p in parsed)
-    name_w = max(len(p[3]) for p in parsed)
+                       m.group("name"),
+                       m.group("value").strip(), m.group("tail"), cmt))
+    emit_type = _sv_type_emitter([p[2] for p in parsed], cfg)
+    kind_w = max(len(p[1]) for p in parsed) if cfg.pad_kind else 0
+    name_w = max(len(p[3]) for p in parsed) if cfg.pad_name else 0
+    value_w = max(len(p[4]) for p in parsed) if (cfg.pad_value or cfg.rjust_value) else 0
+    tail_w = max(len(p[5]) for p in parsed) if cfg.pad_tail else 0
     out = []
     for ind, kind, typ, name, value, tail, cmt in parsed:
         line = ind + kind.ljust(kind_w) + " " + emit_type(typ) + " "
-        line += name.ljust(name_w) + " = " + value + tail
+        line += name.ljust(name_w) + " = "
+        line += value.rjust(value_w) if cfg.rjust_value else value
+        line += (tail or "").ljust(tail_w)
         out.append((line, cmt))
-    return _align_inline_comments(out)
+    return _attach_comments(out, cfg)
 
 
-def _align_sv_ports_moderate(lines):
-    """Align SV port columns without padding vector ranges."""
+def _align_sv_ports(lines, cfg):
+    """Align SV module ports ('dir type name')."""
     parsed = []
     for ln in lines:
         body, cmt = split_comment(ln, "//")
@@ -552,18 +434,20 @@ def _align_sv_ports_moderate(lines):
             return lines
         parsed.append((m.group("ind"), m.group("dir"), m.group("type").strip(),
                        m.group("name"), m.group("tail"), cmt))
-    dir_w = max(len(p[1]) for p in parsed)
-    emit_type = _sv_moderate_type_aligner([p[2] for p in parsed])
+    emit_type = _sv_type_emitter([p[2] for p in parsed], cfg)
+    dir_w = max(len(p[1]) for p in parsed) if cfg.pad_dir else 0
+    name_w = max(len(p[3]) for p in parsed) if cfg.pad_name else 0
+    tail_w = max(len(p[4]) for p in parsed) if cfg.pad_tail else 0
     out = []
-    for ind, direction, typ, name, tail, cmt in parsed:
-        line = ind + direction.ljust(dir_w) + " " + emit_type(typ) + " "
-        line += name + tail
+    for ind, d, typ, name, tail, cmt in parsed:
+        line = ind + d.ljust(dir_w) + " " + emit_type(typ) + " "
+        line += name.ljust(name_w) + (tail or "").ljust(tail_w)
         out.append((line, cmt))
-    return _align_inline_comments(out)
+    return _attach_comments(out, cfg)
 
 
-def _align_sv_decls_moderate(lines):
-    """Align SV declaration columns without padding vector ranges."""
+def _align_sv_decls(lines, cfg):
+    """Align SV declarations ('kind type name')."""
     parsed = []
     for ln in lines:
         body, cmt = split_comment(ln, "//")
@@ -572,92 +456,37 @@ def _align_sv_decls_moderate(lines):
             return lines
         parsed.append((m.group("ind"), m.group("kind"), m.group("type").strip(),
                        m.group("name"), m.group("tail"), cmt))
-    emit_type = _sv_moderate_type_aligner([p[2] for p in parsed])
-    kind_w = max(len(p[1]) for p in parsed)
+    emit_type = _sv_type_emitter([p[2] for p in parsed], cfg)
+    kind_w = max(len(p[1]) for p in parsed) if cfg.pad_kind else 0
+    name_w = max(len(p[3]) for p in parsed) if cfg.pad_name else 0
+    tail_w = max(len(p[4]) for p in parsed) if cfg.pad_tail else 0
     out = []
     for ind, kind, typ, name, tail, cmt in parsed:
         line = ind + kind.ljust(kind_w) + " " + emit_type(typ) + " "
-        line += name + tail
+        line += name.ljust(name_w) + (tail or "").ljust(tail_w)
         out.append((line, cmt))
-    return _align_inline_comments(out)
+    return _attach_comments(out, cfg)
 
 
-def _align_sv_maps_moderate(lines):
-    """Align SV map names while keeping expressions and commas compact."""
+def _align_sv_maps(lines, cfg):
+    """Align SV port maps ('.name ( expr )')."""
     parsed = []
     for ln in lines:
         body, cmt = split_comment(ln, "//")
         m = _SV_MAP_RE.match(body)
         if not m:
             return lines
-        parsed.append((m.group("ind"), m.group("name"),
-                       m.group("expr").strip(), m.group("tail"), cmt))
-    name_w = max(len(p[1]) for p in parsed)
+        parsed.append((m.group("ind"), m.group("name"), m.group("expr").strip(),
+                       m.group("tail"), cmt))
+    name_w = max(len(p[1]) for p in parsed) if cfg.pad_name else 0
+    expr_w = max(len(p[2]) for p in parsed) if cfg.pad_expr else 0
+    tail_w = max(len(p[3]) for p in parsed) if cfg.pad_tail else 0
     out = []
     for ind, name, expr, tail, cmt in parsed:
-        line = ind + name.ljust(name_w) + " (" + expr + ")" + tail
+        line = ind + name.ljust(name_w) + " (" + expr.ljust(expr_w) + ")"
+        line += (tail or "").ljust(tail_w)
         out.append((line, cmt))
-    return _align_inline_comments(out)
-
-
-def _align_sv_params_collapsed(lines):
-    """Format SV parameters without block-wide column padding."""
-    out = []
-    for ln in lines:
-        body, cmt = split_comment(ln, "//")
-        m = _SV_PARAM_RE.match(body)
-        if not m:
-            return lines
-        line = (m.group("ind") + m.group("kind") + " " +
-                _normalize_sv_type(m.group("type")) + " " +
-                m.group("name") + " = " + m.group("value").strip() +
-                m.group("tail"))
-        out.append((line, cmt))
-    return _compact_inline_comments(out)
-
-
-def _align_sv_ports_collapsed(lines):
-    """Format SV ports without block-wide column padding."""
-    out = []
-    for ln in lines:
-        body, cmt = split_comment(ln, "//")
-        m = _SV_PORT_RE.match(body)
-        if not m:
-            return lines
-        line = (m.group("ind") + m.group("dir") + " " +
-                _normalize_sv_type(m.group("type")) + " " +
-                m.group("name") + m.group("tail"))
-        out.append((line, cmt))
-    return _compact_inline_comments(out)
-
-
-def _align_sv_decls_collapsed(lines):
-    """Format SV declarations without block-wide column padding."""
-    out = []
-    for ln in lines:
-        body, cmt = split_comment(ln, "//")
-        m = _SV_DECL_RE.match(body)
-        if not m:
-            return lines
-        line = (m.group("ind") + m.group("kind") + " " +
-                _normalize_sv_type(m.group("type")) + " " +
-                m.group("name") + m.group("tail"))
-        out.append((line, cmt))
-    return _compact_inline_comments(out)
-
-
-def _align_sv_maps_collapsed(lines):
-    """Format SV maps without block-wide column padding."""
-    out = []
-    for ln in lines:
-        body, cmt = split_comment(ln, "//")
-        m = _SV_MAP_RE.match(body)
-        if not m:
-            return lines
-        line = (m.group("ind") + m.group("name") + " (" +
-                m.group("expr").strip() + ")" + m.group("tail"))
-        out.append((line, cmt))
-    return _compact_inline_comments(out)
+    return _attach_comments(out, cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -686,7 +515,7 @@ def _classify_sv(body):
     return None
 
 
-_ALIGNERS = {
+_KIND_ALIGNERS = {
     "vhd_decl": _align_vhd_decl,
     "vhd_gen": _align_vhd_decl,
     "vhd_map": _align_vhd_map,
@@ -696,45 +525,52 @@ _ALIGNERS = {
     "sv_map": _align_sv_maps,
 }
 
-_MODERATE_ALIGNERS = {
-    "vhd_decl": _align_vhd_decl_moderate,
-    "vhd_gen": _align_vhd_decl_moderate,
-    "vhd_map": _align_vhd_map_moderate,
-    "sv_param": _align_sv_params_moderate,
-    "sv_port": _align_sv_ports_moderate,
-    "sv_decl": _align_sv_decls_moderate,
-    "sv_map": _align_sv_maps_moderate,
-}
-
-_COLLAPSED_ALIGNERS = {
-    "vhd_decl": _align_vhd_decl_collapsed,
-    "vhd_gen": _align_vhd_decl_collapsed,
-    "vhd_map": _align_vhd_map_collapsed,
-    "sv_param": _align_sv_params_collapsed,
-    "sv_port": _align_sv_ports_collapsed,
-    "sv_decl": _align_sv_decls_collapsed,
-    "sv_map": _align_sv_maps_collapsed,
-}
-
-_ALIGNERS_BY_STYLE = {
-    "extreme": _ALIGNERS,
-    "moderate": _MODERATE_ALIGNERS,
-    "collapsed": _COLLAPSED_ALIGNERS,
+_STYLE_CFGS = {
+    "extreme": {
+        "vhd_decl": _Cfg(pad_name=1, pad_dir=1, pad_tail=1, pad_value=1,
+                         align_vectors=1),
+        "vhd_gen": _Cfg(pad_name=1, pad_dir=1, pad_tail=1, pad_value=1,
+                        align_vectors=1),
+        "vhd_map": _Cfg(pad_name=1, pad_expr=1),
+        "sv_param": _Cfg(pad_kind=1, pad_name=1, pad_tail=1, pad_value=1,
+                         rjust_value=1, align_vectors=1),
+        "sv_port": _Cfg(pad_dir=1, pad_name=1, pad_tail=1, align_vectors=1),
+        "sv_decl": _Cfg(pad_name=1, pad_tail=1, align_vectors=1),
+        "sv_map": _Cfg(pad_name=1, pad_expr=1, pad_tail=1),
+    },
+    "moderate": {
+        "vhd_decl": _Cfg(pad_name=1, pad_dir=1),
+        "vhd_gen": _Cfg(pad_name=1, pad_dir=1),
+        "vhd_map": _Cfg(pad_name=1),
+        "sv_param": _Cfg(pad_kind=1, pad_name=1, outer_type=1),
+        "sv_port": _Cfg(pad_dir=1, outer_type=1),
+        "sv_decl": _Cfg(pad_kind=1, outer_type=1),
+        "sv_map": _Cfg(pad_name=1),
+    },
+    "collapsed": {
+        "vhd_decl": _Cfg(comment_align=0),
+        "vhd_gen": _Cfg(comment_align=0),
+        "vhd_map": _Cfg(comment_align=0),
+        "sv_param": _Cfg(comment_align=0),
+        "sv_port": _Cfg(comment_align=0),
+        "sv_decl": _Cfg(comment_align=0),
+        "sv_map": _Cfg(comment_align=0),
+    },
 }
 
 
 def prettify_code(lines, language, style="moderate"):
     """Align a list of code lines (whitespace-only)."""
-    if style not in _ALIGNERS_BY_STYLE:
+    if style not in _STYLE_CFGS:
         raise ValueError(f"unsupported alignment style: {style}")
-    aligners = _ALIGNERS_BY_STYLE[style]
     classify = _classify_vhdl if language == "vhdl" else _classify_sv
+    prefix = "--" if language == "vhdl" else "//"
     out = []
     i = 0
     n = len(lines)
     while i < n:
         ln = lines[i]
-        body, _ = split_comment(ln, "--" if language == "vhdl" else "//")
+        body, _ = split_comment(ln, prefix)
         kind = classify(body) if body.strip() else None
         if kind is None:
             out.append(ln.rstrip())
@@ -743,13 +579,13 @@ def prettify_code(lines, language, style="moderate"):
         # gather a run of consecutive same-kind lines
         j = i
         while j < n:
-            b2, _ = split_comment(lines[j], "--" if language == "vhdl" else "//")
+            b2, _ = split_comment(lines[j], prefix)
             k2 = classify(b2) if b2.strip() else None
             if k2 != kind:
                 break
             j += 1
         block = lines[i:j]
-        aligned = aligners[kind](block)
+        aligned = _KIND_ALIGNERS[kind](block, _STYLE_CFGS[style][kind])
         if aligned is None:
             aligned = [l.rstrip() for l in block]
         out.extend(aligned)

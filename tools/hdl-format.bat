@@ -19,7 +19,7 @@ REM the batch file runs quietly and only the formatter's own output is shown.
 
 REM %~dp0 expands to the drive letter and directory path of THIS batch file,
 REM including a trailing backslash, e.g.:
-REM   C:\path\to\fpga-ip\tools\
+REM   C:\path\to\repo\tools\
 REM It makes the launcher location-independent: whichever directory the user
 REM invokes it from, the .py script is found next to the .bat file. The
 REM surrounding quotes keep the path intact even when it contains spaces.
