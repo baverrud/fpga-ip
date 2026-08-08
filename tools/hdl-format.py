@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""hdl-formatter.py - whitespace-only formatter for VHDL / SystemVerilog.
+"""hdl-format.py - whitespace-only formatter for VHDL / SystemVerilog.
 
 Guarantee:
     This tool ONLY inserts/removes spaces and blank lines.  It never
@@ -36,8 +36,8 @@ Style `collapsed`:
         - Use natural type/range spacing and compact operator/punctuation spacing.
 
 Usage:
-    python tools/hdl-formatter.py <file> [<file> ...] [options]
-    python tools/hdl-formatter.py --stdin --lang vhdl < block.txt
+    python tools/hdl-format.py <file> [<file> ...] [options]
+    python tools/hdl-format.py --stdin --lang vhdl < block.txt
 
     --style {extreme,moderate,collapsed}
                             alignment profile (default: moderate)
@@ -879,7 +879,7 @@ def prettify_file(path, collapse_blank=True, style="moderate"):
 # ---------------------------------------------------------------------------
 
 def main(argv):
-    ap = argparse.ArgumentParser(description="Whitespace-only HDL column aligner")
+    ap = argparse.ArgumentParser(description="Whitespace-only HDL formatter")
     ap.add_argument("paths", nargs="*", help="files to align")
     ap.add_argument("--style", choices=["extreme", "moderate", "collapsed"], default="moderate",
                     help="alignment profile (default: moderate)")

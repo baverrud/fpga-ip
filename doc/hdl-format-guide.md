@@ -3,17 +3,37 @@
 Repository-wide utilities live here. These tools are not part of an IP core
 and do not belong in an individual IP directory.
 
-## HDL Formatter
+## HDL Format
 
-[`hdl-formatter.py`](../tools/hdl-formatter.py) is a whitespace-only formatter for VHDL
+[`hdl-format.py`](../tools/hdl-format.py) is a whitespace-only formatter for VHDL
 and SystemVerilog. It formats synthesis wrappers and VHDL/SystemVerilog code
 blocks in README files. It never changes the non-whitespace token stream.
 
 Run it from the fpga-ip repository root:
 
 ```text
-python tools/hdl-formatter.py <file> [<file> ...]
+python tools/hdl-format.py <file> [<file> ...]
 ```
+
+On Linux and other Unix-like systems, the script is executable and can be
+invoked directly:
+
+```text
+./tools/hdl-format.py <file> [<file> ...]
+```
+
+Add the `tools` directory to your `PATH` to invoke it from any working
+directory as `hdl-format.py`.
+
+The `tools` directory also contains `hdl-format.bat`. Add that directory
+to your Windows `PATH` to call the formatter from any working directory:
+
+```text
+hdl-format <file> [<file> ...]
+```
+
+Relative input paths are resolved from the directory where you invoke the
+command, not from the location of the batch file.
 
 ### Styles
 
@@ -26,9 +46,9 @@ python tools/hdl-formatter.py <file> [<file> ...]
 Select a style explicitly with `--style`:
 
 ```text
-python tools/hdl-formatter.py --style moderate axi_monitor/rtl/axi_monitor_top.vhd
-python tools/hdl-formatter.py --style extreme axi_monitor/README.md
-python tools/hdl-formatter.py --style collapsed axi_monitor/rtl/axi_monitor_top.sv
+python tools/hdl-format.py --style moderate axi_monitor/rtl/axi_monitor_top.vhd
+python tools/hdl-format.py --style extreme axi_monitor/README.md
+python tools/hdl-format.py --style collapsed axi_monitor/rtl/axi_monitor_top.sv
 ```
 
 Markdown files are processed only inside fenced blocks tagged `vhdl`,
@@ -50,13 +70,13 @@ Markdown files are processed only inside fenced blocks tagged `vhdl`,
 Preview changes before writing them:
 
 ```text
-python tools/hdl-formatter.py --style moderate --dry-run path/to/file.vhd
+python tools/hdl-format.py --style moderate --dry-run path/to/file.vhd
 ```
 
 Use `--check` in validation scripts after formatting is applied:
 
 ```text
-python tools/hdl-formatter.py --check path/to/file.vhd path/to/file.sv
+python tools/hdl-format.py --check path/to/file.vhd path/to/file.sv
 ```
 
 The formatter performs an invariant check before writing. If the sequence of

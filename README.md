@@ -86,7 +86,7 @@ every run, removed by `run clean <ip>`).
 | Document | What it covers |
 |----------|----------------|
 | [User Manual](doc/user-manual.md) | All `run.py` commands, modes, build directories, sweeps, exit codes, troubleshooting |
-| [HDL Formatter Guide](doc/hdl-formatter-guide.md) | `hdl-formatter.py` styles, wrapper formatting, README code blocks, and validation options |
+| [HDL Format Guide](doc/hdl-format-guide.md) | `hdl-format.py` styles, wrapper formatting, README code blocks, and validation options |
 | [.f Manifest Format](doc/f-manifest-spec.md) | The `.f` file format used by `<ip>/scripts/*.f` |
 | [tool_capabilities.ini](doc/tool-capabilities-spec.md) | How tools and their capability features are declared |
 | [toolchains.ini](doc/toolchains-spec.md) | Machine-local tool setup registry (per-machine, gitignored) |
