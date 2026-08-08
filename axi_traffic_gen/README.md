@@ -71,6 +71,194 @@ used by `axi_ar_gen` for random-address mode.
 > power of two (the offset is a bit-mask).  Linear mode accepts any
 > range.
 
+## Instantiation
+
+Ready-to-copy templates for instantiating `axi_ar_gen` in a design.
+Signal names match the ports; the data width, address width, ID width,
+and maximum burst length are set via the `C_*` constants.
+
+### Synthesis wrappers
+
+Ready-made synthesis tops are provided in both languages, so `axi_ar_gen`
+can be used as a standalone netlist top without writing an instance by
+hand:
+
+- [rtl/axi_ar_gen_top.vhd](rtl/axi_ar_gen_top.vhd) - VHDL wrapper.
+- [rtl/axi_ar_gen_top.sv](rtl/axi_ar_gen_top.sv) - SystemVerilog wrapper
+  (binds the VHDL core directly).
+
+### VHDL
+
+```vhdl
+architecture rtl of <your_design> is
+
+  constant C_DATA_BYTES : positive := 16;   -- bytes per beat
+  constant C_ADDR_WIDTH : positive := 49;   -- AXI address width
+  constant C_ID_WIDTH   : positive := 6;    -- AXI ID width
+  constant C_MAX_BURST  : positive := 256;  -- max beats per burst
+
+  -- Clock and reset
+  signal aclk    : std_logic;  -- clock
+  signal aresetn : std_logic;  -- active-low synchronous reset
+
+  -- Control
+  signal enable   : std_logic;  -- per-instance enable
+  signal aperture : std_logic;  -- measurement window
+  signal stat_rst : std_logic;  -- clears statistic counters
+
+  -- Runtime configuration
+  signal cfg_id         : std_logic_vector(C_ID_WIDTH-1 downto 0);
+  signal cfg_arlen      : std_logic_vector(log2ceil(C_MAX_BURST)-1 downto 0);  -- from work.util_pkg
+  signal cfg_pace       : std_logic_vector(31 downto 0);
+  signal cfg_pace_init  : std_logic_vector(31 downto 0);
+  signal cfg_base_addr  : std_logic_vector(C_ADDR_WIDTH-1 downto 0);
+  signal cfg_addr_range : std_logic_vector(C_ADDR_WIDTH-1 downto 0);
+  signal cfg_addr_mode  : std_logic;
+
+  -- AXI Read-Address Channel
+  signal ar_valid : std_logic;
+  signal ar_ready : std_logic;
+  signal ar_id    : std_logic_vector(C_ID_WIDTH-1 downto 0);
+  signal ar_addr  : std_logic_vector(C_ADDR_WIDTH-1 downto 0);
+  signal ar_len   : std_logic_vector(7 downto 0);
+  signal ar_size  : std_logic_vector(2 downto 0);
+  signal ar_burst : std_logic_vector(1 downto 0);
+
+  -- Statistics
+  signal stat_ar_stall   : std_logic_vector(31 downto 0);
+  signal stat_ar_issued  : std_logic_vector(31 downto 0);
+  signal stat_cfg_errors : std_logic_vector(31 downto 0);
+
+begin
+
+  u_axi_ar_gen : entity work.axi_ar_gen
+    generic map (
+      GC_DATA_BYTES => C_DATA_BYTES,
+      GC_ADDR_WIDTH => C_ADDR_WIDTH,
+      GC_ID_WIDTH   => C_ID_WIDTH,
+      GC_MAX_BURST  => C_MAX_BURST
+    )
+    port map (
+      -- Clock and reset
+      aclk    => aclk,
+      aresetn => aresetn,
+
+      -- Control
+      enable   => enable,
+      aperture => aperture,
+      stat_rst => stat_rst,
+
+      -- Runtime configuration
+      cfg_id         => cfg_id,
+      cfg_arlen      => cfg_arlen,
+      cfg_pace       => cfg_pace,
+      cfg_pace_init  => cfg_pace_init,
+      cfg_base_addr  => cfg_base_addr,
+      cfg_addr_range => cfg_addr_range,
+      cfg_addr_mode  => cfg_addr_mode,
+
+      -- AXI Read-Address Channel
+      ar_valid => ar_valid,
+      ar_ready => ar_ready,
+      ar_id    => ar_id,
+      ar_addr  => ar_addr,
+      ar_len   => ar_len,
+      ar_size  => ar_size,
+      ar_burst => ar_burst,
+
+      -- Statistics
+      stat_ar_stall   => stat_ar_stall,
+      stat_ar_issued  => stat_ar_issued,
+      stat_cfg_errors => stat_cfg_errors
+    );
+
+end architecture;
+```
+
+### SystemVerilog
+
+```systemverilog
+module <your_design> #(
+    parameter int unsigned C_DATA_BYTES = 16,  // bytes per beat
+    parameter int unsigned C_ADDR_WIDTH = 49,  // AXI address width
+    parameter int unsigned C_ID_WIDTH   = 6,   // AXI ID width
+    parameter int unsigned C_MAX_BURST  = 256  // max beats per burst
+) (
+    // Clock and reset
+    input logic aclk,     // clock
+    input logic aresetn,  // active-low synchronous reset
+
+    // Control
+    input logic enable,    // per-instance enable
+    input logic aperture,  // measurement window
+    input logic stat_rst,  // clears statistic counters
+
+    // Runtime configuration
+    input logic [C_ID_WIDTH-1:0]          cfg_id,          // AR ID to tag each burst
+    input logic [$clog2(C_MAX_BURST)-1:0] cfg_arlen,       // AXI arlen (beats-1)
+    input logic [31:0]                    cfg_pace,        // idle cycles between ARs
+    input logic [31:0]                    cfg_pace_init,   // delay before first burst
+    input logic [C_ADDR_WIDTH-1:0]        cfg_base_addr,   // window start
+    input logic [C_ADDR_WIDTH-1:0]        cfg_addr_range,  // window size
+    input logic                           cfg_addr_mode,   // 0 = linear, 1 = random
+
+    // AXI Read-Address Channel
+    output logic                    ar_valid,  // address valid
+    input  logic                    ar_ready,  // address ready
+    output logic [C_ID_WIDTH-1:0]   ar_id,     // AR ID
+    output logic [C_ADDR_WIDTH-1:0] ar_addr,   // AR address
+    output logic [7:0]              ar_len,    // burst length (beats-1)
+    output logic [2:0]              ar_size,   // bytes per beat
+    output logic [1:0]              ar_burst,  // burst type (always INCR)
+
+    // Statistics
+    output logic [31:0] stat_ar_stall,   // AR stall events
+    output logic [31:0] stat_ar_issued,  // ARs issued
+    output logic [31:0] stat_cfg_errors  // config error count
+);
+
+  axi_ar_gen #(
+      .GC_DATA_BYTES (C_DATA_BYTES),
+      .GC_ADDR_WIDTH (C_ADDR_WIDTH),
+      .GC_ID_WIDTH   (C_ID_WIDTH),
+      .GC_MAX_BURST  (C_MAX_BURST)
+  ) u_axi_ar_gen (
+      // Clock and reset
+      .aclk    (aclk),
+      .aresetn (aresetn),
+
+      // Control
+      .enable   (enable),
+      .aperture (aperture),
+      .stat_rst (stat_rst),
+
+      // Runtime configuration
+      .cfg_id         (cfg_id),
+      .cfg_arlen      (cfg_arlen),
+      .cfg_pace       (cfg_pace),
+      .cfg_pace_init  (cfg_pace_init),
+      .cfg_base_addr  (cfg_base_addr),
+      .cfg_addr_range (cfg_addr_range),
+      .cfg_addr_mode  (cfg_addr_mode),
+
+      // AXI Read-Address Channel
+      .ar_valid (ar_valid),
+      .ar_ready (ar_ready),
+      .ar_id    (ar_id),
+      .ar_addr  (ar_addr),
+      .ar_len   (ar_len),
+      .ar_size  (ar_size),
+      .ar_burst (ar_burst),
+
+      // Statistics
+      .stat_ar_stall   (stat_ar_stall),
+      .stat_ar_issued  (stat_ar_issued),
+      .stat_cfg_errors (stat_cfg_errors)
+  );
+
+endmodule
+```
+
 ## Testbenches
 
 ### `axi_ar_gen_tb` (comprehensive)
@@ -131,8 +319,10 @@ run axi_traffic_gen vhdl modelsim --tb simple
 
 ## Synthesis
 
-Standalone synthesis uses the `[top]` metadata line (`top = axi_ar_gen`)
--- the generator is its own top; no wrapper file is needed:
+Standalone synthesis uses the synthesis wrapper
+[rtl/axi_ar_gen_top.vhd](rtl/axi_ar_gen_top.vhd) as the top (an
+[rtl/axi_ar_gen_top.sv](rtl/axi_ar_gen_top.sv) SystemVerilog wrapper is
+also provided):
 
 ```bash
 run axi_traffic_gen vhdl vivado

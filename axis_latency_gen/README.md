@@ -284,12 +284,12 @@ architecture rtl of <your_design> is
   signal m_axis_tready : std_logic;                                  -- output ready
 
   -- Delay and jitter controls
-  signal base_delay        : std_logic_vector(C_TIMER_WIDTH-1 downto 0);  -- base delay
-  signal enable_base_delay : std_logic;                                   -- enable base delay
-  signal enable_jitter     : std_logic;                                   -- enable jitter
+  signal base_delay        : unsigned(C_TIMER_WIDTH-1 downto 0);  -- base delay
+  signal enable_base_delay : std_logic;                           -- enable base delay
+  signal enable_jitter     : std_logic;                           -- enable jitter
 
   -- FIFO occupancy
-  signal fifo_count : std_logic_vector(log2ceil(C_FIFO_DEPTH) downto 0);  -- from work.util_pkg
+  signal fifo_count : unsigned(log2ceil(C_FIFO_DEPTH) downto 0);  -- from work.util_pkg
 
 begin
 
@@ -329,7 +329,7 @@ begin
       -- Delay and jitter controls
       base_delay        => base_delay,
       enable_base_delay => enable_base_delay,
-      enable_jitter     => enable_jitter
+      enable_jitter     => enable_jitter,
 
       -- FIFO occupancy
       fifo_count => fifo_count

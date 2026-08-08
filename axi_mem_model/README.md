@@ -245,6 +245,182 @@ the FIFO absorbs any mismatch between core push rate and output spacing.
 Natural backpressure occurs if the FIFO fills: `m_axis_tready` drops,
 the core stalls, and resumes when space is available.
 
+## Instantiation
+
+Ready-to-copy templates for instantiating `axi_mem_model` in a design.
+Signal names match the ports; the bus width, address width, ID width, and
+latency-timer configuration are set via the `C_*` constants.
+
+### Synthesis wrappers
+
+Ready-made synthesis tops are provided in both languages, so
+`axi_mem_model` can be used as a standalone netlist top without writing
+an instance by hand:
+
+- [rtl/axi_mem_model_top.vhd](rtl/axi_mem_model_top.vhd) - VHDL wrapper.
+- [rtl/axi_mem_model_top.sv](rtl/axi_mem_model_top.sv) - SystemVerilog
+  wrapper (binds the VHDL core directly).
+
+### VHDL
+
+```vhdl
+architecture rtl of <your_design> is
+
+  constant C_DATA_BYTES    : positive := 64;  -- Bus width in bytes
+  constant C_ADDR_WIDTH    : positive := 49;  -- Address width
+  constant C_ID_WIDTH      : positive := 6;   -- ID width
+  constant C_TIMER_WIDTH   : positive := 16;  -- Latency / gap timer width
+  constant C_AR_FIFO_DEPTH : positive := 8;   -- AR-side latency FIFO depth
+  constant C_R_FIFO_DEPTH  : positive := 8;   -- R-side beat-gap FIFO depth
+
+  -- Clock and reset
+  signal aclk    : std_logic;  -- clock
+  signal aresetn : std_logic;  -- active-low synchronous reset
+
+  -- Control
+  signal ar_base_enable   : std_logic;                                   -- AR-side base delay enable
+  signal ar_jitter_enable : std_logic;                                   -- AR-side jitter enable
+  signal r_base_enable    : std_logic;                                   -- R-side base delay enable
+  signal r_jitter_enable  : std_logic;                                   -- R-side jitter enable
+  signal base_latency     : std_logic_vector(C_TIMER_WIDTH-1 downto 0);  -- first-beat delay
+  signal base_beat_gap    : std_logic_vector(C_TIMER_WIDTH-1 downto 0);  -- inter-beat gap
+
+  -- AXI4 AR channel
+  signal ar_id    : std_logic_vector(C_ID_WIDTH-1 downto 0);    -- read address ID
+  signal ar_addr  : std_logic_vector(C_ADDR_WIDTH-1 downto 0);  -- read address
+  signal ar_len   : std_logic_vector(7 downto 0);               -- burst length (beats-1)
+  signal ar_valid : std_logic;                                  -- address valid
+  signal ar_ready : std_logic;                                  -- address ready
+
+  -- AXI4 R channel
+  signal r_id    : std_logic_vector(C_ID_WIDTH-1 downto 0);      -- read response ID
+  signal r_data  : std_logic_vector(8*C_DATA_BYTES-1 downto 0);  -- read data
+  signal r_resp  : std_logic_vector(1 downto 0);                 -- read response
+  signal r_last  : std_logic;                                    -- last beat
+  signal r_valid : std_logic;                                    -- read data valid
+  signal r_ready : std_logic;                                    -- read data ready
+
+begin
+
+  u_axi_mem_model : entity work.axi_mem_model
+    generic map (
+      GC_DATA_BYTES    => C_DATA_BYTES,
+      GC_ADDR_WIDTH    => C_ADDR_WIDTH,
+      GC_ID_WIDTH      => C_ID_WIDTH,
+      GC_TIMER_WIDTH   => C_TIMER_WIDTH,
+      GC_AR_FIFO_DEPTH => C_AR_FIFO_DEPTH,
+      GC_R_FIFO_DEPTH  => C_R_FIFO_DEPTH
+    )
+    port map (
+      -- Clock and reset
+      aclk    => aclk,
+      aresetn => aresetn,
+
+      -- Control
+      ar_base_enable   => ar_base_enable,
+      ar_jitter_enable => ar_jitter_enable,
+      r_base_enable    => r_base_enable,
+      r_jitter_enable  => r_jitter_enable,
+      base_latency     => base_latency,
+      base_beat_gap    => base_beat_gap,
+
+      -- AXI4 AR channel
+      ar_id    => ar_id,
+      ar_addr  => ar_addr,
+      ar_len   => ar_len,
+      ar_valid => ar_valid,
+      ar_ready => ar_ready,
+
+      -- AXI4 R channel
+      r_id    => r_id,
+      r_data  => r_data,
+      r_resp  => r_resp,
+      r_last  => r_last,
+      r_valid => r_valid,
+      r_ready => r_ready
+    );
+
+end architecture;
+```
+
+### SystemVerilog
+
+```systemverilog
+module <your_design> #(
+    parameter int unsigned C_DATA_BYTES    = 64,  // bus width in bytes
+    parameter int unsigned C_ADDR_WIDTH    = 49,  // address width
+    parameter int unsigned C_ID_WIDTH      = 6,   // ID width
+    parameter int unsigned C_TIMER_WIDTH   = 16,  // latency/gap timer width
+    parameter int unsigned C_AR_FIFO_DEPTH = 8,   // AR-side latency FIFO depth
+    parameter int unsigned C_R_FIFO_DEPTH  = 8    // R-side beat-gap FIFO depth
+) (
+    // Clock and reset
+    input logic aclk,     // clock
+    input logic aresetn,  // active-low synchronous reset
+
+    // Control
+    input logic                     ar_base_enable,    // AR-side base delay enable
+    input logic                     ar_jitter_enable,  // AR-side jitter enable
+    input logic                     r_base_enable,     // R-side base delay enable
+    input logic                     r_jitter_enable,   // R-side jitter enable
+    input logic [C_TIMER_WIDTH-1:0] base_latency,      // nominal first-beat delay
+    input logic [C_TIMER_WIDTH-1:0] base_beat_gap,     // nominal inter-beat gap
+
+    // AXI4 AR channel
+    input  logic [C_ID_WIDTH-1:0]   ar_id,     // read address ID
+    input  logic [C_ADDR_WIDTH-1:0] ar_addr,   // read address
+    input  logic [7:0]              ar_len,    // burst length (beats-1)
+    input  logic                    ar_valid,  // address valid
+    output logic                    ar_ready,  // address ready
+
+    // AXI4 R channel
+    output logic [C_ID_WIDTH-1:0]     r_id,     // read response ID
+    output logic [8*C_DATA_BYTES-1:0] r_data,   // read data
+    output logic [1:0]                r_resp,   // read response
+    output logic                      r_last,   // last beat
+    output logic                      r_valid,  // read data valid
+    input  logic                      r_ready   // read data ready
+);
+
+  axi_mem_model #(
+      .GC_DATA_BYTES    (C_DATA_BYTES),
+      .GC_ADDR_WIDTH    (C_ADDR_WIDTH),
+      .GC_ID_WIDTH      (C_ID_WIDTH),
+      .GC_TIMER_WIDTH   (C_TIMER_WIDTH),
+      .GC_AR_FIFO_DEPTH (C_AR_FIFO_DEPTH),
+      .GC_R_FIFO_DEPTH  (C_R_FIFO_DEPTH)
+  ) u_axi_mem_model (
+      // Clock and reset
+      .aclk    (aclk),
+      .aresetn (aresetn),
+
+      // Control
+      .ar_base_enable   (ar_base_enable),
+      .ar_jitter_enable (ar_jitter_enable),
+      .r_base_enable    (r_base_enable),
+      .r_jitter_enable  (r_jitter_enable),
+      .base_latency     (base_latency),
+      .base_beat_gap    (base_beat_gap),
+
+      // AXI4 AR channel
+      .ar_id    (ar_id),
+      .ar_addr  (ar_addr),
+      .ar_len   (ar_len),
+      .ar_valid (ar_valid),
+      .ar_ready (ar_ready),
+
+      // AXI4 R channel
+      .r_id    (r_id),
+      .r_data  (r_data),
+      .r_resp  (r_resp),
+      .r_last  (r_last),
+      .r_valid (r_valid),
+      .r_ready (r_ready)
+  );
+
+endmodule
+```
+
 ## Testing
 
 The IP ships with a self-checking testbench that exercises all

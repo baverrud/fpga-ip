@@ -111,7 +111,7 @@ begin
       -- Delay and jitter controls
       base_delay        => unsigned(base_delay),
       enable_base_delay => enable_base_delay,
-      enable_jitter     => enable_jitter
+      enable_jitter     => enable_jitter,
 
       -- FIFO occupancy
       fifo_count => fc

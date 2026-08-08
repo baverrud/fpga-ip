@@ -306,6 +306,249 @@ axilite_io_tb
 
 ---
 
+## Instantiation
+
+Ready-to-copy templates for instantiating `axilite_io` in a design.
+Signal names match the ports; the register/stream channel counts are set
+via the `C_NUM_ODATA`, `C_NUM_IDATA`, `C_NUM_OSTREAM`, and `C_NUM_ISTREAM`
+constants.
+
+### Synthesis wrappers
+
+Ready-made synthesis tops are provided in both languages, so `axilite_io`
+can be used as a standalone netlist top without writing an instance by
+hand:
+
+- [rtl/axilite_io_top.vhd](rtl/axilite_io_top.vhd) - VHDL wrapper.
+- [rtl/axilite_io_top.sv](rtl/axilite_io_top.sv) - SystemVerilog wrapper
+  (binds the SystemVerilog core directly).
+
+### VHDL
+
+```vhdl
+architecture rtl of <your_design> is
+
+  constant C_NUM_ODATA   : natural := 2;  -- output register count
+  constant C_NUM_IDATA   : natural := 2;  -- input port count
+  constant C_NUM_OSTREAM : natural := 2;  -- AXI-Stream master count
+  constant C_NUM_ISTREAM : natural := 2;  -- AXI-Stream slave count
+
+  -- Clock and reset
+  signal aclk    : std_logic;  -- clock
+  signal aresetn : std_logic;  -- active-low synchronous reset
+
+  -- AXI4-Lite slave write address channel
+  signal s_axi_awaddr  : std_logic_vector(15 downto 0);  -- write address
+  signal s_axi_awprot  : std_logic_vector(2 downto 0);   -- protection
+  signal s_axi_awvalid : std_logic;                      -- address valid
+  signal s_axi_awready : std_logic;                      -- address ready
+
+  -- AXI4-Lite slave write data channel
+  signal s_axi_wdata  : std_logic_vector(31 downto 0);  -- write data
+  signal s_axi_wstrb  : std_logic_vector(3 downto 0);   -- byte enables
+  signal s_axi_wvalid : std_logic;                      -- write data valid
+  signal s_axi_wready : std_logic;                      -- write data ready
+
+  -- AXI4-Lite slave write response channel
+  signal s_axi_bresp  : std_logic_vector(1 downto 0);  -- write response
+  signal s_axi_bvalid : std_logic;                     -- response valid
+  signal s_axi_bready : std_logic;                     -- response ready
+
+  -- AXI4-Lite slave read address channel
+  signal s_axi_araddr  : std_logic_vector(15 downto 0);  -- read address
+  signal s_axi_arprot  : std_logic_vector(2 downto 0);   -- protection
+  signal s_axi_arvalid : std_logic;                      -- address valid
+  signal s_axi_arready : std_logic;                      -- address ready
+
+  -- AXI4-Lite slave read data channel
+  signal s_axi_rdata  : std_logic_vector(31 downto 0);  -- read data
+  signal s_axi_rresp  : std_logic_vector(1 downto 0);   -- read response
+  signal s_axi_rvalid : std_logic;                      -- read data valid
+  signal s_axi_rready : std_logic;                      -- read data ready
+
+  -- o_data registered outputs and i_data unregistered inputs
+  signal o_data : t_slv32_array(0 to C_NUM_ODATA-1);  -- from work.util_pkg
+  signal i_data : t_slv32_array(0 to C_NUM_IDATA-1);  -- from work.util_pkg
+
+  -- AXI-Stream outputs
+  signal m_axis_tdata  : std_logic_vector(31 downto 0);               -- stream data
+  signal m_axis_tvalid : std_logic_vector(C_NUM_OSTREAM-1 downto 0);  -- stream valid
+
+  -- AXI-Stream inputs
+  signal s_axis_tdata  : t_slv32_array(0 to C_NUM_ISTREAM-1);         -- stream data
+  signal s_axis_tready : std_logic_vector(C_NUM_ISTREAM-1 downto 0);  -- stream ready
+
+begin
+
+  u_axilite_io : entity work.axilite_io
+    generic map (
+      GC_NUM_ODATA   => C_NUM_ODATA,
+      GC_NUM_IDATA   => C_NUM_IDATA,
+      GC_NUM_OSTREAM => C_NUM_OSTREAM,
+      GC_NUM_ISTREAM => C_NUM_ISTREAM
+    )
+    port map (
+      -- Clock and reset
+      aclk    => aclk,
+      aresetn => aresetn,
+
+      -- AXI4-Lite slave write address channel
+      s_axi_awaddr  => s_axi_awaddr,
+      s_axi_awprot  => s_axi_awprot,
+      s_axi_awvalid => s_axi_awvalid,
+      s_axi_awready => s_axi_awready,
+
+      -- AXI4-Lite slave write data channel
+      s_axi_wdata  => s_axi_wdata,
+      s_axi_wstrb  => s_axi_wstrb,
+      s_axi_wvalid => s_axi_wvalid,
+      s_axi_wready => s_axi_wready,
+
+      -- AXI4-Lite slave write response channel
+      s_axi_bresp  => s_axi_bresp,
+      s_axi_bvalid => s_axi_bvalid,
+      s_axi_bready => s_axi_bready,
+
+      -- AXI4-Lite slave read address channel
+      s_axi_araddr  => s_axi_araddr,
+      s_axi_arprot  => s_axi_arprot,
+      s_axi_arvalid => s_axi_arvalid,
+      s_axi_arready => s_axi_arready,
+
+      -- AXI4-Lite slave read data channel
+      s_axi_rdata  => s_axi_rdata,
+      s_axi_rresp  => s_axi_rresp,
+      s_axi_rvalid => s_axi_rvalid,
+      s_axi_rready => s_axi_rready,
+
+      -- o_data registered outputs and i_data unregistered inputs
+      o_data => o_data,
+      i_data => i_data,
+
+      -- AXI-Stream outputs
+      m_axis_tdata  => m_axis_tdata,
+      m_axis_tvalid => m_axis_tvalid,
+
+      -- AXI-Stream inputs
+      s_axis_tdata  => s_axis_tdata,
+      s_axis_tready => s_axis_tready
+    );
+
+end architecture;
+```
+
+### SystemVerilog
+
+```systemverilog
+module <your_design> #(
+    parameter int unsigned C_NUM_ODATA   = 2,  // output register count
+    parameter int unsigned C_NUM_IDATA   = 2,  // input port count
+    parameter int unsigned C_NUM_OSTREAM = 2,  // AXI-Stream master count
+    parameter int unsigned C_NUM_ISTREAM = 2   // AXI-Stream slave count
+) (
+    // Clock and reset
+    input logic aclk,     // clock
+    input logic aresetn,  // active-low synchronous reset
+
+    // AXI4-Lite slave write address channel
+    input  logic [15:0] s_axi_awaddr,   // write address
+    input  logic [2:0]  s_axi_awprot,   // protection
+    input  logic        s_axi_awvalid,  // address valid
+    output logic        s_axi_awready,  // address ready
+
+    // AXI4-Lite slave write data channel
+    input  logic [3:0][ 7:0] s_axi_wdata,   // write data (byte lanes)
+    input  logic [3:0]       s_axi_wstrb,   // byte enables
+    input  logic             s_axi_wvalid,  // write data valid
+    output logic             s_axi_wready,  // write data ready
+
+    // AXI4-Lite slave write response channel
+    output logic [1:0] s_axi_bresp,   // write response
+    output logic       s_axi_bvalid,  // response valid
+    input  logic       s_axi_bready,  // response ready
+
+    // AXI4-Lite slave read address channel
+    input  logic [15:0] s_axi_araddr,   // read address
+    input  logic [2:0]  s_axi_arprot,   // protection
+    input  logic        s_axi_arvalid,  // address valid
+    output logic        s_axi_arready,  // address ready
+
+    // AXI4-Lite slave read data channel
+    output logic [31:0] s_axi_rdata,   // read data
+    output logic [1:0]  s_axi_rresp,   // read response
+    output logic        s_axi_rvalid,  // read data valid
+    input  logic        s_axi_rready,  // read data ready
+
+    // o_data registered outputs and i_data unregistered inputs
+    output logic [C_NUM_ODATA-1:0][31:0] o_data,  // output registers
+    input  logic [C_NUM_IDATA-1:0][31:0] i_data,  // input ports
+
+    // AXI-Stream outputs
+    output logic [31:0]              m_axis_tdata,   // stream data
+    output logic [C_NUM_OSTREAM-1:0] m_axis_tvalid,  // stream valid
+
+    // AXI-Stream inputs
+    input  logic [C_NUM_ISTREAM-1:0][31:0] s_axis_tdata,  // stream data
+    output logic [C_NUM_ISTREAM-1:0]       s_axis_tready  // stream ready
+);
+
+  axilite_io #(
+      .NUM_ODATA   (C_NUM_ODATA),
+      .NUM_IDATA   (C_NUM_IDATA),
+      .NUM_OSTREAM (C_NUM_OSTREAM),
+      .NUM_ISTREAM (C_NUM_ISTREAM)
+  ) u_axilite_io (
+      // Clock and reset
+      .aclk    (aclk),
+      .aresetn (aresetn),
+
+      // AXI4-Lite slave write address channel
+      .s_axi_awaddr  (s_axi_awaddr),
+      .s_axi_awprot  (s_axi_awprot),
+      .s_axi_awvalid (s_axi_awvalid),
+      .s_axi_awready (s_axi_awready),
+
+      // AXI4-Lite slave write data channel
+      .s_axi_wdata  (s_axi_wdata),
+      .s_axi_wstrb  (s_axi_wstrb),
+      .s_axi_wvalid (s_axi_wvalid),
+      .s_axi_wready (s_axi_wready),
+
+      // AXI4-Lite slave write response channel
+      .s_axi_bresp  (s_axi_bresp),
+      .s_axi_bvalid (s_axi_bvalid),
+      .s_axi_bready (s_axi_bready),
+
+      // AXI4-Lite slave read address channel
+      .s_axi_araddr  (s_axi_araddr),
+      .s_axi_arprot  (s_axi_arprot),
+      .s_axi_arvalid (s_axi_arvalid),
+      .s_axi_arready (s_axi_arready),
+
+      // AXI4-Lite slave read data channel
+      .s_axi_rdata  (s_axi_rdata),
+      .s_axi_rresp  (s_axi_rresp),
+      .s_axi_rvalid (s_axi_rvalid),
+      .s_axi_rready (s_axi_rready),
+
+      // o_data registered outputs and i_data unregistered inputs
+      .o_data (o_data),
+      .i_data (i_data),
+
+      // AXI-Stream outputs
+      .m_axis_tdata  (m_axis_tdata),
+      .m_axis_tvalid (m_axis_tvalid),
+
+      // AXI-Stream inputs
+      .s_axis_tdata  (s_axis_tdata),
+      .s_axis_tready (s_axis_tready)
+  );
+
+endmodule
+```
+
+---
+
 ## Simulation & Verification
 
 ### Testbenches

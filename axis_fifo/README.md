@@ -377,7 +377,7 @@ architecture rtl of <your_design> is
   signal m_axis_tready : std_logic;                                   -- output ready
 
   -- FIFO occupancy
-  signal fifo_count : std_logic_vector(log2ceil(C_FIFO_DEPTH) downto 0);  -- from work.util_pkg
+  signal fifo_count : unsigned(log2ceil(C_FIFO_DEPTH) downto 0);  -- from work.util_pkg
 
 begin
 

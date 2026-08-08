@@ -21,7 +21,7 @@ common/rtl/util_pkg.vhd
 axilite_io/rtl/axilite_io.vhd
 
 [top]
-top = axilite_io
+axilite_io/rtl/axilite_io_top.vhd
 
 [tb:default]
 top = axilite_io_tb

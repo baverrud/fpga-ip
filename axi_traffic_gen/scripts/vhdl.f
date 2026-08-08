@@ -26,7 +26,7 @@ parallel_prng/rtl/xorshift128.vhd
 axi_traffic_gen/rtl/axi_ar_gen.vhd
 
 [top]
-top = axi_ar_gen
+axi_traffic_gen/rtl/axi_ar_gen_top.vhd
 
 [tb:default]
 top = axi_ar_gen_tb
