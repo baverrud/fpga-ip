@@ -117,11 +117,13 @@ architecture rtl of <your_design> is
 
   constant C_PULSE_LEN : positive := 8;  -- output pulse length in clock cycles
 
-  -- Signal list (names match the ports)
-  signal clk       : std_logic;  -- clock
-  signal rstn      : std_logic;  -- active-low synchronous reset
-  signal trigger   : std_logic;  -- trigger input (sampled only while idle)
-  signal pulse_out : std_logic;  -- extended output pulse
+  -- Clock, reset, and trigger
+  signal clk     : std_logic;  -- clock
+  signal rstn    : std_logic;  -- active-low synchronous reset
+  signal trigger : std_logic;  -- sampled only while idle
+
+  -- Extended output pulse
+  signal pulse_out : std_logic;  -- registered output
 
 begin
 
@@ -130,9 +132,12 @@ begin
       GC_PULSE_LEN => C_PULSE_LEN
     )
     port map (
-      clk       => clk,
-      rstn      => rstn,
-      trigger   => trigger,
+      -- Clock, reset, and trigger
+      clk     => clk,
+      rstn    => rstn,
+      trigger => trigger,
+
+      -- Extended output pulse
       pulse_out => pulse_out
     );
 
@@ -146,18 +151,23 @@ module <your_module>;
 
   localparam int unsigned C_PULSE_LEN = 8;  // output pulse length in clock cycles
 
-  // Signal list (names match the ports)
+  // Clock, reset, and trigger
   logic clk;       // clock
   logic rstn;      // active-low synchronous reset
-  logic trigger;   // trigger input (sampled only while idle)
-  logic pulse_out; // extended output pulse
+  logic trigger;   // sampled only while idle
+
+  // Extended output pulse
+  logic pulse_out; // registered output
 
   pulse_extender #(
     .GC_PULSE_LEN (C_PULSE_LEN)
   ) u_pulse_extender (
-    .clk       (clk),
-    .rstn      (rstn),
-    .trigger   (trigger),
+    // Clock, reset, and trigger
+    .clk     (clk),
+    .rstn    (rstn),
+    .trigger (trigger),
+
+    // Extended output pulse
     .pulse_out (pulse_out)
   );
 

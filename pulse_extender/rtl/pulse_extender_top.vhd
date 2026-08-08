@@ -11,12 +11,16 @@ use ieee.std_logic_1164.all;
 
 entity pulse_extender_top is
   generic (
+    -- Pulse configuration
     GC_PULSE_LEN : positive := 4  -- output pulse length in clock cycles
   );
   port (
-    clk       : in  std_logic;
-    rstn      : in  std_logic;
-    trigger   : in  std_logic;
+    -- Clock, reset, and trigger
+    clk     : in std_logic;
+    rstn    : in std_logic;
+    trigger : in std_logic;
+
+    -- Extended output pulse
     pulse_out : out std_logic
   );
 end entity;
@@ -29,9 +33,12 @@ begin
       GC_PULSE_LEN => GC_PULSE_LEN
     )
     port map (
-      clk       => clk,
-      rstn      => rstn,
-      trigger   => trigger,
+      -- Clock, reset, and trigger
+      clk     => clk,
+      rstn    => rstn,
+      trigger => trigger,
+
+      -- Extended output pulse
       pulse_out => pulse_out
     );
 

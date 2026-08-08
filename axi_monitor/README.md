@@ -17,7 +17,8 @@ Every accepted beat (`r_valid & r_ready`) and every AR handshake
 rtl/axi_monitor_ar.vhd    # passive AR tap -> pushes scoreboard descriptor
 rtl/axi_monitor_r.vhd     # passive R tap -> validates beats, accumulates stats
 rtl/axi_monitor.vhd       # core: ar -> axis_fifo -> r (+ max-outstanding)
-rtl/axi_monitor_top.vhd   # synthesis wrapper
+rtl/axi_monitor_top.vhd   # synthesis wrapper (VHDL)
+rtl/axi_monitor_top.sv    # synthesis wrapper (SystemVerilog, mixed-language)
 tb/axi_monitor_tb.vhd     # testbench (uses axi_ar_gen + axi_mem_model)
 tb/axi_monitor_reg_tb.vhd # register testbench (axilite_bfm_pkg + axi_mem_model)
 tb/axi_monitor_simple_tb.vhd # hand-editable skeleton TB
@@ -260,3 +261,268 @@ monitor builds its own scoreboard from the tapped AR bus.
 
 Standalone testbenches (`axi_ar_gen_tb`, `axi_ar_gen_simple_tb`) and
 run scripts live in the `axi_traffic_gen` IP.
+
+## Instantiation
+
+Ready-to-copy templates for instantiating `axi_monitor` in a design. Signal
+names match the ports; widths are set via constants (names prefixed `C_`).
+All AR/R signals are inputs -- the monitor is a passive observer.
+
+### Synthesis wrappers
+
+Ready-made synthesis tops are provided in both languages:
+
+- [rtl/axi_monitor_top.vhd](rtl/axi_monitor_top.vhd) - VHDL wrapper.
+- [rtl/axi_monitor_top.sv](rtl/axi_monitor_top.sv) - SystemVerilog wrapper
+  (binds the VHDL core via mixed language).
+
+### VHDL
+
+```vhdl
+architecture rtl of <your_design> is
+
+  constant C_DATA_BYTES    : positive := 64;
+  constant C_ADDR_WIDTH    : positive := 49;
+  constant C_ID_WIDTH      : positive := 6;
+  constant C_TIME_WIDTH    : positive := 48;
+  constant C_STAT_WIDTH    : positive := 48;
+  constant C_SB_FIFO_DEPTH : positive := 256;
+
+  -- Clock, reset, and timebase
+  signal aclk        : std_logic;                          -- clock
+  signal aresetn     : std_logic;                          -- active-low synchronous reset
+  signal global_time : unsigned(C_TIME_WIDTH-1 downto 0);  -- free-running timebase
+
+  -- Control
+  signal enable        : std_logic;  -- monitor enable
+  signal stat_rst      : std_logic;  -- clear all statistics
+  signal err_rst       : std_logic;  -- clear error statistics
+  signal data_check_en : std_logic;  -- enable data validation
+
+  -- AR channel tap
+  signal ar_valid : std_logic;                                  -- AR valid
+  signal ar_ready : std_logic;                                  -- AR ready
+  signal ar_id    : std_logic_vector(C_ID_WIDTH-1 downto 0);    -- AR ID
+  signal ar_addr  : std_logic_vector(C_ADDR_WIDTH-1 downto 0);  -- AR address
+  signal ar_len   : std_logic_vector(7 downto 0);               -- beats minus one
+
+  -- R channel tap
+  signal r_valid : std_logic;                                    -- R valid
+  signal r_ready : std_logic;                                    -- R ready
+  signal r_id    : std_logic_vector(C_ID_WIDTH-1 downto 0);      -- R ID
+  signal r_data  : std_logic_vector(8*C_DATA_BYTES-1 downto 0);  -- R data
+  signal r_resp  : std_logic_vector(1 downto 0);                 -- R response
+  signal r_last  : std_logic;                                    -- last beat
+
+  -- Statistics and status
+  signal stat_ar_seen             : std_logic_vector(31 downto 0);
+  signal stat_ar_stall            : std_logic_vector(31 downto 0);
+  signal stat_sb_backpressure     : std_logic_vector(31 downto 0);
+  signal stat_xactions            : std_logic_vector(31 downto 0);
+  signal stat_beats               : std_logic_vector(31 downto 0);
+  signal stat_latency_sum         : std_logic_vector(C_STAT_WIDTH-1 downto 0);
+  signal stat_latency_min         : std_logic_vector(31 downto 0);
+  signal stat_latency_max         : std_logic_vector(31 downto 0);
+  signal stat_first_latency_sum   : std_logic_vector(C_STAT_WIDTH-1 downto 0);
+  signal stat_first_latency_min   : std_logic_vector(31 downto 0);
+  signal stat_first_latency_max   : std_logic_vector(31 downto 0);
+  signal stat_interbeat_gap_sum   : std_logic_vector(C_STAT_WIDTH-1 downto 0);
+  signal stat_interbeat_gap_min   : std_logic_vector(31 downto 0);
+  signal stat_interbeat_gap_max   : std_logic_vector(31 downto 0);
+  signal stat_burst_len_sum       : std_logic_vector(C_STAT_WIDTH-1 downto 0);
+  signal stat_burst_len_min       : std_logic_vector(31 downto 0);
+  signal stat_burst_len_max       : std_logic_vector(31 downto 0);
+  signal stat_elapsed_cycles      : std_logic_vector(31 downto 0);
+  signal stat_r_stall             : std_logic_vector(31 downto 0);
+  signal pipeline_busy            : std_logic;
+  signal stat_max_outstanding     : std_logic_vector(31 downto 0);
+  signal stat_data_errors         : std_logic_vector(31 downto 0);
+  signal stat_id_errors           : std_logic_vector(31 downto 0);
+  signal stat_rlast_errors        : std_logic_vector(31 downto 0);
+  signal stat_resp_errors         : std_logic_vector(31 downto 0);
+  signal stat_sb_underflow_errors : std_logic_vector(31 downto 0);
+
+begin
+
+  u_axi_monitor : entity work.axi_monitor
+    generic map (
+      GC_DATA_BYTES    => C_DATA_BYTES,
+      GC_ADDR_WIDTH    => C_ADDR_WIDTH,
+      GC_ID_WIDTH      => C_ID_WIDTH,
+      GC_TIME_WIDTH    => C_TIME_WIDTH,
+      GC_STAT_WIDTH    => C_STAT_WIDTH,
+      GC_SB_FIFO_DEPTH => C_SB_FIFO_DEPTH
+    )
+    port map (
+      -- Clock, reset, and timebase
+      aclk        => aclk,
+      aresetn     => aresetn,
+      global_time => global_time,
+
+      -- Control
+      enable        => enable,
+      stat_rst      => stat_rst,
+      err_rst       => err_rst,
+      data_check_en => data_check_en,
+
+      -- AR channel tap
+      ar_valid => ar_valid,
+      ar_ready => ar_ready,
+      ar_id    => ar_id,
+      ar_addr  => ar_addr,
+      ar_len   => ar_len,
+
+      -- R channel tap
+      r_valid => r_valid,
+      r_ready => r_ready,
+      r_id    => r_id,
+      r_data  => r_data,
+      r_resp  => r_resp,
+      r_last  => r_last,
+
+      -- Statistics and status
+      stat_ar_seen             => stat_ar_seen,
+      stat_ar_stall            => stat_ar_stall,
+      stat_sb_backpressure     => stat_sb_backpressure,
+      stat_xactions            => stat_xactions,
+      stat_beats               => stat_beats,
+      stat_latency_sum         => stat_latency_sum,
+      stat_latency_min         => stat_latency_min,
+      stat_latency_max         => stat_latency_max,
+      stat_first_latency_sum   => stat_first_latency_sum,
+      stat_first_latency_min   => stat_first_latency_min,
+      stat_first_latency_max   => stat_first_latency_max,
+      stat_interbeat_gap_sum   => stat_interbeat_gap_sum,
+      stat_interbeat_gap_min   => stat_interbeat_gap_min,
+      stat_interbeat_gap_max   => stat_interbeat_gap_max,
+      stat_burst_len_sum       => stat_burst_len_sum,
+      stat_burst_len_min       => stat_burst_len_min,
+      stat_burst_len_max       => stat_burst_len_max,
+      stat_elapsed_cycles      => stat_elapsed_cycles,
+      stat_r_stall             => stat_r_stall,
+      pipeline_busy            => pipeline_busy,
+      stat_max_outstanding     => stat_max_outstanding,
+      stat_data_errors         => stat_data_errors,
+      stat_id_errors           => stat_id_errors,
+      stat_rlast_errors        => stat_rlast_errors,
+      stat_resp_errors         => stat_resp_errors,
+      stat_sb_underflow_errors => stat_sb_underflow_errors
+    );
+
+end architecture;
+```
+
+### Verilog/SystemVerilog
+
+```systemverilog
+module <your_module>;
+
+  localparam int unsigned C_DATA_BYTES    = 64;
+  localparam int unsigned C_ADDR_WIDTH    = 49;
+  localparam int unsigned C_ID_WIDTH      = 6;
+  localparam int unsigned C_TIME_WIDTH    = 48;
+  localparam int unsigned C_STAT_WIDTH    = 48;
+  localparam int unsigned C_SB_FIFO_DEPTH = 256;
+
+  // Signal list (names match the ports)
+  logic                      aclk;
+  logic                      aresetn;
+  logic [C_TIME_WIDTH-1:0]   global_time;
+  logic                      enable;
+  logic                      stat_rst;
+  logic                      err_rst;
+  logic                      data_check_en;
+  logic                      ar_valid;
+  logic                      ar_ready;
+  logic [C_ID_WIDTH-1:0]     ar_id;
+  logic [C_ADDR_WIDTH-1:0]   ar_addr;
+  logic [7:0]                ar_len;
+  logic                      r_valid;
+  logic                      r_ready;
+  logic [C_ID_WIDTH-1:0]     r_id;
+  logic [8*C_DATA_BYTES-1:0] r_data;
+  logic [1:0]                r_resp;
+  logic                      r_last;
+  logic [31:0]               stat_ar_seen;
+  logic [31:0]               stat_ar_stall;
+  logic [31:0]               stat_sb_backpressure;
+  logic [31:0]               stat_xactions;
+  logic [31:0]               stat_beats;
+  logic [C_STAT_WIDTH-1:0]   stat_latency_sum;
+  logic [31:0]               stat_latency_min;
+  logic [31:0]               stat_latency_max;
+  logic [C_STAT_WIDTH-1:0]   stat_first_latency_sum;
+  logic [31:0]               stat_first_latency_min;
+  logic [31:0]               stat_first_latency_max;
+  logic [C_STAT_WIDTH-1:0]   stat_interbeat_gap_sum;
+  logic [31:0]               stat_interbeat_gap_min;
+  logic [31:0]               stat_interbeat_gap_max;
+  logic [C_STAT_WIDTH-1:0]   stat_burst_len_sum;
+  logic [31:0]               stat_burst_len_min;
+  logic [31:0]               stat_burst_len_max;
+  logic [31:0]               stat_elapsed_cycles;
+  logic [31:0]               stat_r_stall;
+  logic                      pipeline_busy;
+  logic [31:0]               stat_max_outstanding;
+  logic [31:0]               stat_data_errors;
+  logic [31:0]               stat_id_errors;
+  logic [31:0]               stat_rlast_errors;
+  logic [31:0]               stat_resp_errors;
+  logic [31:0]               stat_sb_underflow_errors;
+
+  axi_monitor #(
+    .GC_DATA_BYTES    (C_DATA_BYTES),
+    .GC_ADDR_WIDTH    (C_ADDR_WIDTH),
+    .GC_ID_WIDTH      (C_ID_WIDTH),
+    .GC_TIME_WIDTH    (C_TIME_WIDTH),
+    .GC_STAT_WIDTH    (C_STAT_WIDTH),
+    .GC_SB_FIFO_DEPTH (C_SB_FIFO_DEPTH)
+  ) u_axi_monitor (
+    .aclk                     (aclk),
+    .aresetn                  (aresetn),
+    .global_time              (global_time),
+    .enable                   (enable),
+    .stat_rst                 (stat_rst),
+    .err_rst                  (err_rst),
+    .data_check_en            (data_check_en),
+    .ar_valid                 (ar_valid),
+    .ar_ready                 (ar_ready),
+    .ar_id                    (ar_id),
+    .ar_addr                  (ar_addr),
+    .ar_len                   (ar_len),
+    .r_valid                  (r_valid),
+    .r_ready                  (r_ready),
+    .r_id                     (r_id),
+    .r_data                   (r_data),
+    .r_resp                   (r_resp),
+    .r_last                   (r_last),
+    .stat_ar_seen             (stat_ar_seen),
+    .stat_ar_stall            (stat_ar_stall),
+    .stat_sb_backpressure     (stat_sb_backpressure),
+    .stat_xactions            (stat_xactions),
+    .stat_beats               (stat_beats),
+    .stat_latency_sum         (stat_latency_sum),
+    .stat_latency_min         (stat_latency_min),
+    .stat_latency_max         (stat_latency_max),
+    .stat_first_latency_sum   (stat_first_latency_sum),
+    .stat_first_latency_min   (stat_first_latency_min),
+    .stat_first_latency_max   (stat_first_latency_max),
+    .stat_interbeat_gap_sum   (stat_interbeat_gap_sum),
+    .stat_interbeat_gap_min   (stat_interbeat_gap_min),
+    .stat_interbeat_gap_max   (stat_interbeat_gap_max),
+    .stat_burst_len_sum       (stat_burst_len_sum),
+    .stat_burst_len_min       (stat_burst_len_min),
+    .stat_burst_len_max       (stat_burst_len_max),
+    .stat_elapsed_cycles      (stat_elapsed_cycles),
+    .stat_r_stall             (stat_r_stall),
+    .pipeline_busy            (pipeline_busy),
+    .stat_max_outstanding     (stat_max_outstanding),
+    .stat_data_errors         (stat_data_errors),
+    .stat_id_errors           (stat_id_errors),
+    .stat_rlast_errors        (stat_rlast_errors),
+    .stat_resp_errors         (stat_resp_errors),
+    .stat_sb_underflow_errors (stat_sb_underflow_errors)
+  );
+
+endmodule
+```

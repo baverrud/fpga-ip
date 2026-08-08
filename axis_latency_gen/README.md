@@ -210,7 +210,8 @@ axis_latency_gen/
 ├── README.md
 ├── rtl/
 │   ├── axis_latency_gen.vhd     — Main RTL
-│   └── axis_latency_gen_top.vhd — Synthesis wrapper
+│   ├── axis_latency_gen_top.vhd — Synthesis wrapper (VHDL)
+│   └── axis_latency_gen_top.sv  — Synthesis wrapper (SystemVerilog)
 ├── scripts/
 │   └── vhdl.f
 └── tb/
@@ -231,3 +232,194 @@ run axis_latency_gen vhdl modelsim --tb simple
 The comprehensive testbench covers FIFO backpressure, reset while entries
 are in flight, timer rollover, simultaneous push/pop, full-rate ordering,
 minimum-delay behavior, and the deterministic default jitter sequence.
+
+## Instantiation
+
+Ready-to-copy templates for instantiating `axis_latency_gen` in a design.
+Signal names match the ports; widths, seeds, and CDF thresholds are set via
+constants (names prefixed `C_`).
+
+### Synthesis wrappers
+
+Ready-made synthesis tops are provided in both languages:
+
+- [rtl/axis_latency_gen_top.vhd](rtl/axis_latency_gen_top.vhd) - VHDL
+  wrapper.
+- [rtl/axis_latency_gen_top.sv](rtl/axis_latency_gen_top.sv) -
+  SystemVerilog wrapper (binds the VHDL core via mixed language).
+
+### VHDL
+
+```vhdl
+architecture rtl of <your_design> is
+
+  constant C_DATA_WIDTH      : positive := 32;
+  constant C_FIFO_DEPTH      : positive := 16;
+  constant C_TIMER_WIDTH     : positive := 32;
+  constant C_JG_JITTER_WIDTH : positive := 8;
+  constant C_USE_XORSHIFT128 : boolean := false;
+  constant C_JG_SEED         : std_logic_vector(31 downto 0) := x"DEADBEEF";
+  constant C_JG_SEED0        : std_logic_vector(63 downto 0) := x"DEADBEEFCAFEBABE";
+  constant C_JG_SEED1        : std_logic_vector(63 downto 0) := x"0123456789ABCDEF";
+  constant C_JG_VAL_0        : integer := 0;
+  constant C_JG_VAL_1        : integer := 1;
+  constant C_JG_VAL_2        : integer := 3;
+  constant C_JG_VAL_3        : integer := 7;
+  constant C_JG_TH_0         : integer := 128;
+  constant C_JG_TH_1         : integer := 192;
+  constant C_JG_TH_2         : integer := 240;
+
+  -- Clock and reset
+  signal aclk    : std_logic;  -- clock
+  signal aresetn : std_logic;  -- active-low synchronous reset
+
+  -- Slave AXI4-Stream interface
+  signal s_axis_tdata  : std_logic_vector(C_DATA_WIDTH-1 downto 0);  -- input data
+  signal s_axis_tvalid : std_logic;                                  -- input valid
+  signal s_axis_tready : std_logic;                                  -- input ready
+
+  -- Master AXI4-Stream interface
+  signal m_axis_tdata  : std_logic_vector(C_DATA_WIDTH-1 downto 0);  -- output data
+  signal m_axis_tvalid : std_logic;                                  -- output valid
+  signal m_axis_tready : std_logic;                                  -- output ready
+
+  -- Delay and jitter controls
+  signal base_delay        : std_logic_vector(C_TIMER_WIDTH-1 downto 0);  -- base delay
+  signal enable_base_delay : std_logic;                                   -- enable base delay
+  signal enable_jitter     : std_logic;                                   -- enable jitter
+
+  -- FIFO occupancy
+  signal fifo_count : std_logic_vector(log2ceil(C_FIFO_DEPTH) downto 0);  -- from work.util_pkg
+
+begin
+
+  u_axis_latency_gen : entity work.axis_latency_gen
+    generic map (
+      GC_DATA_WIDTH      => C_DATA_WIDTH,
+      GC_FIFO_DEPTH      => C_FIFO_DEPTH,
+      GC_TIMER_WIDTH     => C_TIMER_WIDTH,
+      GC_JG_JITTER_WIDTH => C_JG_JITTER_WIDTH,
+      GC_USE_XORSHIFT128 => C_USE_XORSHIFT128,
+      GC_JG_SEED         => C_JG_SEED,
+      GC_JG_SEED0        => C_JG_SEED0,
+      GC_JG_SEED1        => C_JG_SEED1,
+      GC_JG_VAL_0        => C_JG_VAL_0,
+      GC_JG_VAL_1        => C_JG_VAL_1,
+      GC_JG_VAL_2        => C_JG_VAL_2,
+      GC_JG_VAL_3        => C_JG_VAL_3,
+      GC_JG_TH_0         => C_JG_TH_0,
+      GC_JG_TH_1         => C_JG_TH_1,
+      GC_JG_TH_2         => C_JG_TH_2
+    )
+    port map (
+      -- Clock and reset
+      aclk    => aclk,
+      aresetn => aresetn,
+
+      -- Slave AXI4-Stream interface
+      s_axis_tdata  => s_axis_tdata,
+      s_axis_tvalid => s_axis_tvalid,
+      s_axis_tready => s_axis_tready,
+
+      -- Master AXI4-Stream interface
+      m_axis_tdata  => m_axis_tdata,
+      m_axis_tvalid => m_axis_tvalid,
+      m_axis_tready => m_axis_tready,
+
+      -- Delay and jitter controls
+      base_delay        => base_delay,
+      enable_base_delay => enable_base_delay,
+      enable_jitter     => enable_jitter
+
+      -- FIFO occupancy
+      fifo_count => fifo_count
+    );
+
+end architecture;
+```
+
+### Verilog/SystemVerilog
+
+```systemverilog
+module <your_module>;
+
+  localparam int unsigned C_DATA_WIDTH      = 32;
+  localparam int unsigned C_FIFO_DEPTH      = 16;
+  localparam int unsigned C_TIMER_WIDTH     = 32;
+  localparam int unsigned C_JG_JITTER_WIDTH = 8;
+  localparam bit          C_USE_XORSHIFT128 = 0;
+  localparam logic [31:0] C_JG_SEED         = 32'hDEADBEEF;
+  localparam logic [63:0] C_JG_SEED0        = 64'hDEADBEEFCAFEBABE;
+  localparam logic [63:0] C_JG_SEED1        = 64'h0123456789ABCDEF;
+  localparam int          C_JG_VAL_0        = 0;
+  localparam int          C_JG_VAL_1        = 1;
+  localparam int          C_JG_VAL_2        = 3;
+  localparam int          C_JG_VAL_3        = 7;
+  localparam int          C_JG_TH_0         = 128;
+  localparam int          C_JG_TH_1         = 192;
+  localparam int          C_JG_TH_2         = 240;
+
+  // Clock and reset
+  logic  aclk;     // clock
+  logic  aresetn;  // active-low synchronous reset
+
+  // Slave AXI4-Stream interface
+  logic [C_DATA_WIDTH-1:0] s_axis_tdata;   // input data
+  logic                    s_axis_tvalid;  // input valid
+  logic                    s_axis_tready;  // input ready
+
+  // Master AXI4-Stream interface
+  logic [C_DATA_WIDTH-1:0] m_axis_tdata;   // output data
+  logic                    m_axis_tvalid;  // output valid
+  logic                    m_axis_tready;  // output ready
+
+  // Delay and jitter controls
+  logic [C_TIMER_WIDTH-1:0] base_delay;         // base delay
+  logic                     enable_base_delay;  // enable base delay
+  logic                     enable_jitter;      // enable jitter
+
+  // FIFO occupancy
+  logic [$clog2(C_FIFO_DEPTH):0] fifo_count;  // occupancy count
+
+  axis_latency_gen #(
+    .GC_DATA_WIDTH      (C_DATA_WIDTH),
+    .GC_FIFO_DEPTH      (C_FIFO_DEPTH),
+    .GC_TIMER_WIDTH     (C_TIMER_WIDTH),
+    .GC_JG_JITTER_WIDTH (C_JG_JITTER_WIDTH),
+    .GC_USE_XORSHIFT128 (C_USE_XORSHIFT128),
+    .GC_JG_SEED         (C_JG_SEED),
+    .GC_JG_SEED0        (C_JG_SEED0),
+    .GC_JG_SEED1        (C_JG_SEED1),
+    .GC_JG_VAL_0        (C_JG_VAL_0),
+    .GC_JG_VAL_1        (C_JG_VAL_1),
+    .GC_JG_VAL_2        (C_JG_VAL_2),
+    .GC_JG_VAL_3        (C_JG_VAL_3),
+    .GC_JG_TH_0         (C_JG_TH_0),
+    .GC_JG_TH_1         (C_JG_TH_1),
+    .GC_JG_TH_2         (C_JG_TH_2)
+  ) u_axis_latency_gen (
+    // Clock and reset
+    .aclk    (aclk),
+    .aresetn (aresetn),
+
+    // Slave AXI4-Stream interface
+    .s_axis_tdata  (s_axis_tdata),
+    .s_axis_tvalid (s_axis_tvalid),
+    .s_axis_tready (s_axis_tready),
+
+    // Master AXI4-Stream interface
+    .m_axis_tdata  (m_axis_tdata),
+    .m_axis_tvalid (m_axis_tvalid),
+    .m_axis_tready (m_axis_tready),
+
+    // Delay and jitter controls
+    .base_delay        (base_delay),
+    .enable_base_delay (enable_base_delay),
+    .enable_jitter     (enable_jitter),
+
+    // FIFO occupancy
+    .fifo_count (fifo_count)
+  );
+
+endmodule
+```

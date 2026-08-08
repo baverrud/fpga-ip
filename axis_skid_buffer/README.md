@@ -134,7 +134,8 @@ axis_skid_buffer/
 ├── rtl/
 │   ├── axis_skid_buffer.sv       # Main RTL (SystemVerilog)
 │   ├── axis_skid_buffer.vhd      # Main RTL (VHDL)
-│   └── axis_skid_buffer_top.vhd  # Synthesis top wrapper (VHDL)
+│   ├── axis_skid_buffer_top.vhd  # Synthesis top wrapper (VHDL)
+│   └── axis_skid_buffer_top.sv   # Synthesis top wrapper (SystemVerilog)
 ├── scripts/
 │   ├── sv.f                      # SV RTL + simple TB
 │   ├── vhdl.f                    # VHDL RTL + simple TB
@@ -171,4 +172,107 @@ vlog -sv -work axis_skid_buffer/modelsim/work axis_skid_buffer/rtl/axis_skid_buf
 vcom -2008 -work axis_skid_buffer/modelsim/work axis_skid_buffer/tb/axis_skid_buffer_tb.vhd
 vsim -voptargs=+acc work.axis_skid_buffer_tb
 run -all
+```
+
+## Instantiation
+
+Ready-to-copy templates for instantiating `axis_skid_buffer` in a design.
+Signal names match the ports; the data width is set via the
+`C_TDATA_WIDTH` constant.
+
+### Synthesis wrappers
+
+Ready-made synthesis tops are provided in both languages:
+
+- [rtl/axis_skid_buffer_top.vhd](rtl/axis_skid_buffer_top.vhd) - VHDL
+  wrapper.
+- [rtl/axis_skid_buffer_top.sv](rtl/axis_skid_buffer_top.sv) -
+  SystemVerilog wrapper (binds the SystemVerilog core directly).
+
+### VHDL
+
+```vhdl
+architecture rtl of <your_design> is
+
+  constant C_TDATA_WIDTH : positive := 8;  -- data path width (bits)
+
+  -- Clock and reset
+  signal aclk    : std_logic;  -- clock
+  signal aresetn : std_logic;  -- active-low synchronous reset
+
+  -- Slave AXI4-Stream interface
+  signal s_axis_tdata  : std_logic_vector(C_TDATA_WIDTH-1 downto 0);  -- input data
+  signal s_axis_tvalid : std_logic;                                   -- input valid
+  signal s_axis_tready : std_logic;                                   -- input ready
+
+  -- Master AXI4-Stream interface
+  signal m_axis_tdata  : std_logic_vector(C_TDATA_WIDTH-1 downto 0);  -- output data
+  signal m_axis_tvalid : std_logic;                                   -- output valid
+  signal m_axis_tready : std_logic;                                   -- output ready
+
+begin
+
+  u_axis_skid_buffer : entity work.axis_skid_buffer
+    generic map (
+      GC_TDATA_WIDTH => C_TDATA_WIDTH
+    )
+    port map (
+      -- Clock and reset
+      aclk    => aclk,
+      aresetn => aresetn,
+
+      -- Slave AXI4-Stream interface
+      s_axis_tdata  => s_axis_tdata,
+      s_axis_tvalid => s_axis_tvalid,
+      s_axis_tready => s_axis_tready,
+
+      -- Master AXI4-Stream interface
+      m_axis_tdata  => m_axis_tdata,
+      m_axis_tvalid => m_axis_tvalid,
+      m_axis_tready => m_axis_tready
+    );
+
+end architecture;
+```
+
+### Verilog/SystemVerilog
+
+```systemverilog
+module <your_module>;
+
+  localparam int unsigned C_TDATA_WIDTH = 8;  // data path width (bits)
+
+  // Clock and reset
+  logic  aclk;     // clock
+  logic  aresetn;  // active-low synchronous reset
+
+  // Slave AXI4-Stream interface
+  logic [C_TDATA_WIDTH-1:0] s_axis_tdata;   // input data
+  logic                     s_axis_tvalid;  // input valid
+  logic                     s_axis_tready;  // input ready
+
+  // Master AXI4-Stream interface
+  logic [C_TDATA_WIDTH-1:0] m_axis_tdata;   // output data
+  logic                     m_axis_tvalid;  // output valid
+  logic                     m_axis_tready;  // output ready
+
+  axis_skid_buffer #(
+    .GC_TDATA_WIDTH (C_TDATA_WIDTH)
+  ) u_axis_skid_buffer (
+    // Clock and reset
+    .aclk    (aclk),
+    .aresetn (aresetn),
+
+    // Slave AXI4-Stream interface
+    .s_axis_tdata  (s_axis_tdata),
+    .s_axis_tvalid (s_axis_tvalid),
+    .s_axis_tready (s_axis_tready),
+
+    // Master AXI4-Stream interface
+    .m_axis_tdata  (m_axis_tdata),
+    .m_axis_tvalid (m_axis_tvalid),
+    .m_axis_tready (m_axis_tready)
+  );
+
+endmodule
 ```

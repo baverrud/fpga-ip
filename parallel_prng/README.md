@@ -119,7 +119,8 @@ parallel_prng/
 ├── rtl/
 │   ├── xorshift32.vhd       # Marsaglia xorshift32 (2003), 32-bit
 │   ├── xorshift128.vhd      # xoroshiro128+ (Blackman/Vigna), 64-bit
-│   └── prng_top.vhd         # Synthesis top — instantiates both
+│   ├── prng_top.vhd         # Synthesis top (VHDL) — instantiates both
+│   └── prng_top.sv          # Synthesis top (SystemVerilog) — instantiates both
 ├── scripts/
 │   └── vhdl.f               # File list for sim/synth flows
 └── tb/
@@ -149,3 +150,87 @@ run jitter_gen all              # All available tools
 
 To test the other PRNG, comment/uncomment the instantiation in
 `jitter_gen/rtl/jitter_gen.vhd` and re-run.
+
+## Instantiation
+
+Ready-to-copy templates for instantiating `prng_top` in a design. Signal
+names match the ports; the cores are seeded with their defaults.
+
+### Synthesis wrappers
+
+Ready-made synthesis tops are provided in both languages:
+
+- [rtl/prng_top.vhd](rtl/prng_top.vhd) - VHDL wrapper.
+- [rtl/prng_top.sv](rtl/prng_top.sv) - SystemVerilog wrapper (binds the
+  VHDL cores via mixed language).
+
+### VHDL
+
+```vhdl
+architecture rtl of <your_design> is
+
+  -- Clock and reset
+  signal clk  : std_logic;  -- clock
+  signal rstn : std_logic;  -- active-low synchronous reset
+
+  -- xorshift32 control and output
+  signal step32 : std_logic;                      -- advance xorshift32
+  signal data32 : std_logic_vector(31 downto 0);  -- xorshift32 output
+
+  -- xorshift128 control and output
+  signal step128 : std_logic;                      -- advance xorshift128
+  signal data128 : std_logic_vector(63 downto 0);  -- xorshift128 output
+
+begin
+
+  u_prng_top : entity work.prng_top
+    port map (
+      -- Clock and reset
+      clk  => clk,
+      rstn => rstn,
+
+      -- xorshift32 control and output
+      step32 => step32,
+      data32 => data32,
+
+      -- xorshift128 control and output
+      step128 => step128,
+      data128 => data128
+    );
+
+end architecture;
+```
+
+### Verilog/SystemVerilog
+
+```systemverilog
+module <your_module>;
+
+  // Clock and reset
+  logic  clk;   // clock
+  logic  rstn;  // active-low synchronous reset
+
+  // xorshift32 control and output
+  logic        step32;  // advance xorshift32
+  logic [31:0] data32;  // xorshift32 output
+
+  // xorshift128 control and output
+  logic        step128;  // advance xorshift128
+  logic [63:0] data128;  // xorshift128 output
+
+  prng_top u_prng_top (
+    // Clock and reset
+    .clk  (clk),
+    .rstn (rstn),
+
+    // xorshift32 control and output
+    .step32 (step32),
+    .data32 (data32),
+
+    // xorshift128 control and output
+    .step128 (step128),
+    .data128 (data128)
+  );
+
+endmodule
+```

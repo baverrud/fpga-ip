@@ -156,10 +156,10 @@ constant:
 
 ```vhdl
 constant C_REC_DEFAULT : t_rec := (
-  fifo_data      => (others => (others => '-')),  -- SRL-friendly
-  fifo_index     => to_signed(-1, ...),
-  s_axis_tready  => '1',
-  m_axis_tvalid  => '0');
+  fifo_data     => (others => (others => '-')),  -- SRL-friendly
+  fifo_index    => to_signed(-1, ...),
+  s_axis_tready => '1',
+  m_axis_tvalid => '0');
 ```
 
 If `fifo_data` were initialized to `(others => '0')`, the synthesis tool
@@ -185,9 +185,9 @@ clamps the read index:
 
 ```vhdl
 if r.fifo_index < 0 then
-  read_index := 0;
+  read_index : = 0;
 else
-  read_index := to_integer(r.fifo_index);
+  read_index : = to_integer(r.fifo_index);
 end if;
 ```
 
@@ -201,7 +201,8 @@ axis_fifo/
 │   ├── axis_fifo_pkg.vhd           # Shared utility package (log2ceil)
 │   ├── axis_fifo.vhd               # Production VHDL core (VHDL-93)
 │   ├── axis_fifo.sv                # Production SystemVerilog core
-│   └── axis_fifo_top.vhd           # Synthesis top wrapper
+│   ├── axis_fifo_top.vhd           # Synthesis top wrapper (VHDL)
+│   └── axis_fifo_top.sv            # Synthesis top wrapper (SystemVerilog)
 ├── tb/
 │   ├── axis_fifo_tb.vhd            # Self-contained testbench (VHDL-93)
 │   ├── axis_fifo_uvvm_th.vhd       # UVVM test harness (VHDL-2008)
@@ -336,3 +337,123 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 |----------|------|-------------|
 | 1.00 | 2026-07-17 | Initial release: FWFT SRL-based FIFO with AMBA AXI4-Stream ports, simulation guard, UVVM testbench, and documentation |
 | 0.9 | — | Original `srl_fifo` baseline (predecessor) |
+
+## Instantiation
+
+Ready-to-copy templates for instantiating `axis_fifo` in a design. Signal
+names match the ports; the data width and depth are set via the
+`C_TDATA_WIDTH` and `C_FIFO_DEPTH` constants.
+
+### Synthesis wrappers
+
+Ready-made synthesis tops are provided in both languages, so `axis_fifo`
+can be used as a standalone netlist top without writing an instance by
+hand:
+
+- [rtl/axis_fifo_top.vhd](rtl/axis_fifo_top.vhd) - VHDL wrapper.
+- [rtl/axis_fifo_top.sv](rtl/axis_fifo_top.sv) - SystemVerilog wrapper
+  (binds the SystemVerilog core directly).
+
+### VHDL
+
+```vhdl
+architecture rtl of <your_design> is
+
+  constant C_TDATA_WIDTH : positive := 8;   -- data path width (bits)
+  constant C_FIFO_DEPTH  : positive := 64;  -- FIFO depth (entries)
+
+  -- Clock and reset
+  signal aclk    : std_logic;  -- clock
+  signal aresetn : std_logic;  -- active-low synchronous reset
+
+  -- Slave AXI4-Stream interface
+  signal s_axis_tdata  : std_logic_vector(C_TDATA_WIDTH-1 downto 0);  -- input data
+  signal s_axis_tvalid : std_logic;                                   -- input valid
+  signal s_axis_tready : std_logic;                                   -- input ready
+
+  -- Master AXI4-Stream interface
+  signal m_axis_tdata  : std_logic_vector(C_TDATA_WIDTH-1 downto 0);  -- output data
+  signal m_axis_tvalid : std_logic;                                   -- output valid
+  signal m_axis_tready : std_logic;                                   -- output ready
+
+  -- FIFO occupancy
+  signal fifo_count : std_logic_vector(log2ceil(C_FIFO_DEPTH) downto 0);  -- from work.util_pkg
+
+begin
+
+  u_axis_fifo : entity work.axis_fifo
+    generic map (
+      GC_TDATA_WIDTH => C_TDATA_WIDTH,
+      GC_FIFO_DEPTH  => C_FIFO_DEPTH
+    )
+    port map (
+      -- Clock and reset
+      aclk    => aclk,
+      aresetn => aresetn,
+
+      -- Slave AXI4-Stream interface
+      s_axis_tdata  => s_axis_tdata,
+      s_axis_tvalid => s_axis_tvalid,
+      s_axis_tready => s_axis_tready,
+
+      -- Master AXI4-Stream interface
+      m_axis_tdata  => m_axis_tdata,
+      m_axis_tvalid => m_axis_tvalid,
+      m_axis_tready => m_axis_tready,
+
+      -- FIFO occupancy
+      fifo_count => fifo_count
+    );
+
+end architecture;
+```
+
+### Verilog/SystemVerilog
+
+```systemverilog
+module <your_module>;
+
+  localparam int unsigned C_TDATA_WIDTH = 8;   // data path width (bits)
+  localparam int unsigned C_FIFO_DEPTH  = 64;  // FIFO depth (entries)
+
+  // Clock and reset
+  logic  aclk;     // clock
+  logic  aresetn;  // active-low synchronous reset
+
+  // Slave AXI4-Stream interface
+  logic [C_TDATA_WIDTH-1:0] s_axis_tdata;   // input data
+  logic                     s_axis_tvalid;  // input valid
+  logic                     s_axis_tready;  // input ready
+
+  // Master AXI4-Stream interface
+  logic [C_TDATA_WIDTH-1:0] m_axis_tdata;   // output data
+  logic                     m_axis_tvalid;  // output valid
+  logic                     m_axis_tready;  // output ready
+
+  // FIFO occupancy
+  logic [$clog2(C_FIFO_DEPTH):0] fifo_count;  // occupancy count
+
+  axis_fifo #(
+    .GC_TDATA_WIDTH (C_TDATA_WIDTH),
+    .GC_FIFO_DEPTH  (C_FIFO_DEPTH)
+  ) u_axis_fifo (
+    // Clock and reset
+    .aclk    (aclk),
+    .aresetn (aresetn),
+
+    // Slave AXI4-Stream interface
+    .s_axis_tdata  (s_axis_tdata),
+    .s_axis_tvalid (s_axis_tvalid),
+    .s_axis_tready (s_axis_tready),
+
+    // Master AXI4-Stream interface
+    .m_axis_tdata  (m_axis_tdata),
+    .m_axis_tvalid (m_axis_tvalid),
+    .m_axis_tready (m_axis_tready),
+
+    // FIFO occupancy
+    .fifo_count (fifo_count)
+  );
+
+endmodule
+```

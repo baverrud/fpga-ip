@@ -6,6 +6,7 @@
 --                   interconnect in a design.  All AR/R signals are
 --                   inputs -- the monitor is a passive observer.
 --Author           : Rune Baeverrud
+--Current Revision : 1.00
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;
@@ -23,29 +24,31 @@ entity axi_monitor_top is
     GC_SB_FIFO_DEPTH : positive := 256
   );
   port (
-    aclk        : in  std_logic;
-    aresetn     : in  std_logic;
-    global_time : in  unsigned(GC_TIME_WIDTH-1 downto 0);
+    -- Clock, reset, and timebase
+    aclk        : in std_logic;
+    aresetn     : in std_logic;
+    global_time : in unsigned(GC_TIME_WIDTH-1 downto 0);
 
-    enable        : in  std_logic;
-    stat_rst      : in  std_logic;
-    err_rst       : in  std_logic;
-    data_check_en : in  std_logic;
+    -- Control
+    enable        : in std_logic;
+    stat_rst      : in std_logic;
+    err_rst       : in std_logic;
+    data_check_en : in std_logic;
 
     -- AR channel taps (inputs -- passive monitor)
-    ar_valid : in  std_logic;
-    ar_ready : in  std_logic;
-    ar_id    : in  std_logic_vector(GC_ID_WIDTH-1 downto 0);
-    ar_addr  : in  std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
-    ar_len   : in  std_logic_vector(7 downto 0);
+    ar_valid : in std_logic;
+    ar_ready : in std_logic;
+    ar_id    : in std_logic_vector(GC_ID_WIDTH-1 downto 0);
+    ar_addr  : in std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
+    ar_len   : in std_logic_vector(7 downto 0);
 
     -- R channel taps (inputs -- passive monitor)
-    r_valid : in  std_logic;
-    r_ready : in  std_logic;
-    r_id    : in  std_logic_vector(GC_ID_WIDTH-1 downto 0);
-    r_data  : in  std_logic_vector(8*GC_DATA_BYTES-1 downto 0);
-    r_resp  : in  std_logic_vector(1 downto 0);
-    r_last  : in  std_logic;
+    r_valid : in std_logic;
+    r_ready : in std_logic;
+    r_id    : in std_logic_vector(GC_ID_WIDTH-1 downto 0);
+    r_data  : in std_logic_vector(8*GC_DATA_BYTES-1 downto 0);
+    r_resp  : in std_logic_vector(1 downto 0);
+    r_last  : in std_logic;
 
     -- Statistics and status
     stat_ar_seen             : out std_logic_vector(31 downto 0);
@@ -90,49 +93,58 @@ begin
       GC_SB_FIFO_DEPTH => GC_SB_FIFO_DEPTH
     )
     port map (
-      aclk                    => aclk,
-      aresetn                 => aresetn,
-      global_time             => global_time,
-      enable                  => enable,
-      stat_rst                => stat_rst,
-      err_rst                 => err_rst,
-      data_check_en           => data_check_en,
-      ar_valid                => ar_valid,
-      ar_ready                => ar_ready,
-      ar_id                   => ar_id,
-      ar_addr                 => ar_addr,
-      ar_len                  => ar_len,
-      r_valid                 => r_valid,
-      r_ready                 => r_ready,
-      r_id                    => r_id,
-      r_data                  => r_data,
-      r_resp                  => r_resp,
-      r_last                  => r_last,
-      stat_ar_seen            => stat_ar_seen,
-      stat_ar_stall           => stat_ar_stall,
-      stat_sb_backpressure    => stat_sb_backpressure,
-      stat_xactions           => stat_xactions,
-      stat_beats              => stat_beats,
-      stat_latency_sum        => stat_latency_sum,
-      stat_latency_min        => stat_latency_min,
-      stat_latency_max        => stat_latency_max,
-      stat_first_latency_sum  => stat_first_latency_sum,
-      stat_first_latency_min  => stat_first_latency_min,
-      stat_first_latency_max  => stat_first_latency_max,
-      stat_interbeat_gap_sum  => stat_interbeat_gap_sum,
-      stat_interbeat_gap_min  => stat_interbeat_gap_min,
-      stat_interbeat_gap_max  => stat_interbeat_gap_max,
-      stat_burst_len_sum      => stat_burst_len_sum,
-      stat_burst_len_min      => stat_burst_len_min,
-      stat_burst_len_max      => stat_burst_len_max,
-      stat_elapsed_cycles     => stat_elapsed_cycles,
-      stat_r_stall            => stat_r_stall,
-      pipeline_busy           => pipeline_busy,
-      stat_max_outstanding    => stat_max_outstanding,
-      stat_data_errors        => stat_data_errors,
-      stat_id_errors          => stat_id_errors,
-      stat_rlast_errors       => stat_rlast_errors,
-      stat_resp_errors        => stat_resp_errors,
+      -- Clock, reset, and timebase
+      aclk        => aclk,
+      aresetn     => aresetn,
+      global_time => global_time,
+
+      -- Control
+      enable        => enable,
+      stat_rst      => stat_rst,
+      err_rst       => err_rst,
+      data_check_en => data_check_en,
+
+      -- AR channel taps
+      ar_valid => ar_valid,
+      ar_ready => ar_ready,
+      ar_id    => ar_id,
+      ar_addr  => ar_addr,
+      ar_len   => ar_len,
+
+      -- R channel taps
+      r_valid => r_valid,
+      r_ready => r_ready,
+      r_id    => r_id,
+      r_data  => r_data,
+      r_resp  => r_resp,
+      r_last  => r_last,
+
+      -- Statistics and status
+      stat_ar_seen             => stat_ar_seen,
+      stat_ar_stall            => stat_ar_stall,
+      stat_sb_backpressure     => stat_sb_backpressure,
+      stat_xactions            => stat_xactions,
+      stat_beats               => stat_beats,
+      stat_latency_sum         => stat_latency_sum,
+      stat_latency_min         => stat_latency_min,
+      stat_latency_max         => stat_latency_max,
+      stat_first_latency_sum   => stat_first_latency_sum,
+      stat_first_latency_min   => stat_first_latency_min,
+      stat_first_latency_max   => stat_first_latency_max,
+      stat_interbeat_gap_sum   => stat_interbeat_gap_sum,
+      stat_interbeat_gap_min   => stat_interbeat_gap_min,
+      stat_interbeat_gap_max   => stat_interbeat_gap_max,
+      stat_burst_len_sum       => stat_burst_len_sum,
+      stat_burst_len_min       => stat_burst_len_min,
+      stat_burst_len_max       => stat_burst_len_max,
+      stat_elapsed_cycles      => stat_elapsed_cycles,
+      stat_r_stall             => stat_r_stall,
+      pipeline_busy            => pipeline_busy,
+      stat_max_outstanding     => stat_max_outstanding,
+      stat_data_errors         => stat_data_errors,
+      stat_id_errors           => stat_id_errors,
+      stat_rlast_errors        => stat_rlast_errors,
+      stat_resp_errors         => stat_resp_errors,
       stat_sb_underflow_errors => stat_sb_underflow_errors
     );
 

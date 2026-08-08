@@ -335,10 +335,10 @@ This core exists in both SystemVerilog (`axilite_io.sv`) and VHDL
 Instantiating a VHDL entity from SV works **natively** with no wrapper:
 ```systemverilog
 axilite_io #(
-  .GC_NUM_ODATA  (2),
-  .GC_NUM_IDATA  (2),
-  .GC_NUM_OSTREAM(2),
-  .GC_NUM_ISTREAM(2)
+  .GC_NUM_ODATA   (2),
+  .GC_NUM_IDATA   (2),
+  .GC_NUM_OSTREAM (2),
+  .GC_NUM_ISTREAM (2)
 ) dut_vhd (
   .aclk         (clk),
   .s_axi_awaddr (awaddr),

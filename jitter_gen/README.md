@@ -99,7 +99,8 @@ jitter_gen/
 ├── README.md
 ├── rtl/
 │   ├── jitter_gen.vhd        — Core CDF jitter generator
-│   └── jitter_gen_top.vhd    — Synthesis wrapper (exposes all generics)
+│   ├── jitter_gen_top.vhd    — Synthesis wrapper (VHDL)
+│   └── jitter_gen_top.sv     — Synthesis wrapper (SystemVerilog)
 ├── scripts/
 │   └── vhdl.f
 └── tb/
@@ -113,4 +114,130 @@ root:
 
 ```
 run jitter_gen all
+```
+
+## Instantiation
+
+Ready-to-copy templates for instantiating `jitter_gen` in a design. Signal
+names match the ports; the PRNG, seeds, and CDF thresholds are set via
+constants (names prefixed `C_`).
+
+### Synthesis wrappers
+
+Ready-made synthesis tops are provided in both languages:
+
+- [rtl/jitter_gen_top.vhd](rtl/jitter_gen_top.vhd) - VHDL wrapper.
+- [rtl/jitter_gen_top.sv](rtl/jitter_gen_top.sv) - SystemVerilog wrapper
+  (binds the VHDL core via mixed language).
+
+### VHDL
+
+```vhdl
+architecture rtl of <your_design> is
+
+  constant C_JITTER_WIDTH    : positive := 8;
+  constant C_USE_XORSHIFT128 : boolean := false;
+  constant C_SEED            : std_logic_vector(31 downto 0) := x"DEADBEEF";
+  constant C_SEED0           : std_logic_vector(63 downto 0) := x"DEADBEEFCAFEBABE";
+  constant C_SEED1           : std_logic_vector(63 downto 0) := x"0123456789ABCDEF";
+  constant C_VAL_0           : integer := 0;
+  constant C_VAL_1           : integer := 1;
+  constant C_VAL_2           : integer := 3;
+  constant C_VAL_3           : integer := 7;
+  constant C_TH_0            : integer := 128;
+  constant C_TH_1            : integer := 192;
+  constant C_TH_2            : integer := 240;
+
+  -- Clock, reset, and controls
+  signal clk    : std_logic;  -- clock
+  signal rstn   : std_logic;  -- active-low synchronous reset
+  signal step   : std_logic;  -- advance the generator one step
+  signal enable : std_logic;  -- enable the generator
+
+  -- Generated jitter value
+  signal jitter : unsigned(C_JITTER_WIDTH-1 downto 0);  -- requires ieee.numeric_std
+
+begin
+
+  u_jitter_gen : entity work.jitter_gen
+    generic map (
+      GC_JITTER_WIDTH    => C_JITTER_WIDTH,
+      GC_USE_XORSHIFT128 => C_USE_XORSHIFT128,
+      GC_SEED            => C_SEED,
+      GC_SEED0           => C_SEED0,
+      GC_SEED1           => C_SEED1,
+      GC_VAL_0           => C_VAL_0,
+      GC_VAL_1           => C_VAL_1,
+      GC_VAL_2           => C_VAL_2,
+      GC_VAL_3           => C_VAL_3,
+      GC_TH_0            => C_TH_0,
+      GC_TH_1            => C_TH_1,
+      GC_TH_2            => C_TH_2
+    )
+    port map (
+      -- Clock, reset, and controls
+      clk    => clk,
+      rstn   => rstn,
+      step   => step,
+      enable => enable,
+
+      -- Generated jitter value
+      jitter => jitter
+    );
+
+end architecture;
+```
+
+### Verilog/SystemVerilog
+
+```systemverilog
+module <your_module>;
+
+  localparam int unsigned C_JITTER_WIDTH    = 8;
+  localparam bit          C_USE_XORSHIFT128 = 0;
+  localparam logic [31:0] C_SEED            = 32'hDEADBEEF;
+  localparam logic [63:0] C_SEED0           = 64'hDEADBEEFCAFEBABE;
+  localparam logic [63:0] C_SEED1           = 64'h0123456789ABCDEF;
+  localparam int          C_VAL_0           = 0;
+  localparam int          C_VAL_1           = 1;
+  localparam int          C_VAL_2           = 3;
+  localparam int          C_VAL_3           = 7;
+  localparam int          C_TH_0            = 128;
+  localparam int          C_TH_1            = 192;
+  localparam int          C_TH_2            = 240;
+
+  // Clock, reset, and controls
+  logic  clk;     // clock
+  logic  rstn;    // active-low synchronous reset
+  logic  step;    // advance the generator one step
+  logic  enable;  // enable the generator
+
+  // Generated jitter value
+  logic [C_JITTER_WIDTH-1:0] jitter;  // generated jitter value
+
+  jitter_gen #(
+    .GC_JITTER_WIDTH    (C_JITTER_WIDTH),
+    .GC_USE_XORSHIFT128 (C_USE_XORSHIFT128),
+    .GC_SEED            (C_SEED),
+    .GC_SEED0           (C_SEED0),
+    .GC_SEED1           (C_SEED1),
+    .GC_VAL_0           (C_VAL_0),
+    .GC_VAL_1           (C_VAL_1),
+    .GC_VAL_2           (C_VAL_2),
+    .GC_VAL_3           (C_VAL_3),
+    .GC_TH_0            (C_TH_0),
+    .GC_TH_1            (C_TH_1),
+    .GC_TH_2            (C_TH_2)
+  ) u_jitter_gen (
+    // Clock, reset, and controls
+    .clk    (clk),
+    .rstn   (rstn),
+    .step   (step),
+    .enable (enable),
+
+    // Generated jitter value
+    .jitter (jitter)
+  );
+
+endmodule
 ```
