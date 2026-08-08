@@ -303,6 +303,7 @@ axilite_io_tb
         └── axilite_io_harness  (t_slv32_array ↔ flattened conversion)
               └── axilite_io_wrap (flattened slv ports, VHDL or SV)
                     └── axilite_io.vhd or axilite_io.sv
+```
 
 ---
 
