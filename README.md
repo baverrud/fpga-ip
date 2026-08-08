@@ -72,6 +72,7 @@ every run, removed by `run clean <ip>`).
 | [jitter_gen](jitter_gen/README.md) | `jitter_gen/` | CDF-based jitter injector with configurable bucket thresholds. Wraps `parallel_prng`. |
 | [axis_latency_gen](axis_latency_gen/README.md) | `axis_latency_gen/` | AXI4-Stream delay element with configurable base delay + jitter. Wraps `axis_fifo` and `jitter_gen`. |
 | [axis_skid_buffer](axis_skid_buffer/README.md) | `axis_skid_buffer/` | AXI4-Stream 2-deep skid buffer with bypass path. Absorbs one beat of backpressure. |
+| [pulse_extender](pulse_extender/README.md) | `pulse_extender/` | Level-triggered pulse extender. A high on `trigger` sampled at a rising edge while idle drives `pulse_out` high for a configurable number of clock cycles. |
 | [axi_mem_model](axi_mem_model/README.md) | `axi_mem_model/` | AXI4 read-slave that models DRAM-like latency and inter-beat gaps. Configurable widths (1-128 B), zero-latency mode, 1/cycle throughput. |
 | [axi_monitor](axi_monitor/README.md) | `axi_monitor/` | Passive AXI4 read-transaction monitor. Taps the AR/R channels, validates every R beat against a scoreboard, and accumulates transaction, latency, burst-length, and protocol-error statistics. |
 | [axilite_io](axilite_io/README.md) | `axilite_io/` | AXI4-Lite slave to register & stream bridge. Output registers (byte-strobe), input ports, AXI4-Stream push/pop channels. |
