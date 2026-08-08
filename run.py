@@ -91,12 +91,14 @@ import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent          # fpga-ip repo root
 INI_PATH = REPO_ROOT / "tool_capabilities.ini"        # tool capability profiles
 RUNS_DIRNAME = ".runs"                                # disposable per-tool build dirs
 TOOLCHAINS_ENV = "FPGA_IP_TOOLCHAINS"                 # optional local config path
+DIAGNOSTICS_ENV = "FPGA_IP_DIAGNOSTICS"               # hidden diagnostic capture
 
 # VHDL language standards accepted in manifests (values, not vcom flags).
 VALID_STDS = {"1993", "2002", "2008", "2019"}
@@ -146,6 +148,12 @@ def _persistent_project_dir(value: str, ip: str) -> Path:
     return path
 
 
+def _diagnostics_enabled() -> bool:
+    """Return whether hidden per-run diagnostic archives are enabled."""
+    value = os.environ.get(DIAGNOSTICS_ENV, "").strip().lower()
+    return value not in ("", "0", "false", "no", "off")
+
+
 def _prepare_auto_run_dir(path: Path) -> None:
     """Delete and recreate one disposable tool-run directory.
 
@@ -154,7 +162,20 @@ def _prepare_auto_run_dir(path: Path) -> None:
     current one. The caller guarantees the path is under <ip>/.runs/ (see
     _auto_run_dir), so this never touches tracked sources.
     """
-    shutil.rmtree(path, ignore_errors=True)
+    cleanup_errors: list[str] = []
+
+    def record_cleanup_error(function, failed_path, exc_info) -> None:
+        cleanup_errors.append(
+            f"{function.__name__} {failed_path}: {exc_info[1]}"
+        )
+
+    shutil.rmtree(path, onerror=record_cleanup_error)
+    if cleanup_errors:
+        diagnostics_dir = path.parent / "diagnostics"
+        diagnostics_dir.mkdir(parents=True, exist_ok=True)
+        with (diagnostics_dir / "cleanup.log").open("a", encoding="utf-8") as log:
+            log.write(f"run_dir = {path.resolve()}\n")
+            log.write("\n".join(cleanup_errors) + "\n\n")
     path.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
@@ -324,6 +345,8 @@ class Toolchains:
                 f"toolchain setup failed for {tool} (exit {setup_rc}); "
                 f"profile: {self.path}"
             )
+        if tool == "questa" and prepared.get("QSIM_INI"):
+            prepared.pop("MODELSIM", None)
         self.environment_cache[key] = prepared
         return prepared
 
@@ -1213,6 +1236,37 @@ def _msim_transcript_failed(sim_dir: Path) -> bool:
     return ("** Failure:" in text) or ("** Error:" in text)
 
 
+def _archive_msim_run(launch_dir: Path, script_name: str, rc: int,
+                      transcript_failed: bool,
+                      tool_env: dict[str, str] | None) -> Path:
+    """Preserve ModelSim/Questa artifacts before the run directory is reused."""
+    archive_root = launch_dir.parent / (
+        "failures" if rc != 0 else "diagnostics"
+    )
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    archive_dir = archive_root / f"{Path(script_name).stem}_{stamp}"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    script = launch_dir / script_name
+    if script.is_file():
+        shutil.copy2(script, archive_dir / script.name)
+    for name in ("transcript", "tool_output.log"):
+        source = launch_dir / name
+        if source.is_file():
+            shutil.copy2(source, archive_dir / name)
+    metadata = [
+        f"script = {script.name}",
+        f"launch_dir = {launch_dir.resolve()}",
+        f"return_code = {rc}",
+        f"transcript_failure_marker = {transcript_failed}",
+        f"MODELSIM = {(tool_env or {}).get('MODELSIM', '')}",
+        f"QSIM_INI = {(tool_env or {}).get('QSIM_INI', '')}",
+    ]
+    (archive_dir / "metadata.txt").write_text(
+        "\n".join(metadata) + "\n", encoding="utf-8"
+    )
+    return archive_dir
+
+
 def _subprocess_redirect() -> tuple[int | None, int | None]:
     """Redirect targets for tool subprocesses.
 
@@ -1227,7 +1281,8 @@ def _subprocess_redirect() -> tuple[int | None, int | None]:
     return None, None
 
 
-def _run_cmd(cmd: str, cwd: Path | None = None, env: dict | None = None) -> int:
+def _run_cmd(cmd: str, cwd: Path | None = None, env: dict | None = None,
+             log_path: Path | None = None) -> int:
     """Run one EDA command through a CMD shell and return its exit code.
 
     All EDA tools on this platform are launched via `cmd.exe /c <cmd>`; the
@@ -1245,9 +1300,22 @@ def _run_cmd(cmd: str, cwd: Path | None = None, env: dict | None = None) -> int:
     if not _QUIET:
         cwd_note = f" (cwd: {cwd})" if cwd is not None else ""
         print(f"cmd : cmd.exe /c \"{cmd}\"{cwd_note}")
-    out, err = _subprocess_redirect()
-    return subprocess.run(["cmd.exe", "/c", cmd], cwd=cwd, env=env,
-                          stdout=out, stderr=err).returncode
+    log_file = None
+    if _QUIET and log_path is not None:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_file = log_path.open("wb")
+        out, err = log_file, subprocess.STDOUT
+    else:
+        out, err = _subprocess_redirect()
+    try:
+        return subprocess.run(["cmd.exe", "/c", cmd], cwd=cwd, env=env,
+                              stdout=out, stderr=err).returncode
+    finally:
+        if log_file is not None:
+            log_file.close()
+
+
+_LAST_FAILURE_ARTIFACT: Path | None = None
 
 
 def run_msim(launch_dir: Path, script_name: str, mode: str,
@@ -1266,6 +1334,8 @@ def run_msim(launch_dir: Path, script_name: str, mode: str,
     points at a shared/read-only ini ("Unable to replace existing ini file
     ... Access is denied"). See fpga-rules/questa_modelsim_project_guide.md.
     """
+    global _LAST_FAILURE_ARTIFACT
+    _LAST_FAILURE_ARTIFACT = None
     if mode == "batch":
         vsim_cmd = f"vsim -c -do {script_name}"
     else:
@@ -1289,13 +1359,22 @@ def run_msim(launch_dir: Path, script_name: str, mode: str,
     inner = f"cd /d {launch_dir} & {vsim_cmd}"
     # vsim inherits the console unless the sweep suppressed output; cwd is
     # set via 'cd /d' inside the CMD string (vsim must start in the run dir).
-    rc = _run_cmd(inner, env=env)
+    rc = _run_cmd(inner, env=env, log_path=launch_dir / "tool_output.log")
+    transcript_failed = False
     if mode == "batch" and rc == 0:
         # vsim -c exits 0 even when a VHDL assertion fails at runtime
         # (onerror only catches Tcl errors); scan the transcript instead.
         sim_dir = launch_dir.resolve()
-        if _msim_transcript_failed(sim_dir):
+        transcript_failed = _msim_transcript_failed(sim_dir)
+        if transcript_failed:
             rc = 1
+    if mode == "batch" and (rc != 0 or _diagnostics_enabled()):
+        _LAST_FAILURE_ARTIFACT = _archive_msim_run(
+            launch_dir, script_name, rc, transcript_failed, tool_env
+        )
+        if not _QUIET:
+            label = "diagnostics" if rc == 0 else "failure diagnostics"
+            print(f"{label}: {_LAST_FAILURE_ARTIFACT}", file=sys.stderr)
     return rc
 
 
@@ -1844,7 +1923,7 @@ def _run_all(args, caps: Capabilities, toolchains: Toolchains) -> int:
     is executed by re-invoking main() with quiet output, so the exact
     single-target backend behavior is reused.
     """
-    global _QUIET
+    global _QUIET, _LAST_FAILURE_ARTIFACT
     ips = _all_ips() if args.ip == "all" else [args.ip]
     tools = caps.tool_names() if args.tool == "all" else [args.tool]
     manifests = {ip: (_all_manifests(ip) if args.manifest == "all"
@@ -1936,6 +2015,7 @@ def _run_all(args, caps: Capabilities, toolchains: Toolchains) -> int:
                 # the user sees what is executing, then append the result.
                 print(row(ip_c, man_c, tb_c, tool_c), end="", flush=True)
                 _QUIET = True
+                _LAST_FAILURE_ARTIFACT = None
                 try:
                     child_args = [ip, manifest, tool]
                     if args.version:
@@ -1951,8 +2031,22 @@ def _run_all(args, caps: Capabilities, toolchains: Toolchains) -> int:
                     print(f"{GREEN}PASS{RESET}")
                 else:
                     failed += 1
-                    failed_list.append((ident, f"exit {rc}"))
-                    print(f"{RED}FAIL{RESET} (exit {rc})")
+                    failure_note = f"exit {rc}"
+                    if _LAST_FAILURE_ARTIFACT is not None:
+                        try:
+                            artifact = _LAST_FAILURE_ARTIFACT.relative_to(REPO_ROOT)
+                        except ValueError:
+                            artifact = _LAST_FAILURE_ARTIFACT
+                        failure_note += f"; diagnostics: {artifact.as_posix()}"
+                    failed_list.append((ident, failure_note))
+                    print(f"{RED}FAIL{RESET} ({failure_note})")
+                    if _diagnostics_enabled():
+                        print("Diagnostics mode: stopping after first failure.")
+                        break
+            if _diagnostics_enabled() and failed:
+                break
+        if _diagnostics_enabled() and failed:
+            break
 
     print()
     print("=" * 62)
