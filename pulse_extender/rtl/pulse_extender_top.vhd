@@ -3,6 +3,7 @@
 --Description      : Synthesis wrapper for pulse_extender.
 --                 : Passes the pulse-length generic through to the core.
 --Author           : Rune Baeverrud
+--Current Revision : 1.00
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;

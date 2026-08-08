@@ -10,12 +10,12 @@
 `timescale 1ns/1ps
 
 module pulse_extender_top #(
-    parameter int GC_PULSE_LEN = 4   // output pulse length in clock cycles
+    parameter int unsigned GC_PULSE_LEN = 4   // output pulse length in clock cycles
 ) (
-    input  logic clk,
-    input  logic rstn,
-    input  logic trigger,
-    output logic pulse_out
+    input  logic clk,         // clock
+    input  logic rstn,        // active-low synchronous reset
+    input  logic trigger,     // trigger input, sampled only while idle
+    output logic pulse_out    // extended output pulse
 );
 
   // Instantiate the VHDL core (mixed-language binding).

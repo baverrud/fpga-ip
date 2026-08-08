@@ -97,8 +97,10 @@ Signal names match the ports; the pulse length is set via the
 
 Ready-made synthesis tops are provided in both languages, so
 `pulse_extender` can be used as a standalone netlist top without writing an
-instance by hand. Each passes the `GC_PULSE_LEN` generic through to the
-core:
+instance by hand. Both pass the `GC_PULSE_LEN` generic through to the core.
+The VHDL wrapper is used by the standard `vhdl.f` synthesis flow; the
+SystemVerilog wrapper is supplemental mixed-language support and is verified
+by compiling it together with the VHDL core.
 
 - [rtl/pulse_extender_top.vhd](rtl/pulse_extender_top.vhd) - VHDL wrapper:
   `entity pulse_extender_top` instantiates the core with a direct
@@ -116,10 +118,10 @@ architecture rtl of <your_design> is
   constant C_PULSE_LEN : positive := 8;  -- output pulse length in clock cycles
 
   -- Signal list (names match the ports)
-  signal clk       : std_logic;
-  signal rstn      : std_logic;
-  signal trigger   : std_logic;
-  signal pulse_out : std_logic;
+  signal clk       : std_logic;  -- clock
+  signal rstn      : std_logic;  -- active-low synchronous reset
+  signal trigger   : std_logic;  -- trigger input (sampled only while idle)
+  signal pulse_out : std_logic;  -- extended output pulse
 
 begin
 
@@ -145,10 +147,10 @@ module <your_module>;
   localparam int unsigned C_PULSE_LEN = 8;  // output pulse length in clock cycles
 
   // Signal list (names match the ports)
-  logic clk;
-  logic rstn;
-  logic trigger;
-  logic pulse_out;
+  logic clk;       // clock
+  logic rstn;      // active-low synchronous reset
+  logic trigger;   // trigger input (sampled only while idle)
+  logic pulse_out; // extended output pulse
 
   pulse_extender #(
     .GC_PULSE_LEN (C_PULSE_LEN)
