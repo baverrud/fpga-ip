@@ -137,6 +137,7 @@ token contains no `=` is a file path. Testbench sections support:
 | `top` | Exact simulation entity/module to elaborate (required for a TB) |
 | `time_res` | Optional simulator resolution override, e.g. `ps` or `fs` |
 | `requires` | Comma-separated capability feature tokens, e.g. `uvvm` (empty = none) |
+| `generics` | Comma-separated top-level generic overrides for `top`, e.g. `GC_TS=13ns, GC_TM=10ns`; emitted as `-g<name>=<value>` (ModelSim/Questa) or `-generic_top name=value` (XSim). Values must not contain spaces. |
 | `wave` | Optional name of a `[wave:<name>]` view (parsed, not yet consumed) |
 
 ```text
@@ -152,7 +153,18 @@ time_res = fs
 requires = uvvm
 axis_fifo/tb/axis_fifo_uvvm_th.vhd
 axis_fifo/tb/axis_fifo_uvvm_tb.vhd
+
+[tb:rev]
+top = axis_fifo_tb
+generics = GC_TS=13ns, GC_TM=10ns
+axis_fifo/tb/axis_fifo_tb.vhd
 ```
+
+`generics` overrides top-level generics of the `top` entity (for example
+clock periods), so one parameterized testbench can serve multiple
+configurations without a second TB file. The `[tb:rev]` example runs the
+same `axis_fifo_tb` file with different periods via
+`run axis_fifo vhdl modelsim --tb rev`.
 
 `requires` values must be present in `tool_capabilities.ini` under
 `[features] allowed_features`; an unknown token is a validation error

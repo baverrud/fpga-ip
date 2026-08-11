@@ -572,11 +572,11 @@ class Section:
 
     entries holds FileEntry or IncludeEntry objects in file order. meta
     collects the 'key = value' lines that precede file paths, such as top,
-    time_res, requires, and wave.
+    time_res, requires, wave, and generics.
     """
     name: str
     entries: list = field(default_factory=list)   # FileEntry | IncludeEntry
-    meta: dict = field(default_factory=dict)      # top, time_res, requires, wave
+    meta: dict = field(default_factory=dict)      # top, time_res, requires, wave, generics
 
 
 @dataclass
@@ -693,7 +693,7 @@ def parse_manifest(path: Path) -> Manifest:
             continue
 
         # Section metadata line: "key = value" (top, time_res, requires, wave,
-        # group, signal, ...). File paths never start with 'identifier ='.
+        # generics, group, signal, ...). File paths never start with 'identifier ='.
         meta = META_RE.match(line)
         if meta:
             current.meta[meta.group(1).lower()] = meta.group(2).strip()
@@ -957,10 +957,34 @@ def _compile_lines(files: list[FileEntry], indent: str = "") -> list[str]:
     return out
 
 
+def _generic_pairs(generics: str | None) -> list[tuple[str, str]]:
+    """Parse a 'generics = name=value, name=value' tb metadata value.
+
+    Used to override top-level testbench generics per [tb:<name>] section:
+    vsim gets '-g<name>=<value>', XSim xelab gets '-generic_top name=value'.
+    Values must not contain spaces (use '13ns', not '13 ns').
+    """
+    pairs: list[tuple[str, str]] = []
+    if not generics:
+        return pairs
+    for item in generics.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if "=" not in item:
+            raise RunnerError(f"generics entry must be 'name=value': {item!r}")
+        name, value = (part.strip() for part in item.split("=", 1))
+        if not name or not value:
+            raise RunnerError(f"generics entry needs a name and a value: {item!r}")
+        pairs.append((name, value))
+    return pairs
+
+
 def write_msim_script(script_path: Path, files: list[FileEntry], top: str,
                       time_res: str | None, mode: str, tool: str,
                       manifest_name: str, ip: str, tb_label: str,
-                      script_name: str) -> None:
+                      script_name: str,
+                      generics: str | None = None) -> None:
     """Generate a flat, portable, non-project ModelSim/Questa Tcl script.
 
     The script is intended to be reusable on machines without Python. It
@@ -1098,6 +1122,8 @@ def write_msim_script(script_path: Path, files: list[FileEntry], top: str,
         vsim_args = ['-voptargs="+acc"']
         if time_res:
             vsim_args.append(f"-t {time_res}")
+        for name, value in _generic_pairs(generics):
+            vsim_args.append(f"-g{name}={value}")
         vsim_args.append(f"work.{top}")
         lines.append(f"# Elaborate and simulate the '{top}' target.")
         lines.append("vsim " + " ".join(vsim_args))
@@ -1194,6 +1220,8 @@ def write_msim_script(script_path: Path, files: list[FileEntry], top: str,
     vsim_args = ['-voptargs="+acc"']
     if time_res:
         vsim_args.append(f"-t {time_res}")
+    for name, value in _generic_pairs(generics):
+        vsim_args.append(f"-g{name}={value}")
     vsim_args.append(f"work.{top}")
     lines.append(f"# Elaborate and simulate the '{top}' target.")
     lines.append("vsim " + " ".join(vsim_args))
@@ -1419,7 +1447,8 @@ def _xsim_log_failed(sim_dir: Path) -> bool:
 def write_xsim_script(script_path: Path, files: list[FileEntry],
                   top: str, mode: str, tool: str, manifest_name: str,
                   ip: str, tb_label: str, script_name: str,
-                  std: str) -> None:
+                  std: str,
+                  generics: str | None = None) -> None:
     """Generate one self-contained XSim Tcl wrapper.
 
     The same file runs in two Tcl hosts:
@@ -1505,10 +1534,12 @@ def write_xsim_script(script_path: Path, files: list[FileEntry],
             command = f"[list xvlog -sv --work work ${source_var}]"
         lines.append(f"  run_external \"compile {rel}\" {command}")
     lines += ["", "  # GUI waveforms require trace/debug instrumentation at elaboration."]
+    gen_args = " ".join(f"-generic_top {name}={value}"
+                        for name, value in _generic_pairs(generics))
     if mode == "gui":
-        lines.append(f"  run_external \"elaborate {top}\" [list xelab -debug all work.{top} -s $snapshot]")
+        lines.append(f'  run_external "elaborate {top}" [list xelab -debug all {gen_args} work.{top} -s $snapshot]')
     else:
-        lines.append(f"  run_external \"elaborate {top}\" [list xelab work.{top} -s $snapshot]")
+        lines.append(f'  run_external "elaborate {top}" [list xelab {gen_args} work.{top} -s $snapshot]')
     if mode == "batch":
         lines += ["  set xsim_command [list xsim $snapshot --tclbatch [file normalize [info script]]]"]
     else:
@@ -2306,7 +2337,8 @@ def main(argv: list[str] | None = None) -> int:
                 _prepare_auto_run_dir(build_dir)
             script_path = build_dir / script_name
             write_msim_script(script_path, files, top, time_res, mode, tool,
-                              manifest_base, args.ip, tb_label, script_name)
+                              manifest_base, args.ip, tb_label, script_name,
+                              generics=meta.get("generics"))
             if not _QUIET:
                 print(f"script   : {script_path.relative_to(REPO_ROOT).as_posix()}")
             # The generated script rebuilds the work library itself. Use
@@ -2346,7 +2378,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  NOTE: XSim compiles all VHDL at DEFAULT_STD {std} "
                       f"(one standard per work library; per-file std ignored)")
             write_xsim_script(script_path, files, top, mode, tool,
-                              manifest_base, args.ip, tb_label, script_name, std)
+                              manifest_base, args.ip, tb_label, script_name, std,
+                              generics=meta.get("generics"))
             if not _QUIET:
                 print(f"script   : {script_path.relative_to(REPO_ROOT).as_posix()}")
             rc = run_xsim(script_path.parent, script_path, mode, tool_env)

@@ -169,6 +169,51 @@ class RunnerTests(unittest.TestCase):
             self.assertNotIn("xelab -debug all", batch_text)
             self.assertNotIn("--gui --tclbatch", batch_text)
 
+    def test_generic_pairs_parse_metadata(self):
+        self.assertEqual(
+            runner._generic_pairs("GC_TS=13ns, GC_TM=10ns"),
+            [("GC_TS", "13ns"), ("GC_TM", "10ns")],
+        )
+        self.assertEqual(runner._generic_pairs(None), [])
+        self.assertEqual(runner._generic_pairs(""), [])
+        with self.assertRaises(runner.RunnerError):
+            runner._generic_pairs("GC_TS")
+        with self.assertRaises(runner.RunnerError):
+            runner._generic_pairs("=10ns")
+
+    def test_msim_script_emits_generic_overrides(self):
+        files = [
+            runner.FileEntry(
+                path=REPO_ROOT / "common/rtl/util_pkg.vhd",
+                section="rtl",
+                std="2008",
+                lib="work",
+                tools=[],
+                order=1,
+            )
+        ]
+        runs_root = REPO_ROOT / ".runs"
+        runs_root.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=runs_root) as temp_dir:
+            sim_path = Path(temp_dir) / "sim_batch.tcl"
+            runner.write_msim_script(
+                sim_path, files, "axis_cdc_tb", None, "batch", "modelsim",
+                "vhdl.f", "axis_cdc", "rev", sim_path.name,
+                generics="GC_TS=13ns, GC_TM=10ns",
+            )
+            text = sim_path.read_text(encoding="utf-8")
+            self.assertIn("-gGC_TS=13ns -gGC_TM=10ns work.axis_cdc_tb", text)
+        # Without generics the plain vsim line must be unchanged.
+        with tempfile.TemporaryDirectory(dir=runs_root) as temp_dir:
+            sim_path = Path(temp_dir) / "sim_batch.tcl"
+            runner.write_msim_script(
+                sim_path, files, "axis_cdc_tb", None, "batch", "modelsim",
+                "vhdl.f", "axis_cdc", "default", sim_path.name,
+            )
+            text = sim_path.read_text(encoding="utf-8")
+            self.assertIn('vsim -voptargs="+acc" work.axis_cdc_tb', text)
+            self.assertNotIn("-gGC_TS", text)
+
 
 if __name__ == "__main__":
     unittest.main()

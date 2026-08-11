@@ -259,6 +259,19 @@ class PropertyTests(unittest.TestCase):
         out = fmt.prettify_code(lines, "vhdl", "moderate")
         self.assertEqual(out, [ln.rstrip() for ln in lines])
 
+    def test_variable_assignment_untouched(self):
+        """A 'name := value' assignment must never be split into ': ='."""
+        lines = [
+            "    v := r_s;  -- default: hold current state",
+            "    v_accept := (a = '1') and (b = '0');",
+        ]
+        for style in ("extreme", "moderate", "collapsed"):
+            with self.subTest(style=style):
+                out = fmt.prettify_code(list(lines), "vhdl", style)
+                self.assertNotIn(": =", "\n".join(out))
+                self.assertTrue(fmt._check_invariant(lines, out),
+                                "assignment token stream changed")
+
 
 class MarkdownTests(unittest.TestCase):
     """Only vhdl/systemverilog fenced blocks are touched."""

@@ -148,7 +148,12 @@ def _vhd_head_split(head):
 
 
 def _vhd_decl_cells(body, cmt):
-    """Parse a VHDL generic/port/signal declaration into cells."""
+    """Parse a VHDL generic/port/signal declaration into cells.
+
+    Returns None for a variable assignment ('name := value'), which is NOT
+    a declaration: _VHD_DECL_RE would otherwise misread it as a declaration
+    with a bogus type '= value' and reformat the ':=' into ': ='.
+    """
     m = _VHD_GEN_RE.match(body)
     if m:
         return {"is_gen": True, "ind": m.group("ind"),
@@ -158,10 +163,15 @@ def _vhd_decl_cells(body, cmt):
                 "cmt": cmt}
     m = _VHD_DECL_RE.match(body)
     if m:
-        return {"is_gen": False, "ind": m.group("ind"),
+        c = {"is_gen": False, "ind": m.group("ind"),
             "kind": m.group("kind") or "", "name": m.group("name"),
                 "dir": m.group("dir") or "", "type": m.group("type").strip(),
                 "value": "", "tail": m.group("tail"), "cmt": cmt}
+        # 'name := value' (assignment) parses as name : '= value'. The ':='
+        # token is never a declaration type, so leave such lines untouched.
+        if c["type"].startswith("="):
+            return None
+        return c
     return None
 
 
