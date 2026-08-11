@@ -365,52 +365,100 @@ ratio**; the practical limits are rate and depth:
 
 ## Instantiation
 
+Ready-to-copy templates for instantiating `axis_cdc` in a design. The
+example uses the default **32-bit, depth-8, 2 sync stages** configuration;
+data width and FIFO depth follow from `GC_TDATA_WIDTH` / `GC_CDC_DEPTH`.
+
 ### VHDL
 
 ```vhdl
-u_cdc : entity work.axis_cdc
-  generic map (
-    GC_TDATA_WIDTH => 32,
-    GC_CDC_DEPTH   => 8,
-    GC_SYNC_STAGES => 2
-  )
-  port map (
-    -- Source domain
-    s_axis_aclk   => s_axis_aclk,
-    aresetn       => aresetn,
-    s_axis_tdata  => s_axis_tdata,
-    s_axis_tvalid => s_axis_tvalid,
-    s_axis_tready => s_axis_tready,
+architecture rtl of <your_design> is
 
-    -- Destination domain
-    m_axis_aclk   => m_axis_aclk,
-    m_axis_tdata  => m_axis_tdata,
-    m_axis_tvalid => m_axis_tvalid,
-    m_axis_tready => m_axis_tready
-  );
+  -- Shared reset (synchronized into both clock domains)
+  signal aresetn : std_logic;  -- synchronous, active low
+
+  -- Source domain (narrow input)
+  signal s_axis_aclk   : std_logic;                      -- source clock
+  signal s_axis_tdata  : std_logic_vector(31 downto 0);  -- source data
+  signal s_axis_tvalid : std_logic;                      -- source valid
+  signal s_axis_tready : std_logic;                      -- source ready
+
+  -- Destination domain (wide output)
+  signal m_axis_aclk   : std_logic;                      -- destination clock
+  signal m_axis_tdata  : std_logic_vector(31 downto 0);  -- destination data
+  signal m_axis_tvalid : std_logic;                      -- destination valid
+  signal m_axis_tready : std_logic;                      -- destination ready
+
+begin
+
+  u_cdc : entity work.axis_cdc
+    generic map (
+      GC_TDATA_WIDTH => 32,  -- data width (bits)
+      GC_CDC_DEPTH   => 8,   -- FIFO depth (power of two)
+      GC_SYNC_STAGES => 2    -- synchronizer stages
+    )
+    port map (
+      -- Shared reset
+      aresetn => aresetn,
+
+      -- Source domain
+      s_axis_aclk   => s_axis_aclk,
+      s_axis_tdata  => s_axis_tdata,
+      s_axis_tvalid => s_axis_tvalid,
+      s_axis_tready => s_axis_tready,
+
+      -- Destination domain
+      m_axis_aclk   => m_axis_aclk,
+      m_axis_tdata  => m_axis_tdata,
+      m_axis_tvalid => m_axis_tvalid,
+      m_axis_tready => m_axis_tready
+    );
+
+end architecture;
 ```
 
 ### SystemVerilog
 
 ```systemverilog
-axis_cdc #(
-    .GC_TDATA_WIDTH (32),
-    .GC_CDC_DEPTH   (8),
-    .GC_SYNC_STAGES (2)
-) u_cdc (
-    // Source domain
-    .s_axis_aclk   (s_axis_aclk),
-    .aresetn       (aresetn),
-    .s_axis_tdata  (s_axis_tdata),
-    .s_axis_tvalid (s_axis_tvalid),
-    .s_axis_tready (s_axis_tready),
+module <your_module>;
 
-    // Destination domain
-    .m_axis_aclk   (m_axis_aclk),
-    .m_axis_tdata  (m_axis_tdata),
-    .m_axis_tvalid (m_axis_tvalid),
-    .m_axis_tready (m_axis_tready)
-);
+  // Shared reset (synchronized into both clock domains)
+  logic aresetn;  // synchronous, active low
+
+  // Source domain (narrow input)
+  logic        s_axis_aclk;    // source clock
+  logic [31:0] s_axis_tdata;   // source data
+  logic        s_axis_tvalid;  // source valid
+  logic        s_axis_tready;  // source ready
+
+  // Destination domain (wide output)
+  logic        m_axis_aclk;    // destination clock
+  logic [31:0] m_axis_tdata;   // destination data
+  logic        m_axis_tvalid;  // destination valid
+  logic        m_axis_tready;  // destination ready
+
+  axis_cdc #(
+      .GC_TDATA_WIDTH (32),  // data width (bits)
+      .GC_CDC_DEPTH   (8),   // FIFO depth (power of two)
+      .GC_SYNC_STAGES (2)    // synchronizer stages
+  ) u_cdc (
+      // Shared reset
+      .aresetn (aresetn),
+
+      // Source domain
+      .s_axis_aclk   (s_axis_aclk),
+      .s_axis_tdata  (s_axis_tdata),
+      .s_axis_tvalid (s_axis_tvalid),
+      .s_axis_tready (s_axis_tready),
+
+      // Destination domain
+      .m_axis_aclk   (m_axis_aclk),
+      .m_axis_tdata  (m_axis_tdata),
+      .m_axis_tvalid (m_axis_tvalid),
+      .m_axis_tready (m_axis_tready)
+  );
+
+endmodule
 ```
 
 ### Synthesis wrappers

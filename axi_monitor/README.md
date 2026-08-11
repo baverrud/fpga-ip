@@ -424,51 +424,59 @@ module <your_module>;
   localparam int unsigned C_STAT_WIDTH    = 48;
   localparam int unsigned C_SB_FIFO_DEPTH = 256;
 
-  // Signal list (names match the ports)
-  logic                      aclk;
-  logic                      aresetn;
-  logic [C_TIME_WIDTH-1:0]   global_time;
-  logic                      enable;
-  logic                      stat_rst;
-  logic                      err_rst;
-  logic                      data_check_en;
-  logic                      ar_valid;
-  logic                      ar_ready;
-  logic [C_ID_WIDTH-1:0]     ar_id;
-  logic [C_ADDR_WIDTH-1:0]   ar_addr;
-  logic [7:0]                ar_len;
-  logic                      r_valid;
-  logic                      r_ready;
-  logic [C_ID_WIDTH-1:0]     r_id;
-  logic [8*C_DATA_BYTES-1:0] r_data;
-  logic [1:0]                r_resp;
-  logic                      r_last;
-  logic [31:0]               stat_ar_seen;
-  logic [31:0]               stat_ar_stall;
-  logic [31:0]               stat_sb_backpressure;
-  logic [31:0]               stat_xactions;
-  logic [31:0]               stat_beats;
-  logic [C_STAT_WIDTH-1:0]   stat_latency_sum;
-  logic [31:0]               stat_latency_min;
-  logic [31:0]               stat_latency_max;
-  logic [C_STAT_WIDTH-1:0]   stat_first_latency_sum;
-  logic [31:0]               stat_first_latency_min;
-  logic [31:0]               stat_first_latency_max;
-  logic [C_STAT_WIDTH-1:0]   stat_interbeat_gap_sum;
-  logic [31:0]               stat_interbeat_gap_min;
-  logic [31:0]               stat_interbeat_gap_max;
-  logic [C_STAT_WIDTH-1:0]   stat_burst_len_sum;
-  logic [31:0]               stat_burst_len_min;
-  logic [31:0]               stat_burst_len_max;
-  logic [31:0]               stat_elapsed_cycles;
-  logic [31:0]               stat_r_stall;
-  logic                      pipeline_busy;
-  logic [31:0]               stat_max_outstanding;
-  logic [31:0]               stat_data_errors;
-  logic [31:0]               stat_id_errors;
-  logic [31:0]               stat_rlast_errors;
-  logic [31:0]               stat_resp_errors;
-  logic [31:0]               stat_sb_underflow_errors;
+  // Clock, reset, and timebase
+  logic                    aclk;         // clock
+  logic                    aresetn;      // active-low synchronous reset
+  logic [C_TIME_WIDTH-1:0] global_time;  // free-running timebase
+
+  // Control
+  logic enable;        // monitor enable
+  logic stat_rst;      // clear all statistics
+  logic err_rst;       // clear error statistics
+  logic data_check_en; // enable data validation
+
+  // AR channel tap
+  logic                    ar_valid;  // AR valid
+  logic                    ar_ready;  // AR ready
+  logic [C_ID_WIDTH-1:0]   ar_id;     // AR ID
+  logic [C_ADDR_WIDTH-1:0] ar_addr;   // AR address
+  logic [7:0]              ar_len;    // beats minus one
+
+  // R channel tap
+  logic                      r_valid;  // R valid
+  logic                      r_ready;  // R ready
+  logic [C_ID_WIDTH-1:0]     r_id;     // R ID
+  logic [8*C_DATA_BYTES-1:0] r_data;   // R data
+  logic [1:0]                r_resp;   // R response
+  logic                      r_last;   // last beat
+
+  // Statistics and status
+  logic [31:0]             stat_ar_seen;              // AR transactions seen
+  logic [31:0]             stat_ar_stall;             // AR ready-low cycles
+  logic [31:0]             stat_sb_backpressure;      // scoreboard full cycles
+  logic [31:0]             stat_xactions;             // completed transactions
+  logic [31:0]             stat_beats;                // total beats
+  logic [C_STAT_WIDTH-1:0] stat_latency_sum;          // latency accumulator
+  logic [31:0]             stat_latency_min;          // minimum latency
+  logic [31:0]             stat_latency_max;          // maximum latency
+  logic [C_STAT_WIDTH-1:0] stat_first_latency_sum;    // first-beat latency accumulator
+  logic [31:0]             stat_first_latency_min;    // minimum first-beat latency
+  logic [31:0]             stat_first_latency_max;    // maximum first-beat latency
+  logic [C_STAT_WIDTH-1:0] stat_interbeat_gap_sum;    // interbeat gap accumulator
+  logic [31:0]             stat_interbeat_gap_min;    // minimum interbeat gap
+  logic [31:0]             stat_interbeat_gap_max;    // maximum interbeat gap
+  logic [C_STAT_WIDTH-1:0] stat_burst_len_sum;        // burst-length accumulator
+  logic [31:0]             stat_burst_len_min;        // minimum burst length
+  logic [31:0]             stat_burst_len_max;        // maximum burst length
+  logic [31:0]             stat_elapsed_cycles;       // measured window length
+  logic [31:0]             stat_r_stall;              // R ready-low cycles
+  logic                    pipeline_busy;             // monitor actively tracking
+  logic [31:0]             stat_max_outstanding;      // peak outstanding reads
+  logic [31:0]             stat_data_errors;          // data mismatch count
+  logic [31:0]             stat_id_errors;            // ID mismatch count
+  logic [31:0]             stat_rlast_errors;         // rlast alignment errors
+  logic [31:0]             stat_resp_errors;          // unexpected rresp count
+  logic [31:0]             stat_sb_underflow_errors;  // scoreboard underflow count
 
   axi_monitor #(
     .GC_DATA_BYTES    (C_DATA_BYTES),
@@ -478,24 +486,33 @@ module <your_module>;
     .GC_STAT_WIDTH    (C_STAT_WIDTH),
     .GC_SB_FIFO_DEPTH (C_SB_FIFO_DEPTH)
   ) u_axi_monitor (
-    .aclk                     (aclk),
-    .aresetn                  (aresetn),
-    .global_time              (global_time),
-    .enable                   (enable),
-    .stat_rst                 (stat_rst),
-    .err_rst                  (err_rst),
-    .data_check_en            (data_check_en),
-    .ar_valid                 (ar_valid),
-    .ar_ready                 (ar_ready),
-    .ar_id                    (ar_id),
-    .ar_addr                  (ar_addr),
-    .ar_len                   (ar_len),
-    .r_valid                  (r_valid),
-    .r_ready                  (r_ready),
-    .r_id                     (r_id),
-    .r_data                   (r_data),
-    .r_resp                   (r_resp),
-    .r_last                   (r_last),
+    // Clock, reset, and timebase
+    .aclk        (aclk),
+    .aresetn     (aresetn),
+    .global_time (global_time),
+
+    // Control
+    .enable        (enable),
+    .stat_rst      (stat_rst),
+    .err_rst       (err_rst),
+    .data_check_en (data_check_en),
+
+    // AR channel tap
+    .ar_valid (ar_valid),
+    .ar_ready (ar_ready),
+    .ar_id    (ar_id),
+    .ar_addr  (ar_addr),
+    .ar_len   (ar_len),
+
+    // R channel tap
+    .r_valid (r_valid),
+    .r_ready (r_ready),
+    .r_id    (r_id),
+    .r_data  (r_data),
+    .r_resp  (r_resp),
+    .r_last  (r_last),
+
+    // Statistics and status
     .stat_ar_seen             (stat_ar_seen),
     .stat_ar_stall            (stat_ar_stall),
     .stat_sb_backpressure     (stat_sb_backpressure),

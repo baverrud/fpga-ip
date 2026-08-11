@@ -107,27 +107,27 @@ architecture rtl of <your_design> is
   signal stat_rst : std_logic;  -- clears statistic counters
 
   -- Runtime configuration
-  signal cfg_id         : std_logic_vector(C_ID_WIDTH-1 downto 0);
-  signal cfg_arlen      : std_logic_vector(log2ceil(C_MAX_BURST)-1 downto 0);  -- from work.util_pkg
-  signal cfg_pace       : std_logic_vector(31 downto 0);
-  signal cfg_pace_init  : std_logic_vector(31 downto 0);
-  signal cfg_base_addr  : std_logic_vector(C_ADDR_WIDTH-1 downto 0);
-  signal cfg_addr_range : std_logic_vector(C_ADDR_WIDTH-1 downto 0);
-  signal cfg_addr_mode  : std_logic;
+  signal cfg_id         : std_logic_vector(C_ID_WIDTH-1 downto 0);             -- AXI ID tag
+  signal cfg_arlen      : std_logic_vector(log2ceil(C_MAX_BURST)-1 downto 0);  -- beats per burst, minus one (from work.util_pkg)
+  signal cfg_pace       : std_logic_vector(31 downto 0);                       -- cycles between bursts (0 = every cycle)
+  signal cfg_pace_init  : std_logic_vector(31 downto 0);                       -- initial pace after enable/aperture
+  signal cfg_base_addr  : std_logic_vector(C_ADDR_WIDTH-1 downto 0);           -- burst window base address
+  signal cfg_addr_range : std_logic_vector(C_ADDR_WIDTH-1 downto 0);           -- burst window size
+  signal cfg_addr_mode  : std_logic;                                           -- 0 = linear, 1 = pseudo-random
 
   -- AXI Read-Address Channel
-  signal ar_valid : std_logic;
-  signal ar_ready : std_logic;
-  signal ar_id    : std_logic_vector(C_ID_WIDTH-1 downto 0);
-  signal ar_addr  : std_logic_vector(C_ADDR_WIDTH-1 downto 0);
-  signal ar_len   : std_logic_vector(7 downto 0);
-  signal ar_size  : std_logic_vector(2 downto 0);
-  signal ar_burst : std_logic_vector(1 downto 0);
+  signal ar_valid : std_logic;                                  -- AR valid
+  signal ar_ready : std_logic;                                  -- AR ready
+  signal ar_id    : std_logic_vector(C_ID_WIDTH-1 downto 0);    -- AR ID
+  signal ar_addr  : std_logic_vector(C_ADDR_WIDTH-1 downto 0);  -- AR address
+  signal ar_len   : std_logic_vector(7 downto 0);               -- beats minus one
+  signal ar_size  : std_logic_vector(2 downto 0);               -- bytes per beat (log2)
+  signal ar_burst : std_logic_vector(1 downto 0);               -- burst type (INCR)
 
   -- Statistics
-  signal stat_ar_stall   : std_logic_vector(31 downto 0);
-  signal stat_ar_issued  : std_logic_vector(31 downto 0);
-  signal stat_cfg_errors : std_logic_vector(31 downto 0);
+  signal stat_ar_stall   : std_logic_vector(31 downto 0);  -- AR ready-low cycles
+  signal stat_ar_issued  : std_logic_vector(31 downto 0);  -- AR transactions issued
+  signal stat_cfg_errors : std_logic_vector(31 downto 0);  -- invalid configuration count
 
 begin
 
