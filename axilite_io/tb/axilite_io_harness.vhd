@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------
 --Filename         : axilite_io_harness.vhd
---Description      : Array-port wrapper for axilite_io (t_slv32_array <->
+--Description      : Array-port wrapper for axilite_io (slv32_array_t <->
 --                 : flattened conversion).
 --Author           : Rune Baeverrud
 --Current Revision : 1.00
@@ -15,10 +15,10 @@
 -- ---------------
 -- axilite_io_wrap (VHDL or SV) normalises multi-slot data ports to
 -- flattened std_logic_vector.  This wrapper converts back to the
--- original t_slv32_array interface (matching axilite_io_vhd's ports).
+-- original slv32_array_t interface (matching axilite_io_vhd's ports).
 --
 -- Instantiation chain:
---   axilite_io_harness         (ports: t_slv32_array)
+--   axilite_io_harness         (ports: slv32_array_t)
 --     +-- axilite_io_wrap      (ports: flattened slv -- VHDL or SV)
 --           +-- axilite_io_vhd or axilite_io.sv  (actual DUT)
 --
@@ -65,13 +65,13 @@ entity axilite_io_harness is
     s_axi_rready  : in  std_logic;
 
     -- Array-type data ports (match axilite_io_vhd exactly)
-    o_data        : out t_slv32_array(0 to GC_NUM_ODATA-1);
-    i_data        : in  t_slv32_array(0 to GC_NUM_IDATA-1);
+    o_data        : out slv32_array_t(0 to GC_NUM_ODATA-1);
+    i_data        : in  slv32_array_t(0 to GC_NUM_IDATA-1);
 
     m_axis_tdata  : out std_logic_vector(31 downto 0);
     m_axis_tvalid : out std_logic_vector(GC_NUM_OSTREAM-1 downto 0);
 
-    s_axis_tdata  : in  t_slv32_array(0 to GC_NUM_ISTREAM-1);
+    s_axis_tdata  : in  slv32_array_t(0 to GC_NUM_ISTREAM-1);
     s_axis_tready : out std_logic_vector(GC_NUM_ISTREAM-1 downto 0)
   );
 end entity;

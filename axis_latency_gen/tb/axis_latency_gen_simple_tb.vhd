@@ -45,8 +45,8 @@ architecture sim of axis_latency_gen_simple_tb is
   -- A concurrent process samples m_axis_tdata every cycle where
   -- m_axis_tvalid='1', enabling verification after back-to-back writes.
   -- =================================================================
-  type t_slv32_array is array (natural range <>) of std_logic_vector(31 downto 0);
-  signal captured_data  : t_slv32_array(0 to 15) := (others => (others => '0'));
+  type slv32_array_t is array (natural range <>) of std_logic_vector(31 downto 0);
+  signal captured_data  : slv32_array_t(0 to 15) := (others => (others => '0'));
   signal captured_cnt   : natural := 0;
   signal capture_done   : std_logic := '0';
 

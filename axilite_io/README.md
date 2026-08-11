@@ -263,8 +263,8 @@ axilite_io/
 │   └── axilite_io.vhd           # VHDL translation (cycle-accurate)
 ├── tb/
 │   ├── axilite_io_wrap.sv       # SV wrapper: packed arrays → flattened slv
-│   ├── axilite_io_wrap.vhd      # VHDL wrapper: t_slv32_array → flattened slv
-│   ├── axilite_io_harness.vhd   # Array-port wrapper (t_slv32_array ↔ flattened)
+│   ├── axilite_io_wrap.vhd      # VHDL wrapper: slv32_array_t → flattened slv
+│   ├── axilite_io_harness.vhd   # Array-port wrapper (slv32_array_t ↔ flattened)
 │   ├── axilite_io_th.vhd        # Test harness: adds FIFO loopback + status i_data
 │   └── axilite_io_tb.vhd        # Shared TB (21 tests via axilite_io_th)
 ├── scripts/
@@ -274,7 +274,7 @@ axilite_io/
 │   └── wave.do                  # Waveform groups
 ```
 
-Shared utilities live in `../common/rtl/util_pkg.vhd` (log2ceil, t_slv32_array, t_slv_array).
+Shared utilities live in `../common/rtl/util_pkg.vhd` (log2ceil, slv32_array_t, slv_array_t).
 
 ---
 
@@ -285,7 +285,7 @@ data/stream arrays:
 
 | DUT | Array port type | Example |
 |-----|----------------|---------|
-| `axilite_io.vhd` (VHDL) | `t_slv32_array(0 to N-1)` | `o_data : out t_slv32_array(0 to GC_NUM_ODATA-1)` |
+| `axilite_io.vhd` (VHDL) | `slv32_array_t(0 to N-1)` | `o_data : out slv32_array_t(0 to GC_NUM_ODATA-1)` |
 | `axilite_io.sv` (SV) | Packed 2D array `[N-1:0][31:0]` | `output reg [NUM_ODATA-1:0][31:0] o_data` |
 
 Neither representation can be directly instantiated from the other
@@ -298,9 +298,9 @@ The hierarchy is:
 
 ```
 axilite_io_tb
-  └── axilite_io_th            (t_slv32_array ports + FIFO loopback)
+  └── axilite_io_th            (slv32_array_t ports + FIFO loopback)
         ├── axis_fifo x2       (m_axis → s_axis loopback)
-        └── axilite_io_harness  (t_slv32_array ↔ flattened conversion)
+        └── axilite_io_harness  (slv32_array_t ↔ flattened conversion)
               └── axilite_io_wrap (flattened slv ports, VHDL or SV)
                     └── axilite_io.vhd or axilite_io.sv
 ```
@@ -368,15 +368,15 @@ architecture rtl of <your_design> is
   signal s_axi_rready : std_logic;                      -- read data ready
 
   -- o_data registered outputs and i_data unregistered inputs
-  signal o_data : t_slv32_array(0 to C_NUM_ODATA-1);  -- from work.util_pkg
-  signal i_data : t_slv32_array(0 to C_NUM_IDATA-1);  -- from work.util_pkg
+  signal o_data : slv32_array_t(0 to C_NUM_ODATA-1);  -- from work.util_pkg
+  signal i_data : slv32_array_t(0 to C_NUM_IDATA-1);  -- from work.util_pkg
 
   -- AXI-Stream outputs
   signal m_axis_tdata  : std_logic_vector(31 downto 0);               -- stream data
   signal m_axis_tvalid : std_logic_vector(C_NUM_OSTREAM-1 downto 0);  -- stream valid
 
   -- AXI-Stream inputs
-  signal s_axis_tdata  : t_slv32_array(0 to C_NUM_ISTREAM-1);         -- stream data
+  signal s_axis_tdata  : slv32_array_t(0 to C_NUM_ISTREAM-1);         -- stream data
   signal s_axis_tready : std_logic_vector(C_NUM_ISTREAM-1 downto 0);  -- stream ready
 
 begin
@@ -558,7 +558,7 @@ endmodule
 |------|--------------|
 | `tb/axilite_io_tb.vhd` | **Shared TB**: instantiates `axilite_io_th` which provides FIFO loopback and FIFO-status i_data. Runs 21 tests covering register access, byte strobes, stream push/pop, FIFO ordering, FIFO backpressure, reset state, back-to-back transactions, unmapped access, and consecutive-read stability. |
 | `tb/axilite_io_th.vhd` | **Test harness**: wraps `axilite_io_harness`, adds AXI-Stream loopback FIFOs (axis_fifo) between m_axis and s_axis, and exposes FIFO status on dedicated i_data slots. |
-| `tb/axilite_io_harness.vhd` | **Array-port wrapper**: converts between flattened `std_logic_vector` and `t_slv32_array`. No FIFOs — just array↔flattened conversion. |
+| `tb/axilite_io_harness.vhd` | **Array-port wrapper**: converts between flattened `std_logic_vector` and `slv32_array_t`. No FIFOs — just array↔flattened conversion. |
 
 ### Running (from fpga-ip root)
 
@@ -592,7 +592,7 @@ axilite_io #(
 ```
 - `std_logic` ↔ `logic` maps 1:1
 - `std_logic_vector` ↔ `logic [N-1:0]` maps 1:1
-- VHDL `t_slv32_array` ports connect to SV unpacked arrays
+- VHDL `slv32_array_t` ports connect to SV unpacked arrays
   (`logic [31:0] arr[0:N-1]`)
 
 ### SV → VHDL Instantiation

@@ -4,7 +4,7 @@ DEFAULT_LIB: work
 
 [rtl]
 common/rtl/util_pkg.vhd
-axis_fifo/rtl/axis_fifo.vhd    std=1993
+axis_fifo/rtl/axis_fifo.vhd    std=2008
 
 [top]
 axis_fifo/rtl/axis_fifo_top.vhd

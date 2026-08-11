@@ -2,7 +2,7 @@
 
 A **First-Word Fall-Through (FWFT)** elastic buffer with Xilinx SRL inference,
 simulation-safe non-power-of-2 depth support, registered handshaking for
-timing isolation, and a fully self-contained VHDL-93 core (no external
+timing isolation, and a fully self-contained VHDL-2008 core (no external
 dependencies).
 
 ---
@@ -24,8 +24,8 @@ dependencies).
   occupancy level as an unsigned vector.
 - **100% Self-Contained** — No external dependencies beyond IEEE standard
   libraries. The `log2ceil` utility is in the shared `util_pkg` under `common/`.
-- **VHDL-93 Compliant** — Compatible with Xilinx Vivado block design tools
-  and strict simulation environments.
+- **VHDL-2008 Compliant** — Uses `process(all)` sensitivity lists; compatible
+  with modern Xilinx Vivado and Questa/ModelSim flows.
 - **Zero-Clause BSD (0BSD) License** — Free to use, modify, and distribute
   for any purpose.
 
@@ -199,12 +199,12 @@ end if;
 axis_fifo/
 ├── rtl/
 │   ├── axis_fifo_pkg.vhd           # Shared utility package (log2ceil)
-│   ├── axis_fifo.vhd               # Production VHDL core (VHDL-93)
+│   ├── axis_fifo.vhd               # Production VHDL core (VHDL-2008)
 │   ├── axis_fifo.sv                # Production SystemVerilog core
 │   ├── axis_fifo_top.vhd           # Synthesis top wrapper (VHDL)
 │   └── axis_fifo_top.sv            # Synthesis top wrapper (SystemVerilog)
 ├── tb/
-│   ├── axis_fifo_tb.vhd            # Self-contained testbench (VHDL-93)
+│   ├── axis_fifo_tb.vhd            # Self-contained testbench (VHDL-2008)
 │   ├── axis_fifo_uvvm_th.vhd       # UVVM test harness (VHDL-2008)
 │   └── axis_fifo_uvvm_tb.vhd       # UVVM sequencer (VHDL-2008)
 ├── scripts/
@@ -267,7 +267,7 @@ run axis_fifo clean                   # Remove all artifacts
 
 ### Simple Testbench (`axis_fifo_tb`)
 
-A self-contained VHDL-93 testbench with no external dependencies. Tests:
+A self-contained VHDL-2008 testbench with no external dependencies. Tests:
 
 | Test Case | Description |
 |-----------|-------------|

@@ -79,7 +79,7 @@ begin
   m_axis_tdata  <= r.pipe_data;
 
   -- Combinational process -- next-state logic
-  p_comb : process(r, s_axis_tdata, s_axis_tvalid, m_axis_tready)
+  p_comb : process (all)
     variable v : t_rec;
   begin
     -- recover stored state

@@ -12,9 +12,9 @@
 -- =====================================================================
 -- WHY THIS WRAPPER EXISTS
 -- ------------------------
--- The VHDL DUT (axilite_io.vhd) uses t_slv32_array (an unconstrained
+-- The VHDL DUT (axilite_io.vhd) uses slv32_array_t (an unconstrained
 -- array of 32-bit std_logic_vectors) for its multi-slot data ports --
--- e.g. `o_data : out t_slv32_array(0 to GC_NUM_ODATA-1)`.  The SV DUT
+-- e.g. `o_data : out slv32_array_t(0 to GC_NUM_ODATA-1)`.  The SV DUT
 -- (axilite_io.sv) uses packed 2D arrays `[N-1:0][31:0]` for the same
 -- ports.  Neither representation can be directly instantiated from the
 -- other language.
@@ -69,9 +69,9 @@ end entity;
 architecture wrap of axilite_io_wrap is
 
   -- Internal array-form signals
-  signal o_data_arr  : t_slv32_array(0 to NUM_ODATA-1);
-  signal i_data_arr  : t_slv32_array(0 to NUM_IDATA-1);
-  signal s_tdata_arr : t_slv32_array(0 to NUM_ISTREAM-1);
+  signal o_data_arr  : slv32_array_t(0 to NUM_ODATA-1);
+  signal i_data_arr  : slv32_array_t(0 to NUM_IDATA-1);
+  signal s_tdata_arr : slv32_array_t(0 to NUM_ISTREAM-1);
 
 begin
 

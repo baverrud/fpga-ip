@@ -34,10 +34,10 @@ entity axilite_io_uvvm_th is
     aresetn         : in  std_logic;
     clock_ena       : in  boolean;
     -- Debug observe ports
-    dbg_o_data      : out t_slv32_array(0 to GC_NUM_ODATA-1);
+    dbg_o_data      : out slv32_array_t(0 to GC_NUM_ODATA-1);
     dbg_m_axis_tdata  : out std_logic_vector(31 downto 0);
     dbg_m_axis_tvalid : out std_logic_vector(GC_NUM_OSTREAM-1 downto 0);
-    dbg_s_axis_tdata  : out t_slv32_array(0 to GC_NUM_ISTREAM-1);
+    dbg_s_axis_tdata  : out slv32_array_t(0 to GC_NUM_ISTREAM-1);
     dbg_s_axis_tready : out std_logic_vector(GC_NUM_ISTREAM-1 downto 0)
   );
 end entity axilite_io_uvvm_th;
@@ -85,7 +85,7 @@ architecture struct of axilite_io_uvvm_th is
   ) := init_axilite_if_signals(16, 32);
 
   -- External i_data (driven from sequencer via TB)
-  signal i_data : t_slv32_array(0 to GC_NUM_IDATA-1) := (others => (others => '0'));
+  signal i_data : slv32_array_t(0 to GC_NUM_IDATA-1) := (others => (others => '0'));
 
 begin
 

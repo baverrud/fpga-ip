@@ -55,10 +55,10 @@ architecture sim of axilite_io_uvvm_tb is
   signal clock_ena      : boolean   := true;
 
   -- Debug observe
-  signal dbg_o_data       : t_slv32_array(0 to NUM_ODATA-1);
+  signal dbg_o_data       : slv32_array_t(0 to NUM_ODATA-1);
   signal dbg_m_tdata      : std_logic_vector(31 downto 0);
   signal dbg_m_tvalid     : std_logic_vector(NUM_OSTREAM-1 downto 0);
-  signal dbg_s_tdata      : t_slv32_array(0 to NUM_ISTREAM-1);
+  signal dbg_s_tdata      : slv32_array_t(0 to NUM_ISTREAM-1);
   signal dbg_s_tready     : std_logic_vector(NUM_ISTREAM-1 downto 0);
 
   ------------------------------------------------------------------------------------------------

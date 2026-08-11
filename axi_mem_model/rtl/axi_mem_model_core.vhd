@@ -168,7 +168,7 @@ begin
   --   All R-channel outputs are registered -- they reflect r.* and get
   --   updated on the next clock edge via p_reg.
   -- =================================================================
-  p_comb : process(r, ar_id, ar_addr, ar_len, ar_valid, r_ready)
+  p_comb : process (all)
     variable v           : reg_t;
     variable v_beat_addr : ar_addr_t;
     variable v_next_idx  : ar_len_t;

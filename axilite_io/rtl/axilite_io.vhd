@@ -59,8 +59,8 @@ entity axilite_io is
     s_axi_rready  : in  std_logic;
 
     -- o_data registered outputs and i_data unregistered inputs
-    o_data        : out t_slv32_array(0 to GC_NUM_ODATA-1);
-    i_data        : in  t_slv32_array(0 to GC_NUM_IDATA-1);
+    o_data        : out slv32_array_t(0 to GC_NUM_ODATA-1);
+    i_data        : in  slv32_array_t(0 to GC_NUM_IDATA-1);
 
     -- AXI-Stream outputs
     m_axis_tdata  : out std_logic_vector(31 downto 0);
@@ -68,7 +68,7 @@ entity axilite_io is
   --m_axis_tready : in  std_logic; -- NOT IMPLEMENTED
 
     -- AXI-Stream inputs
-    s_axis_tdata  : in  t_slv32_array(0 to GC_NUM_ISTREAM-1);
+    s_axis_tdata  : in  slv32_array_t(0 to GC_NUM_ISTREAM-1);
   --s_axis_tvalid : in  std_logic; -- NOT IMPLEMENTED
     s_axis_tready : out std_logic_vector(GC_NUM_ISTREAM-1 downto 0)
   );
@@ -77,7 +77,7 @@ end entity;
 architecture rtl of axilite_io is
 
   -- Internal array type for the oregs storage
-  subtype t_oregs_array is t_slv_array(0 to GC_NUM_ODATA-1)(31 downto 0);
+  subtype t_oregs_array is slv_array_t(0 to GC_NUM_ODATA-1)(31 downto 0);
 
   type t_rec is record
     oregs  : t_oregs_array;

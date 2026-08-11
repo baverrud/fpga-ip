@@ -163,8 +163,8 @@ architecture rtl of axi_monitor_reg is
   constant C_NUM_ODATA : natural := 13;
   constant C_NUM_IDATA : natural := 32;
 
-  signal o_data : t_slv32_array(0 to C_NUM_ODATA-1) := (others => (others => '0'));
-  signal i_data : t_slv32_array(0 to C_NUM_IDATA-1) := (others => (others => '0'));
+  signal o_data : slv32_array_t(0 to C_NUM_ODATA-1) := (others => (others => '0'));
+  signal i_data : slv32_array_t(0 to C_NUM_IDATA-1) := (others => (others => '0'));
 
   -- Monitor control
   signal enable        : std_logic;

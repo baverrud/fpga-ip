@@ -11,8 +11,8 @@
 --                 :    downstream transaction domains (maximum Fmax).
 --                 :  - Ports conforming strictly to AMBA AXI4-Stream specifications
 --                 :    for direct automatic packaging into IP blocks.
---                 :  - VHDL-93 compliance for compatibility with Xilinx Vivado 
---                 :    block design tools and strict simulation environments.
+--                 :  - VHDL-2008 (process(all) sensitivity lists) for compatibility
+--                 :    with modern Xilinx Vivado and Questa/ModelSim flows.
 --                 :  - Fully synchronous active-low reset logic (aresetn conforms
 --                 :    to standard AXI clock-domain naming conventions).
 --Author           : Rune Baeverrud
@@ -77,9 +77,7 @@ architecture arch of axis_fifo is
 begin -- architecture
 
   -- Main Logic Process (Two-Process FSM/Register Style)
-  p_logic: -- Explicit sensitivity list is VHDL93 compliant
-           -- for compatibility with Vivado block design tools
-  process(r, s_axis_tdata, s_axis_tvalid, m_axis_tready)
+  p_logic: process (all)
     variable v           : t_rec;
     variable read_index  : integer range 0 to GC_FIFO_DEPTH-1;
   begin

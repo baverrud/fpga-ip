@@ -186,9 +186,7 @@ begin
   ---------------------------------------------------------------------
   -- Combinational process -- computes all next-state values and outputs.
   ---------------------------------------------------------------------
-  p_comb : process(r, r_valid, r_ready, r_id, r_data, r_resp, r_last,
-                   sb_tdata, sb_tvalid, global_time, enable,
-                   stat_rst, err_rst, data_check_en)
+  p_comb : process (all)
     variable v         : rec_t;
     variable v_r_fire  : std_logic;   -- accepted R-channel beat
     variable v_gap     : unsigned(GC_TIME_WIDTH-1 downto 0);

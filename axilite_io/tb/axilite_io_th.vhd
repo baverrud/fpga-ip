@@ -17,13 +17,13 @@
 --   slot GC_NUM_EXT_IDATA + ch*2 + 0 = FIFO s_axis_tready (bit 0)
 --   slot GC_NUM_EXT_IDATA + ch*2 + 1 = FIFO m_axis_tvalid (bit 0)
 --
--- Ports are t_slv32_array; i_data_ext is the external i_data input
+-- Ports are slv32_array_t; i_data_ext is the external i_data input
 -- (2 slots); s_axis_tdata is an output (driven by FIFO read data).
 --
 -- Instantiation chain:
---   axilite_io_th               (ports: t_slv32_array)
+--   axilite_io_th               (ports: slv32_array_t)
 --     +-- axis_fifo [0..N-1]    (m_axis -> s_axis loopback)
---     +-- axilite_io_harness    (ports: t_slv32_array)
+--     +-- axilite_io_harness    (ports: slv32_array_t)
 --           +-- axilite_io_wrap  (ports: flattened slv)
 --                 +-- axilite_io_vhd or axilite_io.sv
 -- =====================================================================
@@ -69,14 +69,14 @@ entity axilite_io_th is
     s_axi_rready  : in  std_logic;
 
     -- Array-type data ports (match axilite_io_vhd)
-    o_data        : out t_slv32_array(0 to GC_NUM_ODATA-1);
-    i_data_ext    : in  t_slv32_array(0 to GC_NUM_EXT_IDATA-1);
+    o_data        : out slv32_array_t(0 to GC_NUM_ODATA-1);
+    i_data_ext    : in  slv32_array_t(0 to GC_NUM_EXT_IDATA-1);
 
     m_axis_tdata  : out std_logic_vector(31 downto 0);
     m_axis_tvalid : out std_logic_vector(GC_NUM_OSTREAM-1 downto 0);
 
     -- s_axis_tdata is an output: driven by FIFO loopback read data
-    s_axis_tdata  : out t_slv32_array(0 to GC_NUM_ISTREAM-1);
+    s_axis_tdata  : out slv32_array_t(0 to GC_NUM_ISTREAM-1);
     s_axis_tready : out std_logic_vector(GC_NUM_ISTREAM-1 downto 0)
   );
 end entity;
@@ -86,7 +86,7 @@ architecture rtl of axilite_io_th is
   -- (no intermediate stream signals -- harness ports connect directly to TH ports)
 
   -- Extended i_data: external + FIFO status slots (4 slots = 2 FIFOs x 2 signals)
-  signal i_data      : t_slv32_array(0 to GC_NUM_EXT_IDATA + 4 - 1);
+  signal i_data      : slv32_array_t(0 to GC_NUM_EXT_IDATA + 4 - 1);
 
   -- FIFO control
   signal tf_ready    : std_logic_vector(1 downto 0);

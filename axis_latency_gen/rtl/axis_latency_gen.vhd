@@ -196,7 +196,7 @@ begin
   -- top of the pipeline floor: base_delay=0 + enables low = 1 cycle,
   -- base_delay=1 = 2 cycles, etc.
   -- Minimum observed latency is 1 cycle (FIFO pipeline alone).
-  p_departure : process(timer, base_delay, jg_jitter, enable_base_delay)
+  p_departure : process (all)
   begin
     if enable_base_delay = '1' then
       t_departure <= timer + 1 + base_delay + resize(jg_jitter, GC_TIMER_WIDTH);

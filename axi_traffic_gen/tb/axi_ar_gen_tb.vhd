@@ -83,22 +83,22 @@ architecture sim of axi_ar_gen_tb is
 
   -- Per-instance DUT outputs
   signal ar_valid        : std_logic_vector(C_NUM_DB-1 downto 0);
-  signal ar_addr         : t_slv_array(0 to C_NUM_DB-1)(C_ADDR_WIDTH-1 downto 0);
-  signal ar_len          : t_slv_array(0 to C_NUM_DB-1)(7 downto 0);
-  signal ar_size         : t_slv_array(0 to C_NUM_DB-1)(2 downto 0);
-  signal ar_burst        : t_slv_array(0 to C_NUM_DB-1)(1 downto 0);
-  signal ar_id           : t_slv_array(0 to C_NUM_DB-1)(C_ID_WIDTH-1 downto 0);
-  signal stat_ar_stall   : t_slv_array(0 to C_NUM_DB-1)(31 downto 0);
-  signal stat_ar_issued  : t_slv_array(0 to C_NUM_DB-1)(31 downto 0);
-  signal stat_cfg_errors : t_slv_array(0 to C_NUM_DB-1)(31 downto 0);
+  signal ar_addr         : slv_array_t(0 to C_NUM_DB-1)(C_ADDR_WIDTH-1 downto 0);
+  signal ar_len          : slv_array_t(0 to C_NUM_DB-1)(7 downto 0);
+  signal ar_size         : slv_array_t(0 to C_NUM_DB-1)(2 downto 0);
+  signal ar_burst        : slv_array_t(0 to C_NUM_DB-1)(1 downto 0);
+  signal ar_id           : slv_array_t(0 to C_NUM_DB-1)(C_ID_WIDTH-1 downto 0);
+  signal stat_ar_stall   : slv_array_t(0 to C_NUM_DB-1)(31 downto 0);
+  signal stat_ar_issued  : slv_array_t(0 to C_NUM_DB-1)(31 downto 0);
+  signal stat_cfg_errors : slv_array_t(0 to C_NUM_DB-1)(31 downto 0);
 
   -- Falling-edge samples: deterministic view of each cycle
   signal s_valid  : std_logic_vector(C_NUM_DB-1 downto 0);
-  signal s_addr   : t_slv_array(0 to C_NUM_DB-1)(C_ADDR_WIDTH-1 downto 0);
-  signal s_len    : t_slv_array(0 to C_NUM_DB-1)(7 downto 0);
-  signal s_size   : t_slv_array(0 to C_NUM_DB-1)(2 downto 0);
-  signal s_burst  : t_slv_array(0 to C_NUM_DB-1)(1 downto 0);
-  signal s_id     : t_slv_array(0 to C_NUM_DB-1)(C_ID_WIDTH-1 downto 0);
+  signal s_addr   : slv_array_t(0 to C_NUM_DB-1)(C_ADDR_WIDTH-1 downto 0);
+  signal s_len    : slv_array_t(0 to C_NUM_DB-1)(7 downto 0);
+  signal s_size   : slv_array_t(0 to C_NUM_DB-1)(2 downto 0);
+  signal s_burst  : slv_array_t(0 to C_NUM_DB-1)(1 downto 0);
+  signal s_id     : slv_array_t(0 to C_NUM_DB-1)(C_ID_WIDTH-1 downto 0);
   signal s_ready  : std_logic;
   signal s_gate   : std_logic;
   signal s_rst    : std_logic := '0';  -- aresetn during the sampled cycle
@@ -231,9 +231,9 @@ architecture sim of axi_ar_gen_tb is
   -- End-of-test stat verification against the checker's counts.
   procedure check_stats(
     constant tname : in string;
-    signal st_iss  : in t_slv_array(0 to C_NUM_DB-1)(31 downto 0);
-    signal st_stall: in t_slv_array(0 to C_NUM_DB-1)(31 downto 0);
-    signal st_cfg  : in t_slv_array(0 to C_NUM_DB-1)(31 downto 0)
+    signal st_iss  : in slv_array_t(0 to C_NUM_DB-1)(31 downto 0);
+    signal st_stall: in slv_array_t(0 to C_NUM_DB-1)(31 downto 0);
+    signal st_cfg  : in slv_array_t(0 to C_NUM_DB-1)(31 downto 0)
   ) is
   begin
     wait_cycles(3);  -- let the DUT stat registers settle

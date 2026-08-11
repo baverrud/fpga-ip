@@ -59,11 +59,11 @@ architecture sim of axilite_io_tb is
   signal rready  : std_logic := '0';
 
   -- Array-type ports (axilite_io_th interface)
-  signal o_data        : t_slv32_array(0 to NUM_ODATA-1);
-  signal i_data        : t_slv32_array(0 to GC_NUM_EXT_IDATA-1) := (others => (others => '0'));
+  signal o_data        : slv32_array_t(0 to NUM_ODATA-1);
+  signal i_data        : slv32_array_t(0 to GC_NUM_EXT_IDATA-1) := (others => (others => '0'));
   signal m_axis_tdata  : std_logic_vector(31 downto 0);
   signal m_axis_tvalid : std_logic_vector(NUM_OSTREAM-1 downto 0);
-  signal s_axis_tdata  : t_slv32_array(0 to NUM_ISTREAM-1);
+  signal s_axis_tdata  : slv32_array_t(0 to NUM_ISTREAM-1);
   signal s_axis_tready : std_logic_vector(NUM_ISTREAM-1 downto 0);
 
   procedure check(
