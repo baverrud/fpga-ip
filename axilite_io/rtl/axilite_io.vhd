@@ -77,28 +77,28 @@ end entity;
 architecture rtl of axilite_io is
 
   -- Internal array type for the oregs storage
-  subtype t_oregs_array is slv_array_t(0 to GC_NUM_ODATA-1)(31 downto 0);
+  subtype oregs_array_t is slv_array_t(0 to GC_NUM_ODATA-1)(31 downto 0);
 
-  type t_rec is record
-    oregs  : t_oregs_array;
+  type rec_t is record
+    oregs  : oregs_array_t;
     rdata  : std_logic_vector(31 downto 0);
     rvalid : std_logic;
     bvalid : std_logic;
   end record;
 
-  constant C_REC_DEFAULT : t_rec := (
+  constant C_REC_DEFAULT : rec_t := (
     oregs  => (others => (others => '0')),
     rdata  => (others => 'X'),
     rvalid => '0',
     bvalid => '0'
   );
 
-  signal r, r_in : t_rec := C_REC_DEFAULT;
+  signal r, r_in : rec_t := C_REC_DEFAULT;
 
 begin
 
   p_logic : process(all)
-    variable v : t_rec;
+    variable v : rec_t;
   begin
     v := r;
 

@@ -26,8 +26,8 @@
 module axis_skid_buffer #(
     parameter int GC_TDATA_WIDTH = 8
 ) (
-    input  logic aclk,
-    input  logic aresetn, // Synchronous reset, active low
+    input logic aclk,
+    input logic aresetn,  // Synchronous reset, active low
 
     // Slave Interface (Input transaction payload)
     input  logic [GC_TDATA_WIDTH-1:0] s_axis_tdata,
@@ -56,20 +56,20 @@ module axis_skid_buffer #(
   // -------------------------------------------------------------------
   typedef struct {
     state_t                          state;
-    logic [GC_TDATA_WIDTH-1:0]       pipe_data;
-    logic [GC_TDATA_WIDTH-1:0]       skid_data;
-  } t_rec;
+    logic [GC_TDATA_WIDTH-1:0] pipe_data;
+    logic [GC_TDATA_WIDTH-1:0] skid_data;
+  } rec_t;
 
   // Reset / default values
-  const t_rec C_REC_DEFAULT = '{
+  const rec_t C_REC_DEFAULT = '{
     state:     EMPTY,
     pipe_data: {GC_TDATA_WIDTH{1'b0}},
     skid_data: {GC_TDATA_WIDTH{1'b0}}
   };
 
   // Current state and next-state signals
-  t_rec r    = C_REC_DEFAULT;
-  t_rec r_in;
+  rec_t r    = C_REC_DEFAULT;
+  rec_t r_in;
 
   // -------------------------------------------------------------------
   // Output mapping
@@ -82,7 +82,7 @@ module axis_skid_buffer #(
   // Combinational process -- next-state logic
   // -------------------------------------------------------------------
   always_comb begin
-    t_rec v;
+    rec_t v;
     v = r;
 
     unique case (r.state)

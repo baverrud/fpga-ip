@@ -60,8 +60,8 @@ architecture sim of axi_ar_gen_tb is
 
   -- GC_DATA_BYTES sweep: one DUT instance per width
   constant C_NUM_DB : positive := 6;
-  type t_db_arr is array (0 to C_NUM_DB-1) of positive;
-  constant C_DB_ARR : t_db_arr := (1, 2, 4, 8, 16, 32);
+  type db_arr_t is array (0 to C_NUM_DB-1) of positive;
+  constant C_DB_ARR : db_arr_t := (1, 2, 4, 8, 16, 32);
 
   -- Clock / reset
   signal aclk     : std_logic := '0';
@@ -352,7 +352,7 @@ begin
   -- the reference for the next cycle, mirroring p_comb/p_reg exactly.
   ---------------------------------------------------------------------
   p_check : process(aclk)
-    type t_ref is record
+    type ref_t is record
       valid : boolean;
       addr  : unsigned(C_ADDR_WIDTH-1 downto 0);
       id    : std_logic_vector(C_ID_WIDTH-1 downto 0);
@@ -360,8 +360,8 @@ begin
       cur   : unsigned(C_ADDR_WIDTH-1 downto 0);
       pace_cnt  : unsigned(31 downto 0);
     end record;
-    type t_ref_arr is array (0 to C_NUM_DB-1) of t_ref;
-    variable v_ref    : t_ref_arr;
+    type ref_arr_t is array (0 to C_NUM_DB-1) of ref_t;
+    variable v_ref    : ref_arr_t;
     variable v_bsize  : unsigned(31 downto 0);
     variable v_vmax   : unsigned(C_ADDR_WIDTH-1 downto 0);
     variable v_next   : unsigned(C_ADDR_WIDTH-1 downto 0);

@@ -75,8 +75,8 @@ architecture sim of axi_monitor_simple_tb is
   signal r_last  : std_logic;
 
   -- Waveform view: four 32-bit words, word 0 is r_data(31 downto 0).
-  type t_r_data_words is array (0 to 3) of std_logic_vector(31 downto 0);
-  signal r_data_words : t_r_data_words;
+  type r_data_words_t is array (0 to 3) of std_logic_vector(31 downto 0);
+  signal r_data_words : r_data_words_t;
   signal r_data_word0_prev : unsigned(31 downto 0) := (others => '0');
   signal r_data_word0_diff : signed(32 downto 0)  := (others => '0');
   signal r_data_word_count : unsigned(15 downto 0)  := (others => '0');

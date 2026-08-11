@@ -29,15 +29,15 @@ end entity;
 architecture rtl of pulse_extender is
 
   -- State record
-  type t_rec is record
+  type rec_t is record
     cnt   : natural range 0 to GC_PULSE_LEN;  -- remaining pulse cycles
     pulse : std_logic;                        -- registered pulse output
   end record;
 
-  constant C_REC_DEFAULT : t_rec := (cnt => 0, pulse => '0');
+  constant C_REC_DEFAULT : rec_t := (cnt => 0, pulse => '0');
 
-  signal r    : t_rec := C_REC_DEFAULT;  -- current state
-  signal r_in : t_rec;                   -- next state
+  signal r    : rec_t := C_REC_DEFAULT;  -- current state
+  signal r_in : rec_t;                   -- next state
 
 begin
 
@@ -46,7 +46,7 @@ begin
 
   -- Combinational process
   p_comb : process(all)
-    variable v : t_rec;
+    variable v : rec_t;
   begin
     v := r;  -- (1) default: recover current state
 

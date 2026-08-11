@@ -1,13 +1,13 @@
 //-----------------------------------------------------------------------
 //Filename         : axis_fifo.sv
 //Description      : Safe, Parameterizable Elastic Buffer (FBEB) translated to SystemVerilog:
-//                 :  - Inferring of shift-register LUTs (SRLs, on Xilinx 
-//                 :    architectures) for depths > 2, or a double-buffer 
+//                 :  - Inferring of shift-register LUTs (SRLs, on Xilinx
+//                 :    architectures) for depths > 2, or a double-buffer
 //                 :    if GC_FIFO_DEPTH = 2.
 //                 :  - Simulation address-guarding for non-power-of-2 depths.
 //                 :  - Unsigned occupancy level count output port (fifo_count).
 //                 :  - Fully registered handshaking flow-control.
-//                 :  - 100% combinational timing isolation between upstream and 
+//                 :  - 100% combinational timing isolation between upstream and
 //                 :    downstream transaction domains (maximum Fmax).
 //                 :  - Ports conforming strictly to AMBA AXI4-Stream specifications.
 //                 :  - Fully synchronous active-low reset logic (aresetn).
@@ -22,24 +22,24 @@ module axis_fifo #(
     parameter int GC_TDATA_WIDTH = 8,
     parameter int GC_FIFO_DEPTH  = 3
 ) (
-    input  logic aclk,
-    input  logic aresetn, // Synchronous reset, active low
-    
+    input logic aclk,
+    input logic aresetn,  // Synchronous reset, active low
+
     // Slave Interface (Input transaction payload)
     input  logic [GC_TDATA_WIDTH-1:0] s_axis_tdata,
-    input  logic s_axis_tvalid,
-    output logic s_axis_tready,
+    input  logic                      s_axis_tvalid,
+    output logic                      s_axis_tready,
 
     // Master Interface (Output transaction payload)
     output logic [GC_TDATA_WIDTH-1:0] m_axis_tdata,
-    output logic m_axis_tvalid,
-    input  logic m_axis_tready,
+    output logic                      m_axis_tvalid,
+    input  logic                      m_axis_tready,
 
     // FIFO occupancy level
     output logic [$clog2(GC_FIFO_DEPTH):0] fifo_count
 );
 
-  localparam int INDEX_WIDTH = $clog2(GC_FIFO_DEPTH) + 1;
+  localparam int                            INDEX_WIDTH = $clog2(GC_FIFO_DEPTH) + 1;
   localparam logic signed [INDEX_WIDTH-1:0] RESET_INDEX = -1;
 
   // State record equivalent struct definition
@@ -48,20 +48,20 @@ module axis_fifo #(
     logic signed [INDEX_WIDTH-1:0] fifo_index;
     logic s_axis_tready;
     logic m_axis_tvalid;
-  } t_rec;
+  } rec_t;
 
   // Set the clean initial/reset model constant matching C_REC_DEFAULT in VHDL.
   // We use don't-cares ('x) on 'fifo_data' to explicitly let the synthesis compiler
   // skip routing reset networks to the array, which guarantees SRL inference.
-  const t_rec C_REC_DEFAULT = '{
+  const rec_t C_REC_DEFAULT = '{
     fifo_data: '{default: 'x},
     fifo_index: RESET_INDEX,
     s_axis_tready: 1'b1,
     m_axis_tvalid: 1'b0
   };
 
-  t_rec r = C_REC_DEFAULT;    // Current state record registers with default initial values
-  t_rec r_in;                 // Next state transition logic signals
+  rec_t r = C_REC_DEFAULT;    // Current state record registers with default initial values
+  rec_t r_in;                 // Next state transition logic signals
 
   int read_index;
 
@@ -85,7 +85,7 @@ module axis_fifo #(
   // Main Logic (Two-Process FSM / Register-Transfer style)
   always_comb begin
     // Recover stored state values into internal variable
-    t_rec v;
+    rec_t v;
     v = r;
 
     // --- Write and Shift Interface ---

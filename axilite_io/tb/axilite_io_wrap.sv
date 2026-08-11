@@ -14,7 +14,7 @@
 // data ports -- e.g. `o_data [NUM_ODATA-1:0][31:0]`.  VHDL cannot
 // directly instantiate an SV module that uses packed arrays because
 // VHDL's std_logic_vector is a 1D type.  Conversely, the VHDL DUT
-// (axilite_io.vhd) uses t_slv32_array (an array of 32-bit vectors)
+// (axilite_io.vhd) uses the shared slv32_array_t subtype for 32-bit vectors.
 // which SV cannot directly bind to either.
 //
 // Each wrapper (one per language) normalises these to a common

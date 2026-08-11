@@ -49,27 +49,27 @@ architecture arch of axis_skid_buffer is
   -- FSM state encoding
   --   state(1) -> s_axis_tready
   --   state(0) -> m_axis_tvalid
-  subtype t_state is std_logic_vector(1 downto 0);
-  constant EMPTY : t_state := "10"; -- ready=1, valid=0
-  constant ONE   : t_state := "11"; -- ready=1, valid=1
-  constant TWO   : t_state := "01"; -- ready=0, valid=1
+  subtype state_t is std_logic_vector(1 downto 0);
+  constant EMPTY : state_t := "10"; -- ready=1, valid=0
+  constant ONE   : state_t := "11"; -- ready=1, valid=1
+  constant TWO   : state_t := "01"; -- ready=0, valid=1
 
   -- State record
-  type t_rec is record
-    state           : t_state;
+  type rec_t is record
+    state           : state_t;
     pipe_data       : std_logic_vector (GC_TDATA_WIDTH-1 downto 0);
     skid_data       : std_logic_vector (GC_TDATA_WIDTH-1 downto 0);
   end record;
 
   -- Reset / default values
-  constant C_REC_DEFAULT : t_rec := (
+  constant C_REC_DEFAULT : rec_t := (
     state           => EMPTY,
     pipe_data       => (others => '0'),
     skid_data       => (others => '0')
   );
 
-  signal r    : t_rec := C_REC_DEFAULT; -- current state
-  signal r_in : t_rec;                  -- next state
+  signal r    : rec_t := C_REC_DEFAULT; -- current state
+  signal r_in : rec_t;                  -- next state
 
 begin
 
@@ -80,7 +80,7 @@ begin
 
   -- Combinational process -- next-state logic
   p_comb : process (all)
-    variable v : t_rec;
+    variable v : rec_t;
   begin
     -- recover stored state
     v := r;

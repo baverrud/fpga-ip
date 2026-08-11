@@ -42,7 +42,7 @@ architecture sim of axis_skid_buffer_tb is
   signal test_done     : std_logic := '0';
 
   -- Convenience array type for short expected-data sequences.
-  type t_data_vec_array is array (natural range <>) of std_logic_vector(C_TDATA_WIDTH-1 downto 0);
+  type data_vec_array_t is array (natural range <>) of std_logic_vector(C_TDATA_WIDTH-1 downto 0);
 
   -- -----------------------------------------------------------------
   -- Data equality checker
@@ -119,7 +119,7 @@ begin
     -- Generic readback scratch variable for axis_read helper.
     variable rd : std_logic_vector(C_TDATA_WIDTH-1 downto 0);
 
-    constant C_OVERLAP : t_data_vec_array(0 to 3) := (x"30", x"31", x"32", x"33");
+    constant C_OVERLAP : data_vec_array_t(0 to 3) := (x"30", x"31", x"32", x"33");
 
     -- Convenience wrapper for a simple request/response transfer.
     -- This is intentionally sequential: write completes before read.

@@ -156,8 +156,8 @@ begin
     variable i         : natural;
     variable cnt_rx    : natural;
     variable v_rx_data : std_logic_vector(31 downto 0);
-    type t_jitter_seq is array (natural range <>) of natural;
-    constant C_EXPECTED_JITTER : t_jitter_seq := (0, 3, 1, 0);
+    type jitter_seq_t is array (natural range <>) of natural;
+    constant C_EXPECTED_JITTER : jitter_seq_t := (0, 3, 1, 0);
     variable v_delay_cycles : natural;
   begin
     -- ============================================================

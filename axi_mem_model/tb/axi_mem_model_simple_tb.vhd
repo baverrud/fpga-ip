@@ -8,6 +8,7 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 use std.textio.all;
+use work.util_pkg.all;
 
 entity axi_mem_model_simple_tb is
 end entity;
@@ -49,8 +50,8 @@ architecture sim of axi_mem_model_simple_tb is
   signal r_valid : std_logic;
   signal r_ready : std_logic := '1';
 
-  type   t_slv32_arr is array (0 to 7) of std_logic_vector(31 downto 0);
-  signal r_words : t_slv32_arr;
+  -- Expected words use the shared slv32_array_t subtype from util_pkg.
+  signal r_words : slv32_array_t(0 to 7);
 
   -- =================================================================
   -- Control / enable signals

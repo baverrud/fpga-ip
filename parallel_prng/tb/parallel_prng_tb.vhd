@@ -25,8 +25,8 @@ architecture sim of parallel_prng_tb is
   -- recurrence: x ^= x<<13; x ^= x>>17; x ^= x<<5.
   -- Reference: https://www.jstatsoft.org/article/view/v008i14
   -- Seed: GC_SEED = DEADBEEF.
-  type t_expected32 is array (0 to 9) of std_logic_vector(31 downto 0);
-  constant C_EXPECTED32 : t_expected32 := (
+  type expected32_t is array (0 to 9) of std_logic_vector(31 downto 0);
+  constant C_EXPECTED32 : expected32_t := (
     x"DEADBEEF",
     x"477D20B7",
     x"8E1D9142",
@@ -45,8 +45,8 @@ architecture sim of parallel_prng_tb is
   -- Recurrence: result=s0+s1; s1^=s0; s0=rotl(s0,24)^s1^(s1<<16);
   --             s1=rotl(s1,37).  Values below expose the current state
   -- sum, so entry 0 is the initial seed sum.
-  type t_expected128 is array (0 to 9) of std_logic_vector(63 downto 0);
-  constant C_EXPECTED128 : t_expected128 := (
+  type expected128_t is array (0 to 9) of std_logic_vector(63 downto 0);
+  constant C_EXPECTED128 : expected128_t := (
     x"DFD1045754AA88AD",
     x"367B30A37CBA4BF7",
     x"CB698A776B7EF330",

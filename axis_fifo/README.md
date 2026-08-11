@@ -98,7 +98,7 @@ The core uses a classic two-process register-transfer style:
 The storage array is modelled as:
 
 ```vhdl
-type t_srl is array (0 to GC_FIFO_DEPTH-1) of
+type srl_t is array (0 to GC_FIFO_DEPTH-1) of
   std_logic_vector(GC_TDATA_WIDTH-1 downto 0);
 ```
 
@@ -155,7 +155,7 @@ initializing `fifo_data` elements to **don't-care** (`'-'`) in the reset
 constant:
 
 ```vhdl
-constant C_REC_DEFAULT : t_rec := (
+constant C_REC_DEFAULT : rec_t := (
   fifo_data     => (others => (others => '-')),  -- SRL-friendly
   fifo_index    => to_signed(-1, ...),
   s_axis_tready => '1',

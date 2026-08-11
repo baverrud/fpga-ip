@@ -49,11 +49,11 @@ end entity;
 
 architecture arch of axis_fifo is
 
-  type t_srl is array (0 to GC_FIFO_DEPTH-1) of std_logic_vector (GC_TDATA_WIDTH-1 downto 0);
+  type srl_t is array (0 to GC_FIFO_DEPTH-1) of std_logic_vector (GC_TDATA_WIDTH-1 downto 0);
 
   -- state record definition
-  type t_rec is record
-    fifo_data      : t_srl;
+  type rec_t is record
+    fifo_data      : srl_t;
     fifo_index     : signed (log2ceil(GC_FIFO_DEPTH) downto 0);
     s_axis_tready  : std_logic;
     m_axis_tvalid  : std_logic;
@@ -65,20 +65,20 @@ architecture arch of axis_fifo is
   -- map the entire array using D-flip-flops (FDRE) containing hardware reset gates.
   -- Keeping it as don't-care allows the compiler to discard reset-routing 
   -- and infer highly compact Shift-Register LUT (SRL16E/SRL32E) primitives.
-  constant C_REC_DEFAULT : t_rec := (
+  constant C_REC_DEFAULT : rec_t := (
     fifo_data      => (others => (others => '-')), 
     fifo_index     => to_signed(-1, log2ceil(GC_FIFO_DEPTH) + 1),
     s_axis_tready  => '1',
     m_axis_tvalid  => '0');
 
-  signal r    : t_rec := C_REC_DEFAULT; -- state
-  signal r_in : t_rec;                  -- next state  
+  signal r    : rec_t := C_REC_DEFAULT; -- state
+  signal r_in : rec_t;                  -- next state
     
 begin -- architecture
 
   -- Main Logic Process (Two-Process FSM/Register Style)
   p_logic: process (all)
-    variable v           : t_rec;
+    variable v           : rec_t;
     variable read_index  : integer range 0 to GC_FIFO_DEPTH-1;
   begin
     -- recover stored state

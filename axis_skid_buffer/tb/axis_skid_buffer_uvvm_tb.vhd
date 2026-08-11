@@ -48,7 +48,7 @@ architecture sim of axis_skid_buffer_uvvm_tb is
   constant TCLK         : time     := 10 ns;
   constant C_WIDTH      : positive := 8;
 
-  type t_word_array is array (natural range <>) of std_logic_vector(C_WIDTH-1 downto 0);
+  type word_array_t is array (natural range <>) of std_logic_vector(C_WIDTH-1 downto 0);
 
   signal aclk           : std_logic;
   signal aresetn        : std_logic := '1';
@@ -151,7 +151,7 @@ begin
     variable rv_seed  : t_rand;
     variable rv_delay : t_rand;
 
-    constant C_PHASE3_SEQ : t_word_array(0 to 3) := (x"11", x"22", x"33", x"44");
+    constant C_PHASE3_SEQ : word_array_t(0 to 3) := (x"11", x"22", x"33", x"44");
 
     procedure random_delay(max_cycles : integer) is
       variable n : integer;
