@@ -16,9 +16,9 @@ use work.util_pkg.all;
 entity axis_latency_gen is
   generic (
     -- Data path width
-    GC_DATA_WIDTH  : positive := 32;
+    GC_DATA_WIDTH : positive := 32;
     -- FIFO depth (entries)
-    GC_FIFO_DEPTH  : positive := 16;
+    GC_FIFO_DEPTH : positive := 16;
     -- Width of internal timer and base_delay port
     GC_TIMER_WIDTH : positive := 32;
 
@@ -26,42 +26,42 @@ entity axis_latency_gen is
     -- Jitter output width (default matches jitter_gen's GC_JITTER_WIDTH)
     GC_JG_JITTER_WIDTH : positive := 8;
     -- PRNG selection: false = xorshift32, true = xorshift128
-    GC_USE_XORSHIFT128 : boolean  := false;
+    GC_USE_XORSHIFT128 : boolean := false;
     -- PRNG seeds (xorshift32 uses GC_JG_SEED; xorshift128 uses GC_JG_SEED0/1)
-    GC_JG_SEED     : std_logic_vector(31 downto 0) := x"DEADBEEF";
-    GC_JG_SEED0    : std_logic_vector(63 downto 0) := x"DEADBEEFCAFEBABE";
-    GC_JG_SEED1    : std_logic_vector(63 downto 0) := x"0123456789ABCDEF";
+    GC_JG_SEED  : std_logic_vector(31 downto 0) := x"DEADBEEF";
+    GC_JG_SEED0 : std_logic_vector(63 downto 0) := x"DEADBEEFCAFEBABE";
+    GC_JG_SEED1 : std_logic_vector(63 downto 0) := x"0123456789ABCDEF";
     -- 4 target jitter values
-    GC_JG_VAL_0    : integer := 0;
-    GC_JG_VAL_1    : integer := 1;
-    GC_JG_VAL_2    : integer := 3;
-    GC_JG_VAL_3    : integer := 7;
+    GC_JG_VAL_0 : integer := 0;
+    GC_JG_VAL_1 : integer := 1;
+    GC_JG_VAL_2 : integer := 3;
+    GC_JG_VAL_3 : integer := 7;
     -- 3 cumulative thresholds (8-bit, strictly ascending, 0..255)
-    GC_JG_TH_0     : integer := 128;
-    GC_JG_TH_1     : integer := 192;
-    GC_JG_TH_2     : integer := 240
+    GC_JG_TH_0 : integer := 128;
+    GC_JG_TH_1 : integer := 192;
+    GC_JG_TH_2 : integer := 240
   );
   port (
-    aclk           : in  std_logic;
-    aresetn        : in  std_logic;
+    aclk    : in std_logic;
+    aresetn : in std_logic;
 
     -- Slave AXI-Stream
-    s_axis_tdata   : in  std_logic_vector(GC_DATA_WIDTH-1 downto 0);
-    s_axis_tvalid  : in  std_logic;
-    s_axis_tready  : out std_logic;
+    s_axis_tdata  : in  std_logic_vector(GC_DATA_WIDTH-1 downto 0);
+    s_axis_tvalid : in  std_logic;
+    s_axis_tready : out std_logic;
 
     -- Master AXI-Stream
-    m_axis_tdata   : out std_logic_vector(GC_DATA_WIDTH-1 downto 0);
-    m_axis_tvalid  : out std_logic;
-    m_axis_tready  : in  std_logic;
+    m_axis_tdata  : out std_logic_vector(GC_DATA_WIDTH-1 downto 0);
+    m_axis_tvalid : out std_logic;
+    m_axis_tready : in  std_logic;
 
     -- Configuration
-    base_delay         : in  unsigned(GC_TIMER_WIDTH-1 downto 0);
-    enable_base_delay  : in  std_logic;
-    enable_jitter      : in  std_logic;
+    base_delay        : in unsigned(GC_TIMER_WIDTH-1 downto 0);
+    enable_base_delay : in std_logic;
+    enable_jitter     : in std_logic;
 
     -- Status
-    fifo_count     : out unsigned(log2ceil(GC_FIFO_DEPTH) downto 0)
+    fifo_count : out unsigned(log2ceil(GC_FIFO_DEPTH) downto 0)
   );
 end entity;
 
@@ -77,27 +77,27 @@ architecture rtl of axis_latency_gen is
   -- -----------------------------------------------------------------
   constant C_FIFO_WIDTH : positive := GC_DATA_WIDTH + GC_TIMER_WIDTH;
 
-  signal tf_data         : std_logic_vector(C_FIFO_WIDTH-1 downto 0);
-  signal tf_valid        : std_logic;
-  signal tf_ready        : std_logic;
-  signal ff_data         : std_logic_vector(C_FIFO_WIDTH-1 downto 0);
-  signal ff_valid        : std_logic;
-  signal ff_ready        : std_logic;
+  signal tf_data  : std_logic_vector(C_FIFO_WIDTH-1 downto 0);
+  signal tf_valid : std_logic;
+  signal tf_ready : std_logic;
+  signal ff_data  : std_logic_vector(C_FIFO_WIDTH-1 downto 0);
+  signal ff_valid : std_logic;
+  signal ff_ready : std_logic;
 
   -- Split view of FIFO output
-  signal ff_tdata        : std_logic_vector(GC_DATA_WIDTH-1 downto 0);
-  signal ff_t_departure  : unsigned(GC_TIMER_WIDTH-1 downto 0);
+  signal ff_tdata       : std_logic_vector(GC_DATA_WIDTH-1 downto 0);
+  signal ff_t_departure : unsigned(GC_TIMER_WIDTH-1 downto 0);
 
   -- -----------------------------------------------------------------
   -- Jitter generator
   -- -----------------------------------------------------------------
-  signal jg_step         : std_logic;
-  signal jg_jitter       : unsigned(GC_JG_JITTER_WIDTH-1 downto 0);
+  signal jg_step   : std_logic;
+  signal jg_jitter : unsigned(GC_JG_JITTER_WIDTH-1 downto 0);
 
   -- -----------------------------------------------------------------
   -- Write-side computed departure time
   -- -----------------------------------------------------------------
-  signal t_departure     : unsigned(GC_TIMER_WIDTH-1 downto 0);
+  signal t_departure : unsigned(GC_TIMER_WIDTH-1 downto 0);
 
   -- -----------------------------------------------------------------
   -- Read-side modular time difference for wrap-safe comparison.
@@ -120,9 +120,12 @@ architecture rtl of axis_latency_gen is
   --
   -- This elapsed-time test is valid when the maximum configured delay is
   -- below half the timer range: base_delay + jitter < 2^(N-1).
+  --
+  -- Computed as a single self-contained expression (no intermediate
+  -- combinational signal): a cross-concurrent-assignment read on the
+  -- shared ff_valid is a VHDL delta race.
   -- -----------------------------------------------------------------
-  signal v_time_diff     : signed(GC_TIMER_WIDTH-1 downto 0) := (others => '0');
-  signal time_arrived    : std_logic;
+  signal time_arrived : std_logic;
 
 begin
 
@@ -146,31 +149,31 @@ begin
   u_jitter_gen : entity work.jitter_gen
     generic map (
       -- Jitter output width
-      GC_JITTER_WIDTH    => GC_JG_JITTER_WIDTH,
+      GC_JITTER_WIDTH => GC_JG_JITTER_WIDTH,
       -- PRNG selection: false = xorshift32, true = xorshift128
       GC_USE_XORSHIFT128 => GC_USE_XORSHIFT128,
       -- PRNG seeds
-      GC_SEED            => GC_JG_SEED,
-      GC_SEED0           => GC_JG_SEED0,
-      GC_SEED1           => GC_JG_SEED1,
+      GC_SEED  => GC_JG_SEED,
+      GC_SEED0 => GC_JG_SEED0,
+      GC_SEED1 => GC_JG_SEED1,
       -- 4 target jitter values
-      GC_VAL_0           => GC_JG_VAL_0,
-      GC_VAL_1           => GC_JG_VAL_1,
-      GC_VAL_2           => GC_JG_VAL_2,
-      GC_VAL_3           => GC_JG_VAL_3,
+      GC_VAL_0 => GC_JG_VAL_0,
+      GC_VAL_1 => GC_JG_VAL_1,
+      GC_VAL_2 => GC_JG_VAL_2,
+      GC_VAL_3 => GC_JG_VAL_3,
       -- 3 cumulative thresholds (8-bit, strictly ascending, 0..255)
-      GC_TH_0            => GC_JG_TH_0,
-      GC_TH_1            => GC_JG_TH_1,
-      GC_TH_2            => GC_JG_TH_2
+      GC_TH_0 => GC_JG_TH_0,
+      GC_TH_1 => GC_JG_TH_1,
+      GC_TH_2 => GC_JG_TH_2
     )
     port map (
       -- Clock & reset
-      clk    => aclk,
-      rstn   => aresetn,
+      clk  => aclk,
+      rstn => aresetn,
       -- Step pulse: advance PRNG and update jitter register on each
       -- accepted write. Because jitter_gen is clocked, the updated
       -- sample is visible after this edge (used by the next write).
-      step   => jg_step,
+      step => jg_step,
       -- Enable: gated by enable_jitter port
       enable => enable_jitter,
       -- Output jitter value
@@ -218,22 +221,22 @@ begin
       -- FIFO width = data + timestamp packed together
       GC_TDATA_WIDTH => C_FIFO_WIDTH,
       -- FIFO depth
-      GC_FIFO_DEPTH  => GC_FIFO_DEPTH
+      GC_FIFO_DEPTH => GC_FIFO_DEPTH
     )
     port map (
       -- Clock & reset
-      aclk           => aclk,
-      aresetn        => aresetn,
+      aclk    => aclk,
+      aresetn => aresetn,
       -- Slave (write) side: {tdata, t_departure} packed
-      s_axis_tdata   => tf_data,
-      s_axis_tvalid  => tf_valid,
-      s_axis_tready  => tf_ready,
+      s_axis_tdata  => tf_data,
+      s_axis_tvalid => tf_valid,
+      s_axis_tready => tf_ready,
       -- Master (read) side: {tdata, t_departure} unpacked
-      m_axis_tdata   => ff_data,
-      m_axis_tvalid  => ff_valid,
-      m_axis_tready  => ff_ready,
+      m_axis_tdata  => ff_data,
+      m_axis_tvalid => ff_valid,
+      m_axis_tready => ff_ready,
       -- FIFO occupancy
-      fifo_count     => fifo_count
+      fifo_count => fifo_count
     );
 
   ff_tdata       <= ff_data(C_FIFO_WIDTH-1 downto GC_TIMER_WIDTH);
@@ -242,9 +245,8 @@ begin
   -- ================================================================
   -- Read side: release when time has arrived
   -- ================================================================
-  v_time_diff  <= signed(timer - ff_t_departure) when ff_valid = '1' else
-                  (others => '0');
-  time_arrived <= '1' when (ff_valid = '1') and (v_time_diff >= 0) else '0';
+  time_arrived <= '1' when (ff_valid = '1') and
+                          (signed(timer - ff_t_departure) >= 0) else '0';
 
   -- Pop FIFO when: entry available, time has arrived, downstream ready
   ff_ready       <= time_arrived and m_axis_tready;

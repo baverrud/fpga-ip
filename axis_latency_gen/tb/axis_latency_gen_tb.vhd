@@ -24,23 +24,23 @@ architecture sim of axis_latency_gen_tb is
   -- ===================================================================
   -- Main DUT (GC_TIMER_WIDTH=32) signals
   -- ===================================================================
-  signal aclk              : std_logic := '0';
-  signal aresetn           : std_logic := '0';
+  signal aclk    : std_logic := '0';
+  signal aresetn : std_logic := '0';
 
-  signal s_axis_tdata      : std_logic_vector(31 downto 0) := (others => '0');
-  signal s_axis_tvalid     : std_logic := '0';
-  signal s_axis_tready     : std_logic;
+  signal s_axis_tdata  : std_logic_vector(31 downto 0) := (others => '0');
+  signal s_axis_tvalid : std_logic := '0';
+  signal s_axis_tready : std_logic;
 
-  signal m_axis_tdata      : std_logic_vector(31 downto 0);
-  signal m_axis_tvalid     : std_logic;
-  signal m_axis_tready     : std_logic := '1';
+  signal m_axis_tdata  : std_logic_vector(31 downto 0);
+  signal m_axis_tvalid : std_logic;
+  signal m_axis_tready : std_logic := '1';
 
   signal base_delay        : unsigned(31 downto 0) := to_unsigned(10, 32);
   signal enable_base_delay : std_logic := '1';
   signal enable_jitter     : std_logic := '1';
 
   -- fifo_count: log2ceil(GC_FIFO_DEPTH) + 1 = 5 bits for depth 16
-  signal fifo_count        : unsigned(4 downto 0);
+  signal fifo_count : unsigned(4 downto 0);
 
   -- ===================================================================
   -- Wrap DUT (GC_TIMER_WIDTH=8, for timer-wrap regression testing)
@@ -48,18 +48,18 @@ architecture sim of axis_latency_gen_tb is
   -- The 8-bit timer wraps every 256 cycles, verifying the signed-
   -- subtraction wrap logic without simulating 2^32 cycles.
   -- ===================================================================
-  signal wr_s_tdata     : std_logic_vector(31 downto 0) := (others => '0');
-  signal wr_s_tvalid    : std_logic := '0';
-  signal wr_s_tready    : std_logic;
+  signal wr_s_tdata  : std_logic_vector(31 downto 0) := (others => '0');
+  signal wr_s_tvalid : std_logic := '0';
+  signal wr_s_tready : std_logic;
 
-  signal wr_m_tdata     : std_logic_vector(31 downto 0);
-  signal wr_m_tvalid    : std_logic;
-  signal wr_m_tready    : std_logic := '1';
+  signal wr_m_tdata  : std_logic_vector(31 downto 0);
+  signal wr_m_tvalid : std_logic;
+  signal wr_m_tready : std_logic := '1';
 
-  signal wr_base_delay  : unsigned(7 downto 0) := to_unsigned(10, 8);
-  signal wr_fifo_count  : unsigned(4 downto 0);
+  signal wr_base_delay : unsigned(7 downto 0) := to_unsigned(10, 8);
+  signal wr_fifo_count : unsigned(4 downto 0);
 
-  signal sim_done       : boolean := false;
+  signal sim_done : boolean := false;
 
   -- =================================================================
   -- Full-rate capture signals (for Phase 14 back-to-back verification)
@@ -67,9 +67,9 @@ architecture sim of axis_latency_gen_tb is
   -- m_axis_tvalid='1', enabling verification after back-to-back writes.
   -- =================================================================
   type slv32_array_t is array (natural range <>) of std_logic_vector(31 downto 0);
-  signal captured_data  : slv32_array_t(0 to 15) := (others => (others => '0'));
-  signal captured_cnt   : natural := 0;
-  signal capture_done   : std_logic := '0';
+  signal captured_data : slv32_array_t(0 to 15) := (others => (others => '0'));
+  signal captured_cnt  : natural := 0;
+  signal capture_done  : std_logic := '0';
 
 begin
 
@@ -150,9 +150,9 @@ begin
 
   -- == Test sequence ==
   process
-    variable l      : line;
-    variable t_sent : time;
-    variable t_rcvd : time;
+    variable l         : line;
+    variable t_sent    : time;
+    variable t_rcvd    : time;
     variable i         : natural;
     variable cnt_rx    : natural;
     variable v_rx_data : std_logic_vector(31 downto 0);
@@ -248,9 +248,8 @@ begin
       writeline(output, l);
     end loop;
 
-    if cnt_rx /= 4 then
+    assert cnt_rx = 4
       report "FAIL: burst count mismatch" severity failure;
-    end if;
     write(l, string'("  OK: all 4 words received")); writeline(output, l);
 
     -- ============================================================
@@ -331,11 +330,10 @@ begin
       axis_pop(aclk, m_axis_tready, m_axis_tvalid);
       cnt_rx := cnt_rx + 1;
     end loop;
-    if cnt_rx /= 16 then
-      report "FAIL: drained " & integer'image(cnt_rx) & " entries (expected 16)" severity failure;
-    end if;
+    assert cnt_rx = 16
+      report "FAIL: drained " & integer'image(cnt_rx) & " entries (expected 16)"
+      severity failure;
     write(l, string'("  OK: all 16 entries drained")); writeline(output, l);
-
     -- ============================================================
     -- Phase 6: aresetn during operation
     -- ============================================================
