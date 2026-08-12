@@ -1295,6 +1295,42 @@ def _archive_msim_run(launch_dir: Path, script_name: str, rc: int,
     return archive_dir
 
 
+def _archive_xsim_run(launch_dir: Path, script_name: str, rc: int,
+                      log_failed: bool,
+                      tool_env: dict[str, str] | None) -> Path:
+    """Preserve XSim artifacts before the run directory is reused.
+
+    Mirrors _archive_msim_run: on failure the run script, xsim.log, and the
+    compiler/elaborator logs are copied into <ip>/.runs/failures/ so the
+    failing test can be diagnosed even after the disposable run dir is
+    cleaned by the next invocation.
+    """
+    archive_root = launch_dir.parent / (
+        "failures" if rc != 0 else "diagnostics"
+    )
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    archive_dir = archive_root / f"{Path(script_name).stem}_{stamp}"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    script = launch_dir / script_name
+    if script.is_file():
+        shutil.copy2(script, archive_dir / script.name)
+    for name in ("xsim.log", "tool_output.log", "xelab.log", "xvhdl.log",
+                 "xvlog.log"):
+        source = launch_dir / name
+        if source.is_file():
+            shutil.copy2(source, archive_dir / name)
+    metadata = [
+        f"script = {script.name}",
+        f"launch_dir = {launch_dir.resolve()}",
+        f"return_code = {rc}",
+        f"log_failure_marker = {log_failed}",
+    ]
+    (archive_dir / "metadata.txt").write_text(
+        "\n".join(metadata) + "\n", encoding="utf-8"
+    )
+    return archive_dir
+
+
 def _subprocess_redirect() -> tuple[int | None, int | None]:
     """Redirect targets for tool subprocesses.
 
@@ -1328,19 +1364,30 @@ def _run_cmd(cmd: str, cwd: Path | None = None, env: dict | None = None,
     if not _QUIET:
         cwd_note = f" (cwd: {cwd})" if cwd is not None else ""
         print(f"cmd : cmd.exe /c \"{cmd}\"{cwd_note}")
-    log_file = None
-    if _QUIET and log_path is not None:
+    if log_path is not None:
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_file = log_path.open("wb")
-        out, err = log_file, subprocess.STDOUT
-    else:
-        out, err = _subprocess_redirect()
-    try:
-        return subprocess.run(["cmd.exe", "/c", cmd], cwd=cwd, env=env,
-                              stdout=out, stderr=err).returncode
-    finally:
-        if log_file is not None:
-            log_file.close()
+        if _QUIET:
+            with log_path.open("wb") as lf:
+                return subprocess.run(
+                    ["cmd.exe", "/c", cmd], cwd=cwd, env=env,
+                    stdout=lf, stderr=subprocess.STDOUT).returncode
+        # Not quiet: tee the child output to the log file and the console
+        # so the user still sees the tool output live while a capture exists
+        # for failure detection and archiving.
+        with log_path.open("wb") as lf:
+            proc = subprocess.Popen(
+                ["cmd.exe", "/c", cmd], cwd=cwd, env=env,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            assert proc.stdout is not None
+            for chunk in iter(lambda: proc.stdout.read(65536), b""):
+                lf.write(chunk)
+                sys.stdout.buffer.write(chunk)
+                sys.stdout.buffer.flush()
+            proc.stdout.close()
+            return proc.wait()
+    out, err = _subprocess_redirect()
+    return subprocess.run(["cmd.exe", "/c", cmd], cwd=cwd, env=env,
+                          stdout=out, stderr=err).returncode
 
 
 _LAST_FAILURE_ARTIFACT: Path | None = None
@@ -1430,17 +1477,25 @@ def _xsim_log_failed(sim_dir: Path) -> bool:
     snapshot), so reaching here with rc==0 means any report line is a runtime
     assertion failure. XSim framework messages use 'ERROR: [id]' (bracketed)
     and never appear as bare 'Error:'/'Failure:' lines.
+
+    XSim 2023.2 emits VHDL assertion failures as
+    'WARNING: [VRFC 10-8457] Failure: "msg": [file:line]' - the severity is
+    in a bracket-tagged prefix, not at line start - so both forms are
+    matched in here.
     """
-    log = sim_dir / "xsim.log"
-    if not log.is_file():
-        return False
-    try:
-        text = log.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return False
-    for line in text.splitlines():
-        if re.match(r"^(Failure|Error):", line):
-            return True
+    for name in ("xsim.log", "tool_output.log"):
+        log = sim_dir / name
+        if not log.is_file():
+            continue
+        try:
+            text = log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            if re.match(r"^(Failure|Error):", line):
+                return True
+            if "VRFC 10-8457]" in line and re.search(r"\b(Failure|Error):", line):
+                return True
     return False
 
 
@@ -1566,13 +1621,24 @@ def run_xsim(launch_dir: Path, script_path: Path, mode: str,
     # the script name relative to cwd instead of quoting an absolute path:
     # Vivado 2023.2 passes quotes from `cmd.exe /c` into its Tcl source
     # command, producing source {"..."} and a doubled-quote file-not-found.
+    global _LAST_FAILURE_ARTIFACT
     cmd = f"vivado -mode tcl -source {script_path.name}"
-    rc = _run_cmd(cmd, cwd=sim_dir, env=tool_env)
+    rc = _run_cmd(cmd, cwd=sim_dir, env=tool_env,
+                  log_path=launch_dir / "tool_output.log")
+    log_failed = False
     if mode == "batch" and rc == 0:
         # xsim exits 0 even when a VHDL assertion fails at runtime; the
         # report lines land in xsim.log, so scan it for them.
-        if _xsim_log_failed(sim_dir):
+        log_failed = _xsim_log_failed(sim_dir)
+        if log_failed:
             rc = 1
+    if mode == "batch" and (rc != 0 or _diagnostics_enabled()):
+        _LAST_FAILURE_ARTIFACT = _archive_xsim_run(
+            launch_dir, script_path.name, rc, log_failed, tool_env
+        )
+        if not _QUIET:
+            label = "diagnostics" if rc == 0 else "failure diagnostics"
+            print(f"{label}: {_LAST_FAILURE_ARTIFACT}", file=sys.stderr)
     return rc
 
 
@@ -1953,6 +2019,11 @@ def _run_all(args, caps: Capabilities, toolchains: Toolchains) -> int:
     summary. Returns nonzero if any target FAILed. Each non-skipped target
     is executed by re-invoking main() with quiet output, so the exact
     single-target backend behavior is reused.
+
+    The sweep always continues past a FAIL so every (ip, manifest, tool)
+    combination is exercised and reported. Failure diagnostics are archived
+    per target when FPGA_IP_DIAGNOSTICS is enabled (see _archive_*_run);
+    they do not stop the sweep.
     """
     global _QUIET, _LAST_FAILURE_ARTIFACT
     ips = _all_ips() if args.ip == "all" else [args.ip]
@@ -2071,13 +2142,6 @@ def _run_all(args, caps: Capabilities, toolchains: Toolchains) -> int:
                         failure_note += f"; diagnostics: {artifact.as_posix()}"
                     failed_list.append((ident, failure_note))
                     print(f"{RED}FAIL{RESET} ({failure_note})")
-                    if _diagnostics_enabled():
-                        print("Diagnostics mode: stopping after first failure.")
-                        break
-            if _diagnostics_enabled() and failed:
-                break
-        if _diagnostics_enabled() and failed:
-            break
 
     print()
     print("=" * 62)
