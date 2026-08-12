@@ -1,19 +1,23 @@
 -----------------------------------------------------------------------
 --Filename         : axi_monitor.vhd
---Description      : Passive AXI3/AXI4 Read Transaction Monitor.
---                   Non-intrusively taps the AR and R channels of a
---                   bus (all AR/R signals are inputs -- it never
---                   drives them).  Captures every AR transaction into
---                   a scoreboard FIFO and validates every R beat
+--Description      : Passive client read-transaction monitor for the
+--                   req_* / rsp_* interfaces (no ID field).
+--                   Non-intrusively taps a client request/response pair
+--                   (all req/rsp signals are inputs -- it never drives
+--                   them).  Captures every req transaction into a
+--                   scoreboard FIFO and validates every rsp beat
 --                   against it, accumulating transaction, latency,
 --                   burst-length, and protocol-error statistics.
 --
---                   Data flow:  ar tap -> (sb_tf) -> axis_fifo
---                               -> (sb_ff) -> r tap
---                   The scoreboard decouples AR capture from R
+--                   Data flow:  req tap -> (sb_tf) -> axis_fifo
+--                               -> (sb_ff) -> rsp tap
+--                   The scoreboard decouples req capture from rsp
 --                   completion.  No backpressure is applied to either
 --                   channel, so monitoring is transparent to real
 --                   traffic.
+--
+--                   There is no ID on the client interface, so no ID
+--                   check and no ID-related statistics exist.
 --Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
@@ -26,7 +30,6 @@ entity axi_monitor is
   generic (
     GC_DATA_BYTES    : positive := 64;
     GC_ADDR_WIDTH    : positive := 49;
-    GC_ID_WIDTH      : positive := 6;
     GC_TIME_WIDTH    : positive := 48;
     GC_STAT_WIDTH    : positive := 48;
     GC_SB_FIFO_DEPTH : positive := 256
@@ -43,24 +46,22 @@ entity axi_monitor is
     data_check_en : in  std_logic;
     pipeline_busy : out std_logic;
 
-    -- AR channel taps (inputs -- passive monitor)
-    ar_valid : in  std_logic;
-    ar_ready : in  std_logic;
-    ar_id    : in  std_logic_vector(GC_ID_WIDTH-1 downto 0);
-    ar_addr  : in  std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
-    ar_len   : in  std_logic_vector(7 downto 0);
+    -- req channel taps (inputs -- passive monitor)
+    req_valid : in  std_logic;
+    req_ready : in  std_logic;
+    req_addr  : in  std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
+    req_len   : in  std_logic_vector(7 downto 0);
 
-    -- R channel taps (inputs -- passive monitor)
-    r_valid : in  std_logic;
-    r_ready : in  std_logic;
-    r_id    : in  std_logic_vector(GC_ID_WIDTH-1 downto 0);
-    r_data  : in  std_logic_vector(8*GC_DATA_BYTES-1 downto 0);
-    r_resp  : in  std_logic_vector(1 downto 0);
-    r_last  : in  std_logic;
+    -- rsp channel taps (inputs -- passive monitor)
+    rsp_valid : in  std_logic;
+    rsp_ready : in  std_logic;
+    rsp_data  : in  std_logic_vector(8*GC_DATA_BYTES-1 downto 0);
+    rsp_resp  : in  std_logic_vector(1 downto 0);
+    rsp_last  : in  std_logic;
 
     -- Statistics and status
-    stat_ar_seen             : out std_logic_vector(31 downto 0);
-    stat_ar_stall            : out std_logic_vector(31 downto 0);
+    stat_req_seen            : out std_logic_vector(31 downto 0);
+    stat_req_stall           : out std_logic_vector(31 downto 0);
     stat_sb_backpressure     : out std_logic_vector(31 downto 0);
 
     stat_xactions            : out std_logic_vector(31 downto 0);
@@ -78,10 +79,9 @@ entity axi_monitor is
     stat_burst_len_min       : out std_logic_vector(31 downto 0);
     stat_burst_len_max       : out std_logic_vector(31 downto 0);
     stat_elapsed_cycles      : out std_logic_vector(31 downto 0);
-    stat_r_stall             : out std_logic_vector(31 downto 0);
+    stat_rsp_stall           : out std_logic_vector(31 downto 0);
     stat_max_outstanding     : out std_logic_vector(31 downto 0);
     stat_data_errors         : out std_logic_vector(31 downto 0);
-    stat_id_errors           : out std_logic_vector(31 downto 0);
     stat_rlast_errors        : out std_logic_vector(31 downto 0);
     stat_resp_errors         : out std_logic_vector(31 downto 0);
     stat_sb_underflow_errors : out std_logic_vector(31 downto 0)
@@ -90,9 +90,9 @@ end entity;
 
 architecture rtl of axi_monitor is
 
-  constant C_SB_WIDTH : positive := GC_ADDR_WIDTH + GC_ID_WIDTH + GC_TIME_WIDTH + 8;
+  constant C_SB_WIDTH : positive := GC_ADDR_WIDTH + GC_TIME_WIDTH + 8;
 
-  -- Scoreboard FIFO signals (tf_ = into FIFO / ar side, ff_ = out of FIFO / r side)
+  -- Scoreboard FIFO signals (tf_ = into FIFO / req side, ff_ = out of FIFO / rsp side)
   signal sb_tf_tdata   : std_logic_vector(C_SB_WIDTH-1 downto 0);
   signal sb_tf_valid   : std_logic;
   signal sb_tf_ready   : std_logic;
@@ -108,20 +108,19 @@ architecture rtl of axi_monitor is
 begin
 
   ---------------------------------------------------------------------
-  -- Data flow:  AR tap -> (sb_tf) -> axis_fifo -> (sb_ff) -> R tap
-  --             AR tap  --ar_valid/ar_addr/ar_len---> external bus
-  --             R tap   <---r_valid/r_data/r_last---  external bus
+  -- Data flow:  req tap -> (sb_tf) -> axis_fifo -> (sb_ff) -> rsp tap
+  --             req tap  --req_valid/req_addr/req_len---> external bus
+  --             rsp tap  <---rsp_valid/rsp_data/rsp_last-  external bus
   --
-  -- The scoreboard FIFO decouples AR capture from R completion.
-  -- AR tap pushes a descriptor per burst; R tap pops it when the
-  -- first R beat arrives.
+  -- The scoreboard FIFO decouples req capture from rsp completion.
+  -- req tap pushes a descriptor per burst; rsp tap pops it when the
+  -- first rsp beat arrives.
   ---------------------------------------------------------------------
 
-  -- AR monitor -- passive tap, pushes scoreboard descriptor per AR burst
-  u_ar : entity work.axi_monitor_ar
+  -- req monitor -- passive tap, pushes scoreboard descriptor per burst
+  u_req : entity work.axi_monitor_req
     generic map (
       GC_ADDR_WIDTH => GC_ADDR_WIDTH,
-      GC_ID_WIDTH   => GC_ID_WIDTH,
       GC_TIME_WIDTH => GC_TIME_WIDTH
     )
     port map (
@@ -130,21 +129,20 @@ begin
       global_time         => global_time,
       enable              => enable,
       stat_rst            => stat_rst,
-      ar_valid            => ar_valid,
-      ar_ready            => ar_ready,
-      ar_id               => ar_id,
-      ar_addr             => ar_addr,
-      ar_len              => ar_len,
+      req_valid           => req_valid,
+      req_ready           => req_ready,
+      req_addr            => req_addr,
+      req_len             => req_len,
       sb_tdata            => sb_tf_tdata,
       sb_tvalid           => sb_tf_valid,
       sb_tready           => sb_tf_ready,
-      stat_ar_seen        => stat_ar_seen,
-      stat_ar_stall       => stat_ar_stall,
+      stat_req_seen       => stat_req_seen,
+      stat_req_stall      => stat_req_stall,
       stat_sb_backpressure => stat_sb_backpressure
     );
 
-  -- Scoreboard FIFO -- elastic buffer between AR tap (producer) and
-  -- R tap (consumer).  FWFT with registered handshakes.
+  -- Scoreboard FIFO -- elastic buffer between req tap (producer) and
+  -- rsp tap (consumer).  FWFT with registered handshakes.
   u_sb_fifo : entity work.axis_fifo
     generic map (
       GC_TDATA_WIDTH => C_SB_WIDTH,
@@ -162,12 +160,11 @@ begin
       fifo_count    => sb_fifo_count
     );
 
-  -- R monitor -- validates R beats against scoreboard, accumulates stats.
-  u_r : entity work.axi_monitor_r
+  -- rsp monitor -- validates rsp beats against scoreboard, accumulates stats.
+  u_rsp : entity work.axi_monitor_rsp
     generic map (
       GC_DATA_BYTES => GC_DATA_BYTES,
       GC_ADDR_WIDTH => GC_ADDR_WIDTH,
-      GC_ID_WIDTH   => GC_ID_WIDTH,
       GC_TIME_WIDTH => GC_TIME_WIDTH,
       GC_STAT_WIDTH => GC_STAT_WIDTH
     )
@@ -180,12 +177,11 @@ begin
       err_rst                 => err_rst,
       data_check_en           => data_check_en,
       pipeline_busy           => pipeline_busy,
-      r_valid                 => r_valid,
-      r_ready                 => r_ready,
-      r_id                    => r_id,
-      r_data                  => r_data,
-      r_resp                  => r_resp,
-      r_last                  => r_last,
+      rsp_valid               => rsp_valid,
+      rsp_ready               => rsp_ready,
+      rsp_data                => rsp_data,
+      rsp_resp                => rsp_resp,
+      rsp_last                => rsp_last,
       sb_tdata                => sb_ff_tdata,
       sb_tvalid               => sb_ff_valid,
       sb_tready               => sb_ff_ready,
@@ -204,9 +200,8 @@ begin
       stat_burst_len_min      => stat_burst_len_min,
       stat_burst_len_max      => stat_burst_len_max,
       stat_elapsed_cycles     => stat_elapsed_cycles,
-      stat_r_stall            => stat_r_stall,
+      stat_rsp_stall          => stat_rsp_stall,
       stat_data_errors        => stat_data_errors,
-      stat_id_errors          => stat_id_errors,
       stat_rlast_errors       => stat_rlast_errors,
       stat_resp_errors        => stat_resp_errors,
       stat_sb_underflow_errors => stat_sb_underflow_errors

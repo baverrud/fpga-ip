@@ -1,10 +1,10 @@
 -----------------------------------------------------------------------
 --Filename         : axi_monitor_top.vhd
---Description      : Synthesis wrapper for axi_monitor.  Passes all AR/R
---                   channel taps and control/stat ports through to the
---                   entity boundary for connection to a real AXI
---                   interconnect in a design.  All AR/R signals are
---                   inputs -- the monitor is a passive observer.
+--Description      : Synthesis wrapper for axi_monitor.  Passes all
+--                   req/rsp channel taps and control/stat ports through
+--                   to the entity boundary for connection to a real
+--                   client interface in a design.  All req/rsp signals
+--                   are inputs -- the monitor is a passive observer.
 --Author           : Rune Baeverrud
 --Current Revision : 1.00
 --Licensing        : Zero-Clause BSD (0BSD)
@@ -18,7 +18,6 @@ entity axi_monitor_top is
   generic (
     GC_DATA_BYTES    : positive := 64;
     GC_ADDR_WIDTH    : positive := 49;
-    GC_ID_WIDTH      : positive := 6;
     GC_TIME_WIDTH    : positive := 48;
     GC_STAT_WIDTH    : positive := 48;
     GC_SB_FIFO_DEPTH : positive := 256
@@ -35,24 +34,22 @@ entity axi_monitor_top is
     err_rst       : in std_logic;
     data_check_en : in std_logic;
 
-    -- AR channel taps (inputs -- passive monitor)
-    ar_valid : in std_logic;
-    ar_ready : in std_logic;
-    ar_id    : in std_logic_vector(GC_ID_WIDTH-1 downto 0);
-    ar_addr  : in std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
-    ar_len   : in std_logic_vector(7 downto 0);
+    -- req channel taps (inputs -- passive monitor)
+    req_valid : in std_logic;
+    req_ready : in std_logic;
+    req_addr  : in std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
+    req_len   : in std_logic_vector(7 downto 0);
 
-    -- R channel taps (inputs -- passive monitor)
-    r_valid : in std_logic;
-    r_ready : in std_logic;
-    r_id    : in std_logic_vector(GC_ID_WIDTH-1 downto 0);
-    r_data  : in std_logic_vector(8*GC_DATA_BYTES-1 downto 0);
-    r_resp  : in std_logic_vector(1 downto 0);
-    r_last  : in std_logic;
+    -- rsp channel taps (inputs -- passive monitor)
+    rsp_valid : in std_logic;
+    rsp_ready : in std_logic;
+    rsp_data  : in std_logic_vector(8*GC_DATA_BYTES-1 downto 0);
+    rsp_resp  : in std_logic_vector(1 downto 0);
+    rsp_last  : in std_logic;
 
     -- Statistics and status
-    stat_ar_seen             : out std_logic_vector(31 downto 0);
-    stat_ar_stall            : out std_logic_vector(31 downto 0);
+    stat_req_seen            : out std_logic_vector(31 downto 0);
+    stat_req_stall           : out std_logic_vector(31 downto 0);
     stat_sb_backpressure     : out std_logic_vector(31 downto 0);
     stat_xactions            : out std_logic_vector(31 downto 0);
     stat_beats               : out std_logic_vector(31 downto 0);
@@ -69,11 +66,10 @@ entity axi_monitor_top is
     stat_burst_len_min       : out std_logic_vector(31 downto 0);
     stat_burst_len_max       : out std_logic_vector(31 downto 0);
     stat_elapsed_cycles      : out std_logic_vector(31 downto 0);
-    stat_r_stall             : out std_logic_vector(31 downto 0);
+    stat_rsp_stall           : out std_logic_vector(31 downto 0);
     pipeline_busy            : out std_logic;
     stat_max_outstanding     : out std_logic_vector(31 downto 0);
     stat_data_errors         : out std_logic_vector(31 downto 0);
-    stat_id_errors           : out std_logic_vector(31 downto 0);
     stat_rlast_errors        : out std_logic_vector(31 downto 0);
     stat_resp_errors         : out std_logic_vector(31 downto 0);
     stat_sb_underflow_errors : out std_logic_vector(31 downto 0)
@@ -87,7 +83,6 @@ begin
     generic map (
       GC_DATA_BYTES    => GC_DATA_BYTES,
       GC_ADDR_WIDTH    => GC_ADDR_WIDTH,
-      GC_ID_WIDTH      => GC_ID_WIDTH,
       GC_TIME_WIDTH    => GC_TIME_WIDTH,
       GC_STAT_WIDTH    => GC_STAT_WIDTH,
       GC_SB_FIFO_DEPTH => GC_SB_FIFO_DEPTH
@@ -104,24 +99,22 @@ begin
       err_rst       => err_rst,
       data_check_en => data_check_en,
 
-      -- AR channel taps
-      ar_valid => ar_valid,
-      ar_ready => ar_ready,
-      ar_id    => ar_id,
-      ar_addr  => ar_addr,
-      ar_len   => ar_len,
+      -- req channel taps
+      req_valid => req_valid,
+      req_ready => req_ready,
+      req_addr  => req_addr,
+      req_len   => req_len,
 
-      -- R channel taps
-      r_valid => r_valid,
-      r_ready => r_ready,
-      r_id    => r_id,
-      r_data  => r_data,
-      r_resp  => r_resp,
-      r_last  => r_last,
+      -- rsp channel taps
+      rsp_valid => rsp_valid,
+      rsp_ready => rsp_ready,
+      rsp_data  => rsp_data,
+      rsp_resp  => rsp_resp,
+      rsp_last  => rsp_last,
 
       -- Statistics and status
-      stat_ar_seen             => stat_ar_seen,
-      stat_ar_stall            => stat_ar_stall,
+      stat_req_seen            => stat_req_seen,
+      stat_req_stall           => stat_req_stall,
       stat_sb_backpressure     => stat_sb_backpressure,
       stat_xactions            => stat_xactions,
       stat_beats               => stat_beats,
@@ -138,11 +131,10 @@ begin
       stat_burst_len_min       => stat_burst_len_min,
       stat_burst_len_max       => stat_burst_len_max,
       stat_elapsed_cycles      => stat_elapsed_cycles,
-      stat_r_stall             => stat_r_stall,
+      stat_rsp_stall           => stat_rsp_stall,
       pipeline_busy            => pipeline_busy,
       stat_max_outstanding     => stat_max_outstanding,
       stat_data_errors         => stat_data_errors,
-      stat_id_errors           => stat_id_errors,
       stat_rlast_errors        => stat_rlast_errors,
       stat_resp_errors         => stat_resp_errors,
       stat_sb_underflow_errors => stat_sb_underflow_errors

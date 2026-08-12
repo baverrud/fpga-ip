@@ -1,19 +1,23 @@
 -----------------------------------------------------------------------
---Filename         : axi_monitor_r.vhd
---Description      : Passive AXI3/AXI4 Read-Data (R) channel monitor with
---                   statistics.  Taps the R channel (r_valid and
---                   r_ready are both inputs -- this block never drives
---                   the bus, so it cannot stall or alter real traffic).
+--Filename         : axi_monitor_rsp.vhd
+--Description      : Passive client read-response (rsp) channel monitor
+--                   with statistics.  Taps the rsp channel (rsp_valid
+--                   and rsp_ready are both inputs -- this block never
+--                   drives the bus, so it cannot stall or alter real
+--                   traffic).
 --
---                   Every accepted beat (r_valid & r_ready) is counted
---                   on the cycle it occurs -- there is no backpressure
---                   and no state machine that could drop an event.
---                   The scoreboard only gates *validation* (ID / data /
---                   RLAST / RRESP checks), never *counting*.
+--                   Every accepted beat (rsp_valid & rsp_ready) is
+--                   counted on the cycle it occurs -- there is no
+--                   backpressure and no state machine that could drop
+--                   an event.  The scoreboard only gates *validation*
+--                   (data / RSPLAST / RSPRESP checks), never *counting*.
+--
+--                   There is no ID field on the client interface, so
+--                   no ID check is performed (unlike the AXI R tap).
 --
 --                   Data verification is optional (data_check_en): when
 --                   disabled, beats are still counted and all protocol
---                   checks still run, but r_data is not compared.
+--                   checks still run, but rsp_data is not compared.
 --
 --                   Statistics accumulate while the instance is
 --                   enabled; every event while enabled is captured.
@@ -25,11 +29,10 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 use work.util_pkg.all;
 
-entity axi_monitor_r is
+entity axi_monitor_rsp is
   generic (
     GC_DATA_BYTES : positive := 64;
     GC_ADDR_WIDTH : positive := 49;
-    GC_ID_WIDTH   : positive := 6;
     GC_TIME_WIDTH : positive := 48;
     GC_STAT_WIDTH : positive := 48   -- width of accumulated stat ports (min/max/sum)
   );
@@ -42,19 +45,18 @@ entity axi_monitor_r is
     enable       : in  std_logic;   -- per-instance enable (0 = monitor inert)
     stat_rst     : in  std_logic;   -- clears stat counters (not burst tracking)
     err_rst      : in  std_logic;   -- clears error counters
-    data_check_en: in  std_logic;   -- '1' = verify r_data vs expected pattern
+    data_check_en: in  std_logic;   -- '1' = verify rsp_data vs expected pattern
     pipeline_busy: out std_logic;   -- scoreboard has entries or burst in-flight
 
-    -- R channel taps (all inputs -- passive monitor)
-    r_valid : in  std_logic;
-    r_ready : in  std_logic;
-    r_id    : in  std_logic_vector(GC_ID_WIDTH-1 downto 0);
-    r_data  : in  std_logic_vector(8*GC_DATA_BYTES-1 downto 0);
-    r_resp  : in  std_logic_vector(1 downto 0);
-    r_last  : in  std_logic;
+    -- rsp channel taps (all inputs -- passive monitor)
+    rsp_valid : in  std_logic;
+    rsp_ready : in  std_logic;
+    rsp_data  : in  std_logic_vector(8*GC_DATA_BYTES-1 downto 0);
+    rsp_resp  : in  std_logic_vector(1 downto 0);
+    rsp_last  : in  std_logic;
 
     -- Scoreboard read (from internal axis_fifo)
-    sb_tdata  : in  std_logic_vector(GC_ADDR_WIDTH + GC_ID_WIDTH + GC_TIME_WIDTH + 8 - 1 downto 0);
+    sb_tdata  : in  std_logic_vector(GC_ADDR_WIDTH + GC_TIME_WIDTH + 8 - 1 downto 0);
     sb_tvalid : in  std_logic;
     sb_tready : out std_logic;
 
@@ -74,44 +76,40 @@ entity axi_monitor_r is
     stat_burst_len_min       : out std_logic_vector(31 downto 0);
     stat_burst_len_max       : out std_logic_vector(31 downto 0);
     stat_elapsed_cycles      : out std_logic_vector(31 downto 0);
-    stat_r_stall             : out std_logic_vector(31 downto 0);
+    stat_rsp_stall           : out std_logic_vector(31 downto 0);
     stat_data_errors         : out std_logic_vector(31 downto 0);
-    stat_id_errors           : out std_logic_vector(31 downto 0);
     stat_rlast_errors        : out std_logic_vector(31 downto 0);
     stat_resp_errors         : out std_logic_vector(31 downto 0);
     stat_sb_underflow_errors : out std_logic_vector(31 downto 0)
   );
 end entity;
 
-architecture rtl of axi_monitor_r is
+architecture rtl of axi_monitor_rsp is
 
-  constant C_SB_WIDTH  : positive := GC_ADDR_WIDTH + GC_ID_WIDTH + GC_TIME_WIDTH + 8;
+  constant C_SB_WIDTH  : positive := GC_ADDR_WIDTH + GC_TIME_WIDTH + 8;
   constant C_RESP_OKAY : std_logic_vector(1 downto 0) := "00";
 
-  -- Scoreboard field positions -- must match axi_monitor_ar packing order.
-  -- Entry format (MSB to LSB):  {araddr, arid, timestamp, arlen}
+  -- Scoreboard field positions -- must match axi_monitor_req packing order.
+  -- Entry format (MSB to LSB):  {reqaddr, timestamp, reqlen}
   constant C_BEATS_LOW  : natural := 0;
   constant C_BEATS_HIGH : natural := 7;
   constant C_TS_LOW     : natural := C_BEATS_HIGH + 1;
   constant C_TS_HIGH    : natural := C_TS_LOW + GC_TIME_WIDTH - 1;
-  constant C_ID_LOW     : natural := C_TS_HIGH + 1;
-  constant C_ID_HIGH    : natural := C_ID_LOW + GC_ID_WIDTH - 1;
-  constant C_ADDR_LOW   : natural := C_ID_HIGH + 1;
+  constant C_ADDR_LOW   : natural := C_TS_HIGH + 1;
   constant C_ADDR_HIGH  : natural := C_ADDR_LOW + GC_ADDR_WIDTH - 1;
 
   type rec_t is record
     -- Burst tracking -- per-burst state loaded from scoreboard
-    burst_beats  : unsigned(7 downto 0);              -- remaining beats (arlen)
+    burst_beats  : unsigned(7 downto 0);              -- remaining beats (reqlen)
     burst_addr   : unsigned(GC_ADDR_WIDTH-1 downto 0);-- start address for data check
-    burst_id     : std_logic_vector(GC_ID_WIDTH-1 downto 0);
     beat_idx     : unsigned(8 downto 0);              -- 1-based beat index in burst
-    ts_ar        : unsigned(GC_TIME_WIDTH-1 downto 0);-- timestamp at AR issue
-    ts_prev_beat : unsigned(GC_TIME_WIDTH-1 downto 0);-- timestamp of previous R beat
+    ts_req       : unsigned(GC_TIME_WIDTH-1 downto 0);-- timestamp at req issue
+    ts_prev_beat : unsigned(GC_TIME_WIDTH-1 downto 0);-- timestamp of previous rsp beat
     latency_started : std_logic;                      -- '1' = first-beat latency pending
 
     -- Statistics -- accumulated over the measurement window
     xactions       : unsigned(31 downto 0);  -- completed transactions (bursts)
-    beats          : unsigned(31 downto 0);  -- total R beats accepted
+    beats          : unsigned(31 downto 0);  -- total rsp beats accepted
     latency_sum    : unsigned(GC_STAT_WIDTH-1 downto 0);
     latency_min    : unsigned(31 downto 0);
     latency_max    : unsigned(31 downto 0);
@@ -125,12 +123,11 @@ architecture rtl of axi_monitor_r is
     blen_min       : unsigned(31 downto 0);
     blen_max       : unsigned(31 downto 0);
     elapsed        : unsigned(31 downto 0);
-    r_stall        : unsigned(31 downto 0);   -- r_valid=1 & r_ready=0 cycles
+    rsp_stall      : unsigned(31 downto 0);   -- rsp_valid=1 & rsp_ready=0 cycles
     busy           : std_logic;
 
     -- Error counters
     data_errs      : unsigned(31 downto 0);
-    id_errs        : unsigned(31 downto 0);
     rlast_errs     : unsigned(31 downto 0);
     resp_errs      : unsigned(31 downto 0);
     sb_uf_errs     : unsigned(31 downto 0);
@@ -139,9 +136,8 @@ architecture rtl of axi_monitor_r is
   constant C_DEFAULT : rec_t := (
     burst_beats      => (others => '0'),
     burst_addr       => (others => '0'),
-    burst_id         => (others => '0'),
     beat_idx         => (others => '0'),
-    ts_ar            => (others => '0'),
+    ts_req           => (others => '0'),
     ts_prev_beat     => (others => '0'),
     latency_started  => '0',
     xactions         => (others => '0'),
@@ -159,10 +155,9 @@ architecture rtl of axi_monitor_r is
     blen_min         => (others => '1'),
     blen_max         => (others => '0'),
     elapsed          => (others => '0'),
-    r_stall          => (others => '0'),
+    rsp_stall        => (others => '0'),
     busy             => '0',
     data_errs        => (others => '0'),
-    id_errs          => (others => '0'),
     rlast_errs       => (others => '0'),
     resp_errs        => (others => '0'),
     sb_uf_errs       => (others => '0')
@@ -174,26 +169,26 @@ architecture rtl of axi_monitor_r is
 begin
 
   ---------------------------------------------------------------------
-  -- R-channel acceptance (passive).
+  -- rsp-channel acceptance (passive).
   --
-  -- r_ready is an INPUT (tapped from the real consumer); the monitor
-  -- never drives it.  An accepted beat is r_valid & r_ready.  Because
-  -- the monitor cannot stall, every accepted beat is counted; if no
-  -- scoreboard entry is available the beat is still counted and an
-  -- underflow error is reported (validation is skipped for it).
+  -- rsp_ready is an INPUT (tapped from the real consumer); the monitor
+  -- never drives it.  An accepted beat is rsp_valid & rsp_ready.
+  -- Because the monitor cannot stall, every accepted beat is counted;
+  -- if no scoreboard entry is available the beat is still counted and
+  -- an underflow error is reported (validation is skipped for it).
   ---------------------------------------------------------------------
 
   ---------------------------------------------------------------------
   -- Combinational process -- computes all next-state values and outputs.
   ---------------------------------------------------------------------
   p_comb : process (all)
-    variable v         : rec_t;
-    variable v_r_fire  : std_logic;   -- accepted R-channel beat
-    variable v_gap     : unsigned(GC_TIME_WIDTH-1 downto 0);
-    variable v_latency : unsigned(GC_TIME_WIDTH-1 downto 0);
+    variable v           : rec_t;
+    variable v_rsp_fire  : std_logic;   -- accepted rsp-channel beat
+    variable v_gap       : unsigned(GC_TIME_WIDTH-1 downto 0);
+    variable v_latency   : unsigned(GC_TIME_WIDTH-1 downto 0);
     variable v_beat_addr : unsigned(GC_ADDR_WIDTH-1 downto 0);
-    variable v_ok      : boolean;
-    variable word_idx  : natural;
+    variable v_ok        : boolean;
+    variable word_idx    : natural;
   begin
     v := r;  -- recover current state as default for all fields
 
@@ -209,25 +204,25 @@ begin
       v.elapsed := r.elapsed + 1;
     end if;
 
-    -- R-stall counter:  consumer backpressure on the R channel.
-    if enable = '1' and r_valid = '1' and r_ready = '0' then
-      v.r_stall := r.r_stall + 1;
+    -- rsp-stall counter:  consumer backpressure on the rsp channel.
+    if enable = '1' and rsp_valid = '1' and rsp_ready = '0' then
+      v.rsp_stall := r.rsp_stall + 1;
     end if;
 
-    -- Accepted beat:  r_valid & r_ready (both inputs), gated by enable.
-    v_r_fire := r_valid and r_ready and enable;
+    -- Accepted beat:  rsp_valid & rsp_ready (both inputs), gated by enable.
+    v_rsp_fire := rsp_valid and rsp_ready and enable;
 
     sb_tready <= '0';
 
-    if v_r_fire = '1' then
+    if v_rsp_fire = '1' then
       -- EVERY accepted beat is counted, unconditionally.
       v.beats := r.beats + 1;
 
       ------------------------------------------------------------------
-      -- RLAST early guard:  r_last with no active burst and no scoreboard
-      -- entry ready -> spurious r_last (protocol error).
+      -- RSPLAST early guard:  rsp_last with no active burst and no
+      -- scoreboard entry ready -> spurious rsp_last (protocol error).
       ------------------------------------------------------------------
-      if r_last = '1' and r.burst_beats = 0 and sb_tvalid = '0' then
+      if rsp_last = '1' and r.burst_beats = 0 and sb_tvalid = '0' then
         v.rlast_errs := r.rlast_errs + 1;
       end if;
 
@@ -241,8 +236,7 @@ begin
         else
           v.burst_beats := unsigned(sb_tdata(C_BEATS_HIGH downto C_BEATS_LOW));
           v.burst_addr  := unsigned(sb_tdata(C_ADDR_HIGH downto C_ADDR_LOW));
-          v.burst_id    := sb_tdata(C_ID_HIGH downto C_ID_LOW);
-          v.ts_ar       := unsigned(sb_tdata(C_TS_HIGH downto C_TS_LOW));
+          v.ts_req      := unsigned(sb_tdata(C_TS_HIGH downto C_TS_LOW));
           v.beat_idx    := (others => '0');
           v.latency_started := '1';
         end if;
@@ -265,16 +259,16 @@ begin
           v_ok := true;
           if GC_DATA_BYTES >= 4 then
             for word_idx in 0 to GC_DATA_BYTES / 4 - 1 loop
-              if r_data(32*word_idx+31 downto 32*word_idx) /=
+              if rsp_data(32*word_idx+31 downto 32*word_idx) /=
                  std_logic_vector(resize(v_beat_addr + word_idx*4, 32)) then
                 v_ok := false;
               end if;
             end loop;
           elsif GC_DATA_BYTES = 2 then
-            v_ok := r_data(15 downto 0) = std_logic_vector(
+            v_ok := rsp_data(15 downto 0) = std_logic_vector(
               resize(v_beat_addr, 16));
           else
-            v_ok := r_data(7 downto 0) = std_logic_vector(
+            v_ok := rsp_data(7 downto 0) = std_logic_vector(
               resize(v_beat_addr, 8));
           end if;
           if not v_ok then
@@ -282,21 +276,16 @@ begin
           end if;
         end if;
 
-        -- ID check:  RID must match the AR ID from the scoreboard entry
-        if r_id /= v.burst_id then
-          v.id_errs := r.id_errs + 1;
-        end if;
-
-        -- RLAST checks (per-beat, using v.burst_beats = after-decrement).
-        if r_last = '1' and v.burst_beats > 0 then
+        -- RSPLAST checks (per-beat, using v.burst_beats = after-decrement).
+        if rsp_last = '1' and v.burst_beats > 0 then
           v.rlast_errs := r.rlast_errs + 1;
         end if;
-        if r_last = '0' and v.burst_beats = 0 then
+        if rsp_last = '0' and v.burst_beats = 0 then
           v.rlast_errs := r.rlast_errs + 1;
         end if;
 
-        -- RRESP check:  all responses should be OKAY (0b00)
-        if r_resp /= C_RESP_OKAY then
+        -- RSPRESP check:  all responses should be OKAY (0b00)
+        if rsp_resp /= C_RESP_OKAY then
           v.resp_errs := r.resp_errs + 1;
         end if;
 
@@ -304,7 +293,7 @@ begin
         -- Statistics accumulation -- enabled while the monitor is on.
         ------------------------------------------------------------------
         if v.burst_beats = 0 then
-          v_latency := global_time - v.ts_ar;
+          v_latency := global_time - v.ts_req;
           v.latency_sum := r.latency_sum + v_latency;
           if v_latency < r.latency_min then
             v.latency_min := v_latency(31 downto 0);
@@ -326,7 +315,7 @@ begin
         end if;
 
         if v.beat_idx = 1 and v.latency_started = '1' then
-          v_latency := global_time - v.ts_ar;
+          v_latency := global_time - v.ts_req;
           v.first_lat_sum := r.first_lat_sum + v_latency;
           if v_latency < r.first_lat_min then
             v.first_lat_min := v_latency(31 downto 0);
@@ -375,11 +364,10 @@ begin
       v.blen_min       := C_DEFAULT.blen_min;
       v.blen_max       := C_DEFAULT.blen_max;
       v.elapsed        := C_DEFAULT.elapsed;
-      v.r_stall        := C_DEFAULT.r_stall;
+      v.rsp_stall      := C_DEFAULT.rsp_stall;
     end if;
     if err_rst = '1' then
       v.data_errs      := C_DEFAULT.data_errs;
-      v.id_errs        := C_DEFAULT.id_errs;
       v.rlast_errs     := C_DEFAULT.rlast_errs;
       v.resp_errs      := C_DEFAULT.resp_errs;
       v.sb_uf_errs     := C_DEFAULT.sb_uf_errs;
@@ -418,10 +406,9 @@ begin
   stat_burst_len_min      <= std_logic_vector(r.blen_min);
   stat_burst_len_max      <= std_logic_vector(r.blen_max);
   stat_elapsed_cycles     <= std_logic_vector(r.elapsed);
-  stat_r_stall            <= std_logic_vector(r.r_stall);
+  stat_rsp_stall          <= std_logic_vector(r.rsp_stall);
   pipeline_busy           <= r.busy;
   stat_data_errors        <= std_logic_vector(r.data_errs);
-  stat_id_errors          <= std_logic_vector(r.id_errs);
   stat_rlast_errors       <= std_logic_vector(r.rlast_errs);
   stat_resp_errors        <= std_logic_vector(r.resp_errs);
   stat_sb_underflow_errors <= std_logic_vector(r.sb_uf_errs);

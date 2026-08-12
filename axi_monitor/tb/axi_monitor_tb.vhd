@@ -1,234 +1,208 @@
 -----------------------------------------------------------------------
 --Filename         : axi_monitor_tb.vhd
---Description      : Testbench for axi_monitor (passive AR/R monitor).
+--Description      : Integration testbench for axi_monitor.  Instantiates
+--                   axi_read_bridge + axi_mem_model and taps one bridge
+--                   client (client 0) with axi_monitor, validating that
+--                   the monitor's stats track real bridge traffic with
+--                   zero false errors.  A second monitor instance is
+--                   driven by a hand-written req/rsp process to verify
+--                   the error-detection paths (data / resp / rlast /
+--                   scoreboard underflow) and the soft resets.
 --
---                   Architecture:
---                     axi_ar_gen             -- generates AR traffic
---                     axi_mem_model          -- responds with R beats
---                     axi_monitor            -- taps AR + R between them
---
---                   The monitor is fully passive: it never drives
---                   ar_valid/ar_ready/r_valid/r_ready.  The TB acts as
---                   the R-channel consumer (drives r_ready), and the
---                   ar_gen drives the AR channel into the mem_model.
---
---                   Checks:  normal linear/random/paced traffic,
---                   one-beat and non-zero cfg_pace_init operation, AR format
---                   and address-window/alignment compliance, R backpressure,
---                   per-instance enable gating, disabled data checking,
---                   injected data/ID/RRESP/RLAST errors, stat_rst, and
---                   err_rst behavior.
---
---                   Additional corner cases (T15-T22):  stat_rst and err_rst
---                   asserted while events are in flight, monitor disable /
---                   re-enable, non-zero AR ID, RLAST early-guard, stat-
---                   accumulator consistency and pipeline_busy, mixed burst
---                   lengths, a 2-byte (GC_DATA_BYTES=2) data path, and
---                   err_rst winning over coincident error detection.
+--                   Corner-case coverage (phases E-M): rsp backpressure,
+--                   req backpressure (credit exhaustion), scoreboard
+--                   backpressure (small-FIFO monitor), per-instance
+--                   disable/re-enable, stat_rst mid-traffic, err_rst
+--                   coincident with error detection, maximum and mixed
+--                   burst lengths, sustained varied traffic, and
+--                   stat-accumulator consistency (elapsed counter,
+--                   min/max/sum, pipeline_busy, max_outstanding).
 --Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
+
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
-use std.textio.all;
 use work.util_pkg.all;
 
 entity axi_monitor_tb is
-end entity;
+end entity axi_monitor_tb;
 
 architecture sim of axi_monitor_tb is
+  constant C_NUM_CLIENTS      : positive := 4;
+  constant C_ADDR_WIDTH       : positive := 32;
+  constant C_ID_WIDTH         : positive := 4;
+  constant C_CLIENT_BYTES     : positive := 64;
+  constant C_NATIVE_BYTES     : positive := 16;
+  constant C_CLIENT_LEN_WIDTH : positive := 6;
+  constant C_CLIENT_FIFO_DEPTH : positive := 32;
+  constant C_CDC_DEPTH        : positive := 8;
+  constant C_CLIENT_PERIOD    : time := 10 ns;
+  constant C_MEM_PERIOD       : time := 4 ns;
+  constant C_TIMEOUT          : time := 2 ms;
 
-  constant C_CLK_PERIOD : time    := 10 ns;
-  constant C_DATA_BYTES : natural := 16;
-  constant C_ADDR_WIDTH : natural := 49;
-  constant C_ID_WIDTH   : natural := 6;
-  constant C_TIME_WIDTH : natural := 48;
-  constant C_STAT_WIDTH : natural := 48;
+  constant C_MON_TIME_WIDTH   : positive := 48;
+  constant C_MON_STAT_WIDTH   : positive := 48;
+  constant C_MON_SB_DEPTH     : positive := 16;
 
-  signal aclk     : std_logic := '0';
-  signal aresetn  : std_logic := '0';
-  signal sim_done : boolean  := false;
+  signal client_aclk : std_logic := '0';
+  signal mem_aclk    : std_logic := '0';
+  signal aresetn     : std_logic := '0';
+  signal sim_done    : boolean := false;
 
-  signal global_time   : unsigned(C_TIME_WIDTH-1 downto 0) := (others => '0');
-  signal mon_enable    : std_logic := '1';   -- monitor per-instance enable (kept high)
-  signal stat_rst      : std_logic := '0';
-  signal err_rst       : std_logic := '0';
-  signal data_check_en : std_logic := '1';
+  signal global_time : unsigned(C_MON_TIME_WIDTH-1 downto 0) := (others => '0');
 
-  -- Traffic source (ar_gen) config
-  signal enable          : std_logic := '0';
-  signal gen_aperture    : std_logic := '1';
-  signal cfg_id            : std_logic_vector(C_ID_WIDTH-1 downto 0) := (others => '0');
-  signal cfg_arlen      : std_logic_vector(log2ceil(256)-1 downto 0) := x"0F";
-  signal cfg_pace            : std_logic_vector(31 downto 0) := x"00000000";
-  signal cfg_pace_init       : std_logic_vector(31 downto 0) := x"00000000";
-  signal cfg_base_addr       : std_logic_vector(C_ADDR_WIDTH-1 downto 0) := std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
-  signal cfg_addr_range      : std_logic_vector(C_ADDR_WIDTH-1 downto 0) := std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
-  signal cfg_addr_mode       : std_logic := '0';
+  -- Bridge client interfaces
+  signal req_addr  : slv_array_t(0 to C_NUM_CLIENTS-1)(C_ADDR_WIDTH-1 downto 0) := (others => (others => '0'));
+  signal req_len   : slv_array_t(0 to C_NUM_CLIENTS-1)(C_CLIENT_LEN_WIDTH-1 downto 0) := (others => (others => '0'));
+  signal req_valid : std_logic_vector(0 to C_NUM_CLIENTS-1) := (others => '0');
+  signal req_ready : std_logic_vector(0 to C_NUM_CLIENTS-1);
 
-  -- AR channel (gen drives, mem accepts, monitor taps)
-  signal ar_valid : std_logic;
-  signal ar_ready : std_logic;
+  signal rsp_data  : slv_array_t(0 to C_NUM_CLIENTS-1)(8*C_CLIENT_BYTES-1 downto 0);
+  signal rsp_resp  : slv2_array_t(0 to C_NUM_CLIENTS-1);
+  signal rsp_last  : std_logic_vector(0 to C_NUM_CLIENTS-1);
+  signal rsp_valid : std_logic_vector(0 to C_NUM_CLIENTS-1);
+  signal rsp_ready : std_logic_vector(0 to C_NUM_CLIENTS-1) := (others => '1');
+
+  -- Native AXI interface (bridge <-> mem model)
   signal ar_id    : std_logic_vector(C_ID_WIDTH-1 downto 0);
   signal ar_addr  : std_logic_vector(C_ADDR_WIDTH-1 downto 0);
   signal ar_len   : std_logic_vector(7 downto 0);
   signal ar_size  : std_logic_vector(2 downto 0);
-  signal ar_burst : std_logic_vector(1 downto 0);
+  signal ar_valid : std_logic;
+  signal ar_ready : std_logic;
+  signal r_id     : std_logic_vector(C_ID_WIDTH-1 downto 0);
+  signal r_data   : std_logic_vector(8*C_NATIVE_BYTES-1 downto 0);
+  signal r_resp   : std_logic_vector(1 downto 0);
+  signal r_last   : std_logic;
+  signal r_valid  : std_logic;
+  signal r_ready  : std_logic;
 
-  -- R channel (mem drives, TB consumes via r_ready, monitor taps)
-  signal r_valid : std_logic;
-  signal r_ready : std_logic := '1';   -- TB acts as R consumer
-  signal r_id    : std_logic_vector(C_ID_WIDTH-1 downto 0);
-  signal r_data  : std_logic_vector(8*C_DATA_BYTES-1 downto 0);
-  signal r_resp  : std_logic_vector(1 downto 0);
-  signal r_last  : std_logic;
+  -- Monitor (client 0) control
+  signal mon_enable      : std_logic := '0';
+  signal mon_stat_rst    : std_logic := '0';
+  signal mon_err_rst     : std_logic := '0';
+  signal mon_data_check  : std_logic := '1';
+  signal mon_pipeline    : std_logic;
 
-  -- Raw memory-model R channel and optional error injection before the
-  -- monitor tap.  The normal path is transparent; each injection is
-  -- enabled only during the dedicated error tests.
-  signal mem_r_valid : std_logic;
-  signal mem_r_id    : std_logic_vector(C_ID_WIDTH-1 downto 0);
-  signal mem_r_data  : std_logic_vector(8*C_DATA_BYTES-1 downto 0);
-  signal mem_r_resp  : std_logic_vector(1 downto 0);
-  signal mem_r_last  : std_logic;
-  signal inject_data_error  : std_logic := '0';
-  signal inject_id_error    : std_logic := '0';
-  signal inject_resp_error  : std_logic := '0';
-  signal inject_rlast_error : std_logic := '0';
-  signal spurious_r_valid   : std_logic := '0';  -- R beat with no AR descriptor
-  signal spurious_r_last    : std_logic := '0';  -- spurious RLAST with empty scoreboard
+  signal mon_req_len8 : std_logic_vector(7 downto 0);
 
-  signal check_ar_corner_cases : std_logic := '0';
-
-  -- Small-FIFO monitor instance used to drive scoreboard backpressure.
-  signal bp_stat_ar_seen         : std_logic_vector(31 downto 0);
-  signal bp_stat_ar_stall        : std_logic_vector(31 downto 0);
-  signal bp_stat_sb_backpressure : std_logic_vector(31 downto 0);
-
-  -- Narrow (GC_DATA_BYTES=2) traffic path -- covers the 2-byte data-check
-  -- branch in axi_monitor_r.  Independent generator/mem/monitor instances.
-  signal enable2          : std_logic := '0';
-  signal ar2_valid        : std_logic;
-  signal ar2_ready        : std_logic;
-  signal ar2_id           : std_logic_vector(C_ID_WIDTH-1 downto 0);
-  signal ar2_addr         : std_logic_vector(C_ADDR_WIDTH-1 downto 0);
-  signal ar2_len          : std_logic_vector(7 downto 0);
-  signal ar2_size         : std_logic_vector(2 downto 0);
-  signal ar2_burst        : std_logic_vector(1 downto 0);
-  signal r2_valid         : std_logic;
-  signal r2_ready         : std_logic := '1';   -- TB consumes narrow R beats
-  signal r2_id            : std_logic_vector(C_ID_WIDTH-1 downto 0);
-  signal r2_data          : std_logic_vector(15 downto 0);
-  signal r2_resp          : std_logic_vector(1 downto 0);
-  signal r2_last          : std_logic;
-  signal gen2_stat_ar_stall  : std_logic_vector(31 downto 0);
-  signal gen2_stat_ar_issued : std_logic_vector(31 downto 0);
-  signal mon2_stat_ar_seen   : std_logic_vector(31 downto 0);
-  signal mon2_stat_xactions  : std_logic_vector(31 downto 0);
-  signal mon2_stat_beats     : std_logic_vector(31 downto 0);
-  signal mon2_stat_data_errors     : std_logic_vector(31 downto 0);
-  signal mon2_stat_id_errors       : std_logic_vector(31 downto 0);
-  signal mon2_stat_rlast_errors    : std_logic_vector(31 downto 0);
-  signal mon2_stat_resp_errors     : std_logic_vector(31 downto 0);
-  signal mon2_stat_sb_uf_errors    : std_logic_vector(31 downto 0);
-
-  -- Memory model control
-  signal ar_base_enable   : std_logic := '1';
-  signal ar_jitter_enable : std_logic := '0';
-  signal r_base_enable    : std_logic := '1';
-  signal r_jitter_enable  : std_logic := '0';
-  signal base_latency     : std_logic_vector(15 downto 0) := x"0005";
-  signal base_beat_gap    : std_logic_vector(15 downto 0) := x"0003";
-
-  -- Monitor statistics
-  signal stat_ar_seen             : std_logic_vector(31 downto 0);
-  signal stat_ar_stall            : std_logic_vector(31 downto 0);
+  -- Monitor (client 0) statistics
+  signal stat_req_seen            : std_logic_vector(31 downto 0);
+  signal stat_req_stall           : std_logic_vector(31 downto 0);
   signal stat_sb_backpressure     : std_logic_vector(31 downto 0);
   signal stat_xactions            : std_logic_vector(31 downto 0);
   signal stat_beats               : std_logic_vector(31 downto 0);
-  signal stat_latency_sum         : std_logic_vector(C_STAT_WIDTH-1 downto 0);
+  signal stat_latency_sum         : std_logic_vector(C_MON_STAT_WIDTH-1 downto 0);
   signal stat_latency_min         : std_logic_vector(31 downto 0);
   signal stat_latency_max         : std_logic_vector(31 downto 0);
-  signal stat_first_latency_sum   : std_logic_vector(C_STAT_WIDTH-1 downto 0);
+  signal stat_first_latency_sum   : std_logic_vector(C_MON_STAT_WIDTH-1 downto 0);
   signal stat_first_latency_min   : std_logic_vector(31 downto 0);
   signal stat_first_latency_max   : std_logic_vector(31 downto 0);
-  signal stat_interbeat_gap_sum   : std_logic_vector(C_STAT_WIDTH-1 downto 0);
+  signal stat_interbeat_gap_sum   : std_logic_vector(C_MON_STAT_WIDTH-1 downto 0);
   signal stat_interbeat_gap_min   : std_logic_vector(31 downto 0);
   signal stat_interbeat_gap_max   : std_logic_vector(31 downto 0);
-  signal stat_burst_len_sum       : std_logic_vector(C_STAT_WIDTH-1 downto 0);
+  signal stat_burst_len_sum       : std_logic_vector(C_MON_STAT_WIDTH-1 downto 0);
   signal stat_burst_len_min       : std_logic_vector(31 downto 0);
   signal stat_burst_len_max       : std_logic_vector(31 downto 0);
   signal stat_elapsed_cycles      : std_logic_vector(31 downto 0);
-  signal stat_r_stall             : std_logic_vector(31 downto 0);
-  signal pipeline_busy            : std_logic;
+  signal stat_rsp_stall           : std_logic_vector(31 downto 0);
   signal stat_max_outstanding     : std_logic_vector(31 downto 0);
   signal stat_data_errors         : std_logic_vector(31 downto 0);
-  signal stat_id_errors           : std_logic_vector(31 downto 0);
   signal stat_rlast_errors        : std_logic_vector(31 downto 0);
   signal stat_resp_errors         : std_logic_vector(31 downto 0);
   signal stat_sb_underflow_errors : std_logic_vector(31 downto 0);
 
-  -- Generator stats (for cross-checking ar_seen vs ar_issued).  The
-  -- gen_ prefix disambiguates from the monitor's same-named ports
-  -- (both axi_ar_gen and axi_monitor export stat_ar_stall).
-  signal gen_stat_ar_stall    : std_logic_vector(31 downto 0);
-  signal gen_stat_ar_issued   : std_logic_vector(31 downto 0);
-  signal gen_stat_cfg_errors  : std_logic_vector(31 downto 0);
+  -- Error-injection monitor (hand-driven req/rsp)
+  signal err_enable     : std_logic := '0';
+  signal err_data_check : std_logic := '1';
+  signal err_pipeline   : std_logic;
+  signal err_req_valid  : std_logic := '0';
+  signal err_req_ready  : std_logic := '1';  -- hand-driven slave always accepts
+  signal err_req_addr   : std_logic_vector(C_ADDR_WIDTH-1 downto 0) := (others => '0');
+  signal err_req_len    : std_logic_vector(7 downto 0) := (others => '0');
+  signal err_rsp_valid  : std_logic := '0';
+  signal err_rsp_ready  : std_logic := '1';
+  signal err_rsp_data   : std_logic_vector(8*C_CLIENT_BYTES-1 downto 0) := (others => '0');
+  signal err_rsp_resp   : std_logic_vector(1 downto 0) := (others => '0');
+  signal err_rsp_last   : std_logic := '0';
+  signal err_stat_data_errors         : std_logic_vector(31 downto 0);
+  signal err_stat_xactions            : std_logic_vector(31 downto 0);
+  signal err_stat_beats               : std_logic_vector(31 downto 0);
+  signal err_stat_req_seen            : std_logic_vector(31 downto 0);
+  signal err_stat_req_stall           : std_logic_vector(31 downto 0);
+  signal err_stat_burst_len_min       : std_logic_vector(31 downto 0);
+  signal err_stat_burst_len_max       : std_logic_vector(31 downto 0);
+  signal err_stat_rlast_errors        : std_logic_vector(31 downto 0);
+  signal err_stat_resp_errors         : std_logic_vector(31 downto 0);
+  signal err_stat_sb_underflow_errors : std_logic_vector(31 downto 0);
 
-  -- Global time counter
-  signal global_time_cnt : unsigned(C_TIME_WIDTH-1 downto 0) := (others => '0');
+  signal watchdog_expired : boolean := false;
 
-  -- Reference for stat_elapsed_cycles (increments while enabled, cleared
-  -- by stat_rst -- same semantics as the RTL counter).
+  -- Small-FIFO monitor (client 0 tap) to force scoreboard backpressure.
+  signal bp_req_len8 : std_logic_vector(7 downto 0);
+  signal bp_stat_req_seen        : std_logic_vector(31 downto 0);
+  signal bp_stat_sb_backpressure : std_logic_vector(31 downto 0);
+
+  -- Error-injection monitor soft resets (driven by p_stim).
+  signal err_stat_rst : std_logic := '0';
+  signal err_err_rst  : std_logic := '0';
+
+  -- References for stat-consistency checks (mirror the RTL counters).
   signal mon_elapsed_ref : unsigned(31 downto 0) := (others => '0');
-  -- Latched flag: set once pipeline_busy is observed high (busy check).
   signal busy_high_seen  : std_logic := '0';
-
-  procedure wait_cycles(n : natural) is
-  begin
-    for i in 1 to n loop
-      wait until rising_edge(aclk);
-    end loop;
-  end procedure;
-
-  -- Wait until the R channel has completed all AR transactions accepted
-  -- by the monitor (i.e. stat_xactions has caught up with stat_ar_seen),
-  -- or max_cycles has elapsed.  Needed because the axi_mem_model drains
-  -- bursts with several cycles of latency; fixed drain windows are not
-  -- robust to that.
-  procedure wait_drained(max_cycles : natural) is
-    variable n : natural := 0;
-  begin
-    while unsigned(stat_xactions) < unsigned(stat_ar_seen) and n < max_cycles loop
-      wait until rising_edge(aclk);
-      n := n + 1;
-    end loop;
-  end procedure;
-
 begin
 
-  -- Clock
-  aclk <= not aclk after C_CLK_PERIOD/2 when not sim_done else '0';
-
-  -- Global time counter (free-running)
-  p_gt : process
+  p_client_clk : process
   begin
-    wait until rising_edge(aclk);
-    if aresetn = '0' then
-      global_time_cnt <= (others => '0');
-    else
-      global_time_cnt <= global_time_cnt + 1;
+    client_aclk <= '0';
+    while not sim_done loop
+      wait for C_CLIENT_PERIOD / 2;
+      client_aclk <= not client_aclk;
+    end loop;
+    client_aclk <= '0';
+    wait;
+  end process;
+
+  p_mem_clk : process
+  begin
+    mem_aclk <= '0';
+    while not sim_done loop
+      wait for C_MEM_PERIOD / 2;
+      mem_aclk <= not mem_aclk;
+    end loop;
+    mem_aclk <= '0';
+    wait;
+  end process;
+
+  p_time : process(client_aclk)
+  begin
+    if rising_edge(client_aclk) then
+      if aresetn = '0' then
+        global_time <= (others => '0');
+      else
+        global_time <= global_time + 1;
+      end if;
     end if;
   end process;
-  global_time <= global_time_cnt;
 
-  -- Reference counter for stat_elapsed_cycles -- mirrors the RTL elapsed
-  -- counter (increments while mon_enable is high, cleared by stat_rst).
-  p_elapsed_ref : process(aclk)
+  p_watchdog : process
   begin
-    if rising_edge(aclk) then
-      if aresetn = '0' or stat_rst = '1' then
+    wait for C_TIMEOUT;
+    if not sim_done then
+      watchdog_expired <= true;
+      report "axi_monitor_tb watchdog timeout" severity failure;
+    end if;
+    wait;
+  end process;
+
+  -- Reference counter for stat_elapsed_cycles: increments while the
+  -- client-0 monitor is enabled, cleared by stat_rst (same as the RTL).
+  p_elapsed_ref : process(client_aclk)
+  begin
+    if rising_edge(client_aclk) then
+      if aresetn = '0' or mon_stat_rst = '1' then
         mon_elapsed_ref <= (others => '0');
       elsif mon_enable = '1' then
         mon_elapsed_ref <= mon_elapsed_ref + 1;
@@ -236,166 +210,118 @@ begin
     end if;
   end process;
 
-  -- Latched flag: set the first cycle pipeline_busy is observed high.
-  p_busy_track : process(aclk)
+  -- Latch: set the first cycle the client-0 monitor pipeline is busy.
+  p_busy_track : process(client_aclk)
   begin
-    if rising_edge(aclk) then
-      if aresetn = '0' or stat_rst = '1' then
+    if rising_edge(client_aclk) then
+      if aresetn = '0' or mon_stat_rst = '1' then
         busy_high_seen <= '0';
-      elsif pipeline_busy = '1' then
+      elsif mon_pipeline = '1' then
         busy_high_seen <= '1';
       end if;
     end if;
   end process;
 
-  -- Preserve the memory response by default, with deliberate corruption
-  -- available for the monitor error-counter tests.  spurious_r_valid
-  -- injects an R beat with no matching AR descriptor (scoreboard
-  -- underflow).
-  r_valid <= mem_r_valid or spurious_r_valid;
-  r_id    <= mem_r_id when inject_id_error = '0' else not mem_r_id;
-  r_data  <= mem_r_data when inject_data_error = '0' else not mem_r_data;
-  r_resp  <= mem_r_resp when inject_resp_error = '0' else "10";
-  r_last  <= (mem_r_last xor inject_rlast_error) or
-             (spurious_r_valid and spurious_r_last);
-
-  -- Check the externally visible AR encoding and the generator's claimed
-  -- address-window protection and alignment on every accepted AR.
-  p_ar_corner_checks : process(aclk)
-    variable burst_bytes : natural;
-  begin
-    if rising_edge(aclk) and aresetn = '1' and
-       check_ar_corner_cases = '1' and ar_valid = '1' and ar_ready = '1' then
-      assert ar_size = std_logic_vector(to_unsigned(log2ceil(C_DATA_BYTES), 3))
-        report "AR corner check: ar_size mismatch"
-        severity failure;
-      assert ar_burst = "01"
-        report "AR corner check: ar_burst is not INCR"
-        severity failure;
-
-      -- Every start must be aligned to the transfer size (C_DATA_BYTES).
-      assert unsigned(ar_addr(log2ceil(C_DATA_BYTES)-1 downto 0)) = 0
-        report "AR corner check: ar_addr not aligned to C_DATA_BYTES"
-        severity failure;
-
-      burst_bytes := (to_integer(unsigned(ar_len)) + 1) * C_DATA_BYTES;
-      assert unsigned(ar_addr) >= unsigned(cfg_base_addr) and
-             unsigned(ar_addr) + burst_bytes <=
-             unsigned(cfg_base_addr) + unsigned(cfg_addr_range)
-        report "AR corner check: burst outside configured address window"
-        severity failure;
-    end if;
-  end process;
-
-  ---------------------------------------------------------------------
-  -- Traffic source:  axi_ar_gen
-  -- Generates AR bursts at cfg_pace=0 (a new AR every clock cycle when the
-  -- mem_model accepts).  It has no scoreboard of its own -- the monitor
-  -- builds its own scoreboard from the tapped AR.
-  ---------------------------------------------------------------------
-  u_gen : entity work.axi_ar_gen
+  u_bridge : entity work.axi_read_bridge
     generic map (
-      GC_DATA_BYTES => C_DATA_BYTES,
-      GC_ADDR_WIDTH => C_ADDR_WIDTH,
-      GC_ID_WIDTH   => C_ID_WIDTH,
-      GC_MAX_BURST  => 256
+      GC_NUM_CLIENTS        => C_NUM_CLIENTS,
+      GC_ADDR_WIDTH         => C_ADDR_WIDTH,
+      GC_ID_WIDTH           => C_ID_WIDTH,
+      GC_CLIENT_DATA_BYTES  => C_CLIENT_BYTES,
+      GC_NATIVE_DATA_BYTES  => C_NATIVE_BYTES,
+      GC_NATIVE_ARLEN_WIDTH => 8,
+      GC_CLIENT_FIFO_DEPTH  => C_CLIENT_FIFO_DEPTH,
+      GC_CDC_DEPTH          => C_CDC_DEPTH
     )
     port map (
-      aclk        => aclk,
+      client_aclk => client_aclk,
+      mem_aclk    => mem_aclk,
       aresetn     => aresetn,
-      enable      => enable,
-      aperture    => gen_aperture,
-      stat_rst    => stat_rst,
-      cfg_id        => cfg_id,
-      cfg_arlen   => cfg_arlen,
-      cfg_pace        => cfg_pace,
-      cfg_pace_init   => cfg_pace_init,
-      cfg_base_addr   => cfg_base_addr,
-      cfg_addr_range  => cfg_addr_range,
-      cfg_addr_mode   => cfg_addr_mode,
-      ar_valid    => ar_valid,
-      ar_ready    => ar_ready,
+      req_addr    => req_addr,
+      req_len     => req_len,
+      req_valid   => req_valid,
+      req_ready   => req_ready,
+      rsp_data    => rsp_data,
+      rsp_resp    => rsp_resp,
+      rsp_last    => rsp_last,
+      rsp_valid   => rsp_valid,
+      rsp_ready   => rsp_ready,
       ar_id       => ar_id,
       ar_addr     => ar_addr,
       ar_len      => ar_len,
       ar_size     => ar_size,
-      ar_burst    => ar_burst,
-      stat_ar_stall   => gen_stat_ar_stall,
-      stat_ar_issued  => gen_stat_ar_issued,
-      stat_cfg_errors => gen_stat_cfg_errors
+      ar_valid    => ar_valid,
+      ar_ready    => ar_ready,
+      r_id        => r_id,
+      r_data      => r_data,
+      r_resp      => r_resp,
+      r_last      => r_last,
+      r_valid     => r_valid,
+      r_ready     => r_ready
     );
 
-  ---------------------------------------------------------------------
-  -- Responding slave:  axi_mem_model
-  ---------------------------------------------------------------------
   u_mem : entity work.axi_mem_model
     generic map (
-      GC_DATA_BYTES    => C_DATA_BYTES,
+      GC_DATA_BYTES    => C_NATIVE_BYTES,
       GC_ADDR_WIDTH    => C_ADDR_WIDTH,
       GC_ID_WIDTH      => C_ID_WIDTH,
-      GC_AR_FIFO_DEPTH => 256,
       GC_TIMER_WIDTH   => 16,
+      GC_AR_FIFO_DEPTH => 8,
       GC_R_FIFO_DEPTH  => 8
     )
     port map (
-      aclk             => aclk,
-      aresetn          => aresetn,
-      ar_base_enable   => ar_base_enable,
-      ar_jitter_enable => ar_jitter_enable,
-      r_base_enable    => r_base_enable,
-      r_jitter_enable  => r_jitter_enable,
-      base_latency     => base_latency,
-      base_beat_gap    => base_beat_gap,
-      ar_id            => ar_id,
-      ar_addr          => ar_addr,
-      ar_len           => ar_len,
-      ar_valid         => ar_valid,
-      ar_ready         => ar_ready,
-      r_id             => mem_r_id,
-      r_data           => mem_r_data,
-      r_resp           => mem_r_resp,
-      r_last           => mem_r_last,
-      r_valid          => mem_r_valid,
-      r_ready          => r_ready
+      aclk            => mem_aclk,
+      aresetn         => aresetn,
+      ar_base_enable  => '0',
+      ar_jitter_enable => '0',
+      r_base_enable   => '0',
+      r_jitter_enable => '0',
+      base_latency    => (others => '0'),
+      base_beat_gap   => (others => '0'),
+      ar_id           => ar_id,
+      ar_addr         => ar_addr,
+      ar_len          => ar_len,
+      ar_valid        => ar_valid,
+      ar_ready        => ar_ready,
+      r_id            => r_id,
+      r_data          => r_data,
+      r_resp          => r_resp,
+      r_last          => r_last,
+      r_valid         => r_valid,
+      r_ready         => r_ready
     );
 
-  ---------------------------------------------------------------------
-  -- DUT:  axi_monitor -- passive tap between generator and memory model
-  ---------------------------------------------------------------------
+  -- Monitor taps client 0's req/rsp interface.
+  mon_req_len8 <= "00" & req_len(0);
+
   u_monitor : entity work.axi_monitor
     generic map (
-      GC_DATA_BYTES    => C_DATA_BYTES,
+      GC_DATA_BYTES    => C_CLIENT_BYTES,
       GC_ADDR_WIDTH    => C_ADDR_WIDTH,
-      GC_ID_WIDTH      => C_ID_WIDTH,
-      GC_TIME_WIDTH    => C_TIME_WIDTH,
-      GC_STAT_WIDTH    => C_STAT_WIDTH,
-      -- The generator can accept ARs much faster than the mem_model drains
-      -- (mem latency 5 + gap 3, 16-beat bursts), so peak outstanding can
-      -- far exceed 256.  Use a deep scoreboard so descriptors are never
-      -- dropped; stat_sb_backpressure still tracks any saturation.
-      GC_SB_FIFO_DEPTH => 4096
+      GC_TIME_WIDTH    => C_MON_TIME_WIDTH,
+      GC_STAT_WIDTH    => C_MON_STAT_WIDTH,
+      GC_SB_FIFO_DEPTH => C_MON_SB_DEPTH
     )
     port map (
-      aclk                    => aclk,
+      aclk                    => client_aclk,
       aresetn                 => aresetn,
       global_time             => global_time,
       enable                  => mon_enable,
-      stat_rst                => stat_rst,
-      err_rst                 => err_rst,
-      data_check_en           => data_check_en,
-      ar_valid                => ar_valid,
-      ar_ready                => ar_ready,
-      ar_id                   => ar_id,
-      ar_addr                 => ar_addr,
-      ar_len                  => ar_len,
-      r_valid                 => r_valid,
-      r_ready                 => r_ready,
-      r_id                    => r_id,
-      r_data                  => r_data,
-      r_resp                  => r_resp,
-      r_last                  => r_last,
-      stat_ar_seen            => stat_ar_seen,
-      stat_ar_stall           => stat_ar_stall,
+      stat_rst                => mon_stat_rst,
+      err_rst                 => mon_err_rst,
+      data_check_en           => mon_data_check,
+      pipeline_busy           => mon_pipeline,
+      req_valid               => req_valid(0),
+      req_ready               => req_ready(0),
+      req_addr                => req_addr(0),
+      req_len                 => mon_req_len8,
+      rsp_valid               => rsp_valid(0),
+      rsp_ready               => rsp_ready(0),
+      rsp_data                => rsp_data(0),
+      rsp_resp                => rsp_resp(0),
+      rsp_last                => rsp_last(0),
+      stat_req_seen           => stat_req_seen,
+      stat_req_stall          => stat_req_stall,
       stat_sb_backpressure    => stat_sb_backpressure,
       stat_xactions           => stat_xactions,
       stat_beats              => stat_beats,
@@ -412,50 +338,99 @@ begin
       stat_burst_len_min      => stat_burst_len_min,
       stat_burst_len_max      => stat_burst_len_max,
       stat_elapsed_cycles     => stat_elapsed_cycles,
-      stat_r_stall            => stat_r_stall,
-      pipeline_busy           => pipeline_busy,
+      stat_rsp_stall          => stat_rsp_stall,
       stat_max_outstanding    => stat_max_outstanding,
       stat_data_errors        => stat_data_errors,
-      stat_id_errors          => stat_id_errors,
       stat_rlast_errors       => stat_rlast_errors,
       stat_resp_errors        => stat_resp_errors,
       stat_sb_underflow_errors => stat_sb_underflow_errors
     );
 
-  ---------------------------------------------------------------------
-  -- Small-FIFO monitor (same passive tap, tiny scoreboard).  Used only
+  -- Error-injection monitor: hand-driven req/rsp to exercise error paths.
+  u_mon_err : entity work.axi_monitor
+    generic map (
+      GC_DATA_BYTES    => C_CLIENT_BYTES,
+      GC_ADDR_WIDTH    => C_ADDR_WIDTH,
+      GC_TIME_WIDTH    => C_MON_TIME_WIDTH,
+      GC_STAT_WIDTH    => C_MON_STAT_WIDTH,
+      GC_SB_FIFO_DEPTH => C_MON_SB_DEPTH
+    )
+    port map (
+      aclk                    => client_aclk,
+      aresetn                 => aresetn,
+      global_time             => global_time,
+      enable                  => err_enable,
+      stat_rst                => err_stat_rst,
+      err_rst                 => err_err_rst,
+      data_check_en           => err_data_check,
+      pipeline_busy           => err_pipeline,
+      req_valid               => err_req_valid,
+      req_ready               => err_req_ready,
+      req_addr                => err_req_addr,
+      req_len                 => err_req_len,
+      rsp_valid               => err_rsp_valid,
+      rsp_ready               => err_rsp_ready,
+      rsp_data                => err_rsp_data,
+      rsp_resp                => err_rsp_resp,
+      rsp_last                => err_rsp_last,
+      stat_req_seen           => err_stat_req_seen,
+      stat_req_stall          => err_stat_req_stall,
+      stat_sb_backpressure    => open,
+      stat_xactions           => err_stat_xactions,
+      stat_beats              => err_stat_beats,
+      stat_latency_sum        => open,
+      stat_latency_min        => open,
+      stat_latency_max        => open,
+      stat_first_latency_sum  => open,
+      stat_first_latency_min  => open,
+      stat_first_latency_max  => open,
+      stat_interbeat_gap_sum  => open,
+      stat_interbeat_gap_min  => open,
+      stat_interbeat_gap_max  => open,
+      stat_burst_len_sum      => open,
+      stat_burst_len_min      => err_stat_burst_len_min,
+      stat_burst_len_max      => err_stat_burst_len_max,
+      stat_elapsed_cycles     => open,
+      stat_rsp_stall          => open,
+      stat_max_outstanding    => open,
+      stat_data_errors        => err_stat_data_errors,
+      stat_rlast_errors       => err_stat_rlast_errors,
+      stat_resp_errors        => err_stat_resp_errors,
+      stat_sb_underflow_errors => err_stat_sb_underflow_errors
+    );
+
+  -- Small-FIFO monitor: same client-0 tap, tiny scoreboard.  Used only
   -- to force scoreboard backpressure during the corner-case tests.
-  ---------------------------------------------------------------------
+  bp_req_len8 <= "00" & req_len(0);
+
   u_monitor_bp : entity work.axi_monitor
     generic map (
-      GC_DATA_BYTES    => C_DATA_BYTES,
+      GC_DATA_BYTES    => C_CLIENT_BYTES,
       GC_ADDR_WIDTH    => C_ADDR_WIDTH,
-      GC_ID_WIDTH      => C_ID_WIDTH,
-      GC_TIME_WIDTH    => C_TIME_WIDTH,
-      GC_STAT_WIDTH    => C_STAT_WIDTH,
+      GC_TIME_WIDTH    => C_MON_TIME_WIDTH,
+      GC_STAT_WIDTH    => C_MON_STAT_WIDTH,
       GC_SB_FIFO_DEPTH => 4
     )
     port map (
-      aclk                    => aclk,
+      aclk                    => client_aclk,
       aresetn                 => aresetn,
       global_time             => global_time,
       enable                  => mon_enable,
-      stat_rst                => stat_rst,
-      err_rst                 => err_rst,
-      data_check_en           => data_check_en,
-      ar_valid                => ar_valid,
-      ar_ready                => ar_ready,
-      ar_id                   => ar_id,
-      ar_addr                 => ar_addr,
-      ar_len                  => ar_len,
-      r_valid                 => r_valid,
-      r_ready                 => r_ready,
-      r_id                    => r_id,
-      r_data                  => r_data,
-      r_resp                  => r_resp,
-      r_last                  => r_last,
-      stat_ar_seen            => bp_stat_ar_seen,
-      stat_ar_stall           => bp_stat_ar_stall,
+      stat_rst                => mon_stat_rst,
+      err_rst                 => mon_err_rst,
+      data_check_en           => mon_data_check,
+      pipeline_busy           => open,
+      req_valid               => req_valid(0),
+      req_ready               => req_ready(0),
+      req_addr                => req_addr(0),
+      req_len                 => bp_req_len8,
+      rsp_valid               => rsp_valid(0),
+      rsp_ready               => rsp_ready(0),
+      rsp_data                => rsp_data(0),
+      rsp_resp                => rsp_resp(0),
+      rsp_last                => rsp_last(0),
+      stat_req_seen           => bp_stat_req_seen,
+      stat_req_stall          => open,
       stat_sb_backpressure    => bp_stat_sb_backpressure,
       stat_xactions           => open,
       stat_beats              => open,
@@ -472,1160 +447,787 @@ begin
       stat_burst_len_min      => open,
       stat_burst_len_max      => open,
       stat_elapsed_cycles     => open,
-      stat_r_stall            => open,
-      pipeline_busy           => open,
+      stat_rsp_stall          => open,
       stat_max_outstanding    => open,
       stat_data_errors        => open,
-      stat_id_errors          => open,
       stat_rlast_errors       => open,
       stat_resp_errors        => open,
       stat_sb_underflow_errors => open
     );
 
-  ---------------------------------------------------------------------
-  -- Narrow (2-byte) traffic path -- independent generator + mem + monitor
-  -- used only by T21 to cover the GC_DATA_BYTES=2 data-check branch.
-  ---------------------------------------------------------------------
-  u_gen2 : entity work.axi_ar_gen
-    generic map (
-      GC_DATA_BYTES => 2,
-      GC_ADDR_WIDTH => C_ADDR_WIDTH,
-      GC_ID_WIDTH   => C_ID_WIDTH,
-      GC_MAX_BURST  => 256
-    )
-    port map (
-      aclk            => aclk,
-      aresetn         => aresetn,
-      enable          => enable2,
-      aperture        => gen_aperture,
-      stat_rst        => stat_rst,
-      cfg_id          => cfg_id,
-      cfg_arlen       => cfg_arlen,
-      cfg_pace        => cfg_pace,
-      cfg_pace_init   => cfg_pace_init,
-      cfg_base_addr   => cfg_base_addr,
-      cfg_addr_range  => cfg_addr_range,
-      cfg_addr_mode   => cfg_addr_mode,
-      ar_valid        => ar2_valid,
-      ar_ready        => ar2_ready,
-      ar_id           => ar2_id,
-      ar_addr         => ar2_addr,
-      ar_len          => ar2_len,
-      ar_size         => ar2_size,
-      ar_burst        => ar2_burst,
-      stat_ar_stall   => gen2_stat_ar_stall,
-      stat_ar_issued  => gen2_stat_ar_issued,
-      stat_cfg_errors => open
-    );
+  p_stim : process
+    variable wait_count : natural;
+    variable v_expected_data : std_logic_vector(8*C_CLIENT_BYTES-1 downto 0);
+    variable v_bad_data      : std_logic_vector(8*C_CLIENT_BYTES-1 downto 0) := (others => '0');
+    variable v_rsp_data      : std_logic_vector(8*C_CLIENT_BYTES-1 downto 0);
+    variable v_rsp_resp      : std_logic_vector(1 downto 0);
+    variable v_rsp_last      : std_logic;
+    variable v_word : natural;
 
-  u_mem2 : entity work.axi_mem_model
-    generic map (
-      GC_DATA_BYTES    => 2,
-      GC_ADDR_WIDTH    => C_ADDR_WIDTH,
-      GC_ID_WIDTH      => C_ID_WIDTH,
-      GC_AR_FIFO_DEPTH => 64,
-      GC_TIMER_WIDTH   => 16,
-      GC_R_FIFO_DEPTH  => 8
-    )
-    port map (
-      aclk             => aclk,
-      aresetn          => aresetn,
-      ar_base_enable   => ar_base_enable,
-      ar_jitter_enable => ar_jitter_enable,
-      r_base_enable    => r_base_enable,
-      r_jitter_enable  => r_jitter_enable,
-      base_latency     => base_latency,
-      base_beat_gap    => base_beat_gap,
-      ar_id            => ar2_id,
-      ar_addr          => ar2_addr,
-      ar_len           => ar2_len,
-      ar_valid         => ar2_valid,
-      ar_ready         => ar2_ready,
-      r_id             => r2_id,
-      r_data           => r2_data,
-      r_resp           => r2_resp,
-      r_last           => r2_last,
-      r_valid          => r2_valid,
-      r_ready          => r2_ready
-    );
+    -- Issue one client read request (req channel): drive addr/len/valid and
+    -- hold until a rising-edge ready handshake.
+    procedure req_w(
+      signal   clk      : in  std_logic;
+      signal   addr     : out std_logic_vector;
+      signal   len      : out std_logic_vector;
+      signal   valid    : out std_logic;
+      signal   ready    : in  std_logic;
+      constant req_addr : in  std_logic_vector;
+      constant req_len  : in  std_logic_vector
+    ) is
+    begin
+      addr  <= req_addr;
+      len   <= req_len;
+      valid <= '1';
+      loop
+        wait until rising_edge(clk);
+        exit when ready = '1';
+      end loop;
+      valid <= '0';
+    end procedure;
 
-  u_monitor2 : entity work.axi_monitor
-    generic map (
-      GC_DATA_BYTES    => 2,
-      GC_ADDR_WIDTH    => C_ADDR_WIDTH,
-      GC_ID_WIDTH      => C_ID_WIDTH,
-      GC_TIME_WIDTH    => C_TIME_WIDTH,
-      GC_STAT_WIDTH    => C_STAT_WIDTH,
-      GC_SB_FIFO_DEPTH => 256
-    )
-    port map (
-      aclk                    => aclk,
-      aresetn                 => aresetn,
-      global_time             => global_time,
-      enable                  => mon_enable,
-      stat_rst                => stat_rst,
-      err_rst                 => err_rst,
-      data_check_en           => data_check_en,
-      ar_valid                => ar2_valid,
-      ar_ready                => ar2_ready,
-      ar_id                   => ar2_id,
-      ar_addr                 => ar2_addr,
-      ar_len                  => ar2_len,
-      r_valid                 => r2_valid,
-      r_ready                 => r2_ready,
-      r_id                    => r2_id,
-      r_data                  => r2_data,
-      r_resp                  => r2_resp,
-      r_last                  => r2_last,
-      stat_ar_seen            => mon2_stat_ar_seen,
-      stat_ar_stall           => open,
-      stat_sb_backpressure    => open,
-      stat_xactions           => mon2_stat_xactions,
-      stat_beats              => mon2_stat_beats,
-      stat_latency_sum        => open,
-      stat_latency_min        => open,
-      stat_latency_max        => open,
-      stat_first_latency_sum  => open,
-      stat_first_latency_min  => open,
-      stat_first_latency_max  => open,
-      stat_interbeat_gap_sum  => open,
-      stat_interbeat_gap_min  => open,
-      stat_interbeat_gap_max  => open,
-      stat_burst_len_sum      => open,
-      stat_burst_len_min      => open,
-      stat_burst_len_max      => open,
-      stat_elapsed_cycles     => open,
-      stat_r_stall            => open,
-      pipeline_busy           => open,
-      stat_max_outstanding    => open,
-      stat_data_errors        => mon2_stat_data_errors,
-      stat_id_errors          => mon2_stat_id_errors,
-      stat_rlast_errors       => mon2_stat_rlast_errors,
-      stat_resp_errors        => mon2_stat_resp_errors,
-      stat_sb_underflow_errors => mon2_stat_sb_uf_errors
-    );
+    -- Read one client response beat (rsp channel): hold ready until a
+    -- rising-edge valid handshake, then return data/resp/last.
+    procedure rsp_rd(
+      signal   clk    : in  std_logic;
+      signal   ready  : out std_logic;
+      signal   valid  : in  std_logic;
+      signal   data   : in  std_logic_vector;
+      signal   resp   : in  std_logic_vector;
+      signal   last   : in  std_logic;
+      variable r_data : out std_logic_vector;
+      variable r_resp : out std_logic_vector;
+      variable r_last : out std_logic
+    ) is
+    begin
+      ready <= '1';
+      loop
+        wait until rising_edge(clk);
+        exit when valid = '1';
+      end loop;
+      r_data := data;
+      r_resp := resp;
+      r_last := last;
+      ready  <= '0';
+    end procedure;
 
-  ---------------------------------------------------------------------
-  -- Stimulus
-  ---------------------------------------------------------------------
-  p_stimulus : process
-    variable l : line;
+    -- Drive one client response beat (rsp channel, responder role): hold
+    -- valid and the payload until a rising-edge ready handshake.
+    procedure rsp_w(
+      signal   clk      : in  std_logic;
+      signal   valid    : out std_logic;
+      signal   ready    : in  std_logic;
+      signal   data     : out std_logic_vector;
+      signal   resp     : out std_logic_vector;
+      signal   last     : out std_logic;
+      constant rsp_data : in  std_logic_vector;
+      constant rsp_resp : in  std_logic_vector;
+      constant rsp_last : in  std_logic
+    ) is
+    begin
+      valid <= '1';
+      data  <= rsp_data;
+      resp  <= rsp_resp;
+      last  <= rsp_last;
+      loop
+        wait until rising_edge(clk);
+        exit when ready = '1';
+      end loop;
+      valid <= '0';
+    end procedure;
+
+    -- Pulse both soft resets (each sampled at one rising edge).
+    procedure p_stat_err_rst(
+      signal clk   : in  std_logic;
+      signal s_rst : out std_logic;
+      signal e_rst : out std_logic
+    ) is
+    begin
+      wait until falling_edge(clk);
+      s_rst <= '1';
+      e_rst <= '1';
+      wait until rising_edge(clk);
+      wait for 1 ns;
+      s_rst <= '0';
+      e_rst <= '0';
+      wait until rising_edge(clk);
+      wait for 1 ns;
+    end procedure;
+
+    -- Wait until the monitor pipeline drains (scoreboard empty).
+    procedure p_drain(
+      signal   clk      : in  std_logic;
+      signal   pipeline : in  std_logic;
+      constant tag      : in  string;
+      variable waited   : inout natural
+    ) is
+    begin
+      waited := 0;
+      loop
+        wait until rising_edge(clk);
+        wait for 1 ns;
+        exit when pipeline = '0';
+        waited := waited + 1;
+        assert waited < 100000
+          report "drain timeout: " & tag severity failure;
+      end loop;
+    end procedure;
+
+    -- Read a burst of `beats` response beats (rsp channel): hold ready
+    -- until each valid handshake, return data/resp/last, and check
+    -- resp=OKAY and last only on the final beat.
+    procedure p_rsp_burst(
+      signal   clk    : in  std_logic;
+      signal   ready  : out std_logic;
+      signal   valid  : in  std_logic;
+      signal   data   : in  std_logic_vector;
+      signal   resp   : in  std_logic_vector;
+      signal   last   : in  std_logic;
+      variable r_data : out std_logic_vector;
+      variable r_resp : out std_logic_vector;
+      variable r_last : out std_logic;
+      constant beats  : in  natural;
+      constant tag    : in  string
+    ) is
+      variable n : natural;
+    begin
+      n := 0;
+      while n < beats loop
+        ready <= '1';
+        loop
+          wait until rising_edge(clk);
+          exit when valid = '1';
+        end loop;
+        r_data := data;
+        r_resp := resp;
+        r_last := last;
+        ready  <= '0';
+        assert r_resp = "00"
+          report "rsp resp wrong (" & tag & ")" severity failure;
+        if n = beats-1 then
+          assert r_last = '1'
+            report "final rsp not last (" & tag & ")" severity failure;
+        else
+          assert r_last = '0'
+            report "early rsp asserted last (" & tag & ")" severity failure;
+        end if;
+        n := n + 1;
+      end loop;
+    end procedure;
   begin
-    -- Reset
-    aresetn <= '0';
-    wait_cycles(10);
+    wait for 100 ns;
     aresetn <= '1';
-    wait_cycles(5);
 
-    write(l, string'("=== T1: Passive monitoring, 16-beat linear bursts, data check ON ==="));
-    writeline(output, l);
+    -- Enable the client-0 monitor (data check on).
+    wait until rising_edge(client_aclk);
+    mon_enable <= '1';
 
-    -- Configure generator: 16-beat bursts, linear, no cfg_pace
-    cfg_id         <= (others => '0');
-    cfg_arlen    <= x"0F";
-    cfg_pace         <= x"00000000";
-    cfg_pace_init    <= x"00000000";
-    cfg_base_addr    <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
-    cfg_addr_range   <= std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
-    cfg_addr_mode    <= '0';
-    data_check_en <= '1';
+    -- ---------------------------------------------------------------
+    -- Phase A: single-beat request on client 0.  One req, one rsp beat.
+    -- ---------------------------------------------------------------
+    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+          x"00001000", std_logic_vector(to_unsigned(0, C_CLIENT_LEN_WIDTH)));
 
-    check_ar_corner_cases <= '1';
-    enable <= '1';
+    rsp_rd(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0), rsp_resp(0),
+           rsp_last(0), v_rsp_data, v_rsp_resp, v_rsp_last);
+    assert v_rsp_resp = "00" and v_rsp_last = '1'
+      report "A: client 0 response sideband wrong" severity failure;
 
-    -- Run for enough cycles to issue many bursts and drain R
-    wait_cycles(2000);
+    -- Drain the scoreboard.
+    wait_count := 0;
+    loop
+      wait until rising_edge(client_aclk);
+      wait for 1 ns;
+      exit when mon_pipeline = '0';
+      wait_count := wait_count + 1;
+      assert wait_count < 4000 report "phase A drain timeout" severity failure;
+    end loop;
 
-    -- Stop generation, keep monitoring window open to drain
-    enable <= '0';
-    wait_drained(500000);
+    assert stat_req_seen = x"00000001"
+      report "A: req_seen /= 1" severity failure;
+    assert stat_xactions = x"00000001"
+      report "A: xactions /= 1" severity failure;
+    assert stat_beats = x"00000001"
+      report "A: beats /= 1" severity failure;
+    assert stat_burst_len_min = x"00000001" and stat_burst_len_max = x"00000001"
+      report "A: burst length stats wrong" severity failure;
+    assert stat_data_errors = x"00000000"
+      report "A: data errors on clean traffic" severity failure;
+    assert stat_rlast_errors = x"00000000"
+      report "A: rlast errors on clean traffic" severity failure;
+    assert stat_resp_errors = x"00000000"
+      report "A: resp errors on clean traffic" severity failure;
+    assert stat_sb_underflow_errors = x"00000000"
+      report "A: scoreboard underflow on clean traffic" severity failure;
+    assert stat_latency_min /= x"FFFFFFFF"
+      report "A: latency_min never set" severity failure;
+    assert to_integer(unsigned(stat_latency_max)) > 0
+      report "A: latency_max zero" severity failure;
 
-    -- Check:  ar_seen should equal generator ARs issued
-    if unsigned(stat_ar_seen) = unsigned(gen_stat_ar_issued) then
-      write(l, string'("  PASS: stat_ar_seen = "));
-      write(l, to_integer(unsigned(stat_ar_seen)));
-      write(l, string'(" = ar_issued"));
-      writeline(output, l);
-    else
-      write(l, string'("  FAIL: ar_seen="));
-      write(l, to_integer(unsigned(stat_ar_seen)));
-      write(l, string'(" ar_issued="));
-      write(l, to_integer(unsigned(gen_stat_ar_issued)));
-      writeline(output, l);
-      assert false report "T1 ar_seen mismatch" severity failure;
-    end if;
+    -- ---------------------------------------------------------------
+    -- Phase B: three-beat request on client 0 (len=2).  Three rsp beats.
+    -- ---------------------------------------------------------------
+    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+          x"00002000", std_logic_vector(to_unsigned(2, C_CLIENT_LEN_WIDTH)));
 
-    -- Check:  every burst completed -> xactions == ar_seen
-    if unsigned(stat_xactions) = unsigned(stat_ar_seen) then
-      write(l, string'("  PASS: stat_xactions = "));
-      write(l, to_integer(unsigned(stat_xactions)));
-      writeline(output, l);
-    else
-      write(l, string'("  FAIL: xactions="));
-      write(l, to_integer(unsigned(stat_xactions)));
-      write(l, string'(" ar_seen="));
-      write(l, to_integer(unsigned(stat_ar_seen)));
-      writeline(output, l);
-      assert false report "T1 xactions mismatch" severity failure;
-    end if;
+    for n in 0 to 2 loop
+      rsp_rd(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0), rsp_resp(0),
+             rsp_last(0), v_rsp_data, v_rsp_resp, v_rsp_last);
+      assert v_rsp_resp = "00"
+        report "B: client 0 response resp wrong" severity failure;
+      if n = 2 then
+        assert v_rsp_last = '1'
+          report "B: final response not last" severity failure;
+      else
+        assert v_rsp_last = '0'
+          report "B: early response asserted last" severity failure;
+      end if;
+    end loop;
 
-    -- Check:  beats == xactions * 16
-    if unsigned(stat_beats) = unsigned(stat_xactions) * 16 then
-      write(l, string'("  PASS: stat_beats = "));
-      write(l, to_integer(unsigned(stat_beats)));
-      writeline(output, l);
-    else
-      write(l, string'("  FAIL: beats="));
-      write(l, to_integer(unsigned(stat_beats)));
-      writeline(output, l);
-      assert false report "T1 beats mismatch" severity failure;
-    end if;
+    wait_count := 0;
+    loop
+      wait until rising_edge(client_aclk);
+      wait for 1 ns;
+      exit when mon_pipeline = '0';
+      wait_count := wait_count + 1;
+      assert wait_count < 4000 report "phase B drain timeout" severity failure;
+    end loop;
 
-    -- Check:  burst-length stats all equal 16
-    if unsigned(stat_burst_len_min) = 16 and
-       unsigned(stat_burst_len_max) = 16 then
-      write(l, string'("  PASS: burst_len min/max = 16/16"));
-      writeline(output, l);
-    else
-      write(l, string'("  FAIL: burst_len min="));
-      write(l, to_integer(unsigned(stat_burst_len_min)));
-      write(l, string'(" max="));
-      write(l, to_integer(unsigned(stat_burst_len_max)));
-      writeline(output, l);
-      assert false report "T1 burst_len mismatch" severity failure;
-    end if;
+    assert stat_req_seen = x"00000002"
+      report "B: req_seen /= 2" severity failure;
+    assert stat_xactions = x"00000002"
+      report "B: xactions /= 2" severity failure;
+    assert stat_beats = x"00000004"
+      report "B: beats /= 4" severity failure;
+    assert stat_burst_len_min = x"00000001" and stat_burst_len_max = x"00000003"
+      report "B: burst length stats wrong" severity failure;
+    assert stat_data_errors = x"00000000" and stat_rlast_errors = x"00000000"
+       and stat_resp_errors = x"00000000" and stat_sb_underflow_errors = x"00000000"
+      report "B: errors on clean traffic" severity failure;
 
-    -- Check:  no errors (data check ON against address-derived memory)
-    if unsigned(stat_data_errors) = 0 and
-       unsigned(stat_id_errors) = 0 and
-       unsigned(stat_rlast_errors) = 0 and
-       unsigned(stat_resp_errors) = 0 and
-       unsigned(stat_sb_underflow_errors) = 0 then
-      write(l, string'("  PASS: no data/id/rlast/resp/underflow errors"));
-      writeline(output, l);
-    else
-      write(l, string'("  FAIL: data="));
-      write(l, to_integer(unsigned(stat_data_errors)));
-      write(l, string'(" id="));
-      write(l, to_integer(unsigned(stat_id_errors)));
-      write(l, string'(" rlast="));
-      write(l, to_integer(unsigned(stat_rlast_errors)));
-      write(l, string'(" resp="));
-      write(l, to_integer(unsigned(stat_resp_errors)));
-      write(l, string'(" sb_uf="));
-      write(l, to_integer(unsigned(stat_sb_underflow_errors)));
-      writeline(output, l);
-      assert false report "T1 errors present" severity failure;
-    end if;
+    -- ---------------------------------------------------------------
+    -- Phase C: stat_rst / err_rst behavior on the client-0 monitor.
+    -- Pulse both and verify counters clear; traffic continues cleanly.
+    -- ---------------------------------------------------------------
+    wait until falling_edge(client_aclk);
+    mon_stat_rst <= '1';
+    mon_err_rst  <= '1';
+    wait until rising_edge(client_aclk);
+    wait for 1 ns;
+    mon_stat_rst <= '0';
+    mon_err_rst  <= '0';
+    wait until rising_edge(client_aclk);
+    wait for 1 ns;
+    assert stat_req_seen = x"00000000"
+      report "C: stat_rst did not clear req_seen" severity failure;
+    assert stat_xactions = x"00000000" and stat_beats = x"00000000"
+      report "C: stat_rst did not clear core stats" severity failure;
+    assert stat_latency_min = x"FFFFFFFF"
+      report "C: stat_rst did not restore latency_min sentinel" severity failure;
+    assert stat_data_errors = x"00000000" and stat_rlast_errors = x"00000000"
+      report "C: err_rst did not clear errors" severity failure;
 
-    -- Check:  max_outstanding > 0 (traffic observed)
-    if unsigned(stat_max_outstanding) > 0 then
-      write(l, string'("  PASS: max_outstanding = "));
-      write(l, to_integer(unsigned(stat_max_outstanding)));
-      writeline(output, l);
-    else
-      write(l, string'("  FAIL: max_outstanding = 0"));
-      writeline(output, l);
-    end if;
+    -- ---------------------------------------------------------------
+    -- Phase D: error-injection monitor (hand-driven req/rsp).
+    --   Beat 0: wrong data               -> stat_data_errors
+    --   Beat 1: bad resp (SLVERR), last  -> stat_resp_errors, completes
+    --   Beat 2: spurious rsp_last        -> stat_rlast_errors + underflow
+    -- ---------------------------------------------------------------
+    wait until falling_edge(client_aclk);
+    err_enable <= '1';
+    wait until rising_edge(client_aclk);
+    wait until falling_edge(client_aclk);
+    req_w(client_aclk, err_req_addr, err_req_len, err_req_valid, err_req_ready,
+          x"00001000", x"01");          -- 2 beats
 
-    -- Check:  timing statistics are bounded and consistent with the
-    -- mem_model configuration (base_latency=5, base_beat_gap=3).
-    if unsigned(stat_latency_min) >= 5 and
-       unsigned(stat_latency_max) >= unsigned(stat_latency_min) and
-       unsigned(stat_first_latency_min) >= 5 and
-       unsigned(stat_interbeat_gap_min) >= 1 then
-      write(l, string'("  PASS: timing stats in expected bounds"));
-      writeline(output, l);
-    else
-      write(l, string'("  FAIL: latency_min="));
-      write(l, to_integer(unsigned(stat_latency_min)));
-      write(l, string'(" latency_max="));
-      write(l, to_integer(unsigned(stat_latency_max)));
-      write(l, string'(" first_lat_min="));
-      write(l, to_integer(unsigned(stat_first_latency_min)));
-      write(l, string'(" gap_min="));
-      write(l, to_integer(unsigned(stat_interbeat_gap_min)));
-      writeline(output, l);
-      assert false report "T1 timing stats out of bounds" severity failure;
-    end if;
+    -- Beat 0: wrong data, OKAY, not last.
+    rsp_w(client_aclk, err_rsp_valid, err_rsp_ready, err_rsp_data, err_rsp_resp,
+          err_rsp_last, v_bad_data, "00", '0');
 
-    write(l, string'("  xactions="));
-    write(l, to_integer(unsigned(stat_xactions)));
-    write(l, string'(" beats="));
-    write(l, to_integer(unsigned(stat_beats)));
-    write(l, string'(" ar_stall="));
-    write(l, to_integer(unsigned(stat_ar_stall)));
-    write(l, string'(" r_stall="));
-    write(l, to_integer(unsigned(stat_r_stall)));
-    write(l, string'(" latency_min="));
-    write(l, to_integer(unsigned(stat_latency_min)));
-    write(l, string'(" latency_max="));
-    write(l, to_integer(unsigned(stat_latency_max)));
-    writeline(output, l);
+    -- Beat 1: correct data, SLVERR, last.
+    v_expected_data := (others => '0');
+    for v_word in 0 to C_CLIENT_BYTES/4-1 loop
+      v_expected_data(32*v_word+31 downto 32*v_word) :=
+        std_logic_vector(to_unsigned(16#1040# + v_word*4, 32));
+    end loop;
+    rsp_w(client_aclk, err_rsp_valid, err_rsp_ready, err_rsp_data, err_rsp_resp,
+          err_rsp_last, v_expected_data, "10", '1');   -- SLVERR -> resp error
 
-    ------------------------------------------------------------------
-    -- T2: stat_rst clears counters (not burst tracking)
-    ------------------------------------------------------------------
-    write(l, string'("=== T2: stat_rst ==="));
-    writeline(output, l);
-    stat_rst <= '1';
-    wait_cycles(2);
-    stat_rst <= '0';
-    wait_cycles(2);
-    if unsigned(stat_beats) = 0 and unsigned(stat_xactions) = 0 then
-      write(l, string'("  PASS: stat_rst cleared beats/xactions"));
-      writeline(output, l);
-    else
-      write(l, string'("  FAIL: stat_rst did not clear"));
-      writeline(output, l);
-      assert false report "T2 stat_rst failed" severity failure;
-    end if;
+    -- Spurious rsp_last with no scoreboard entry.
+    rsp_w(client_aclk, err_rsp_valid, err_rsp_ready, err_rsp_data, err_rsp_resp,
+          err_rsp_last, v_bad_data, "00", '1');
 
-    ------------------------------------------------------------------
-    -- T3: data_check_en = '0' -- beats still counted, data errors stay 0
-    ------------------------------------------------------------------
-    write(l, string'("=== T3: data check disabled ==="));
-    writeline(output, l);
-    data_check_en <= '0';
-    enable        <= '1';
-    wait_cycles(1000);
-    enable        <= '0';
-    wait_drained(500000);
+    -- Drain and check.
+    wait_count := 0;
+    loop
+      wait until rising_edge(client_aclk);
+      wait for 1 ns;
+      exit when err_pipeline = '0';
+      wait_count := wait_count + 1;
+      assert wait_count < 100 report "phase D drain timeout" severity failure;
+    end loop;
 
-    if unsigned(stat_beats) > 0 and unsigned(stat_data_errors) = 0 then
-      write(l, string'("  PASS: beats counted, no data errors (check off)"));
-      writeline(output, l);
-    else
-      write(l, string'("  FAIL: beats="));
-      write(l, to_integer(unsigned(stat_beats)));
-      write(l, string'(" data_errs="));
-      write(l, to_integer(unsigned(stat_data_errors)));
-      writeline(output, l);
-      assert false report "T3 data check off failed" severity failure;
-    end if;
+    assert err_stat_xactions = x"00000001"
+      report "D: xactions /= 1" severity failure;
+    assert err_stat_beats = x"00000003"
+      report "D: beats /= 3" severity failure;
+    assert err_stat_data_errors = x"00000001"
+      report "D: data_errors /= 1" severity failure;
+    assert err_stat_resp_errors = x"00000001"
+      report "D: resp_errors /= 1" severity failure;
+    assert err_stat_rlast_errors = x"00000001"
+      report "D: rlast_errors /= 1" severity failure;
+    assert err_stat_sb_underflow_errors = x"00000001"
+      report "D: sb_underflow_errors /= 1" severity failure;
+    assert err_stat_burst_len_min = x"00000002" and err_stat_burst_len_max = x"00000002"
+      report "D: burst length stats wrong" severity failure;
 
-    ------------------------------------------------------------------
-    -- T4: random addressing (power-of-two range) -- monitor tracks it
-    ------------------------------------------------------------------
-    write(l, string'("=== T4: Random addressing ==="));
-    writeline(output, l);
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
-    err_rst  <= '1'; wait_cycles(2); err_rst  <= '0';
-    data_check_en <= '1';
-    cfg_base_addr     <= std_logic_vector(to_unsigned(16#20000#, C_ADDR_WIDTH));
-    cfg_addr_range    <= std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
-    cfg_addr_mode     <= '1';
-    enable        <= '1';
-    check_ar_corner_cases <= '1';
-    wait_cycles(1500);
-    enable        <= '0';
-    wait_drained(500000);
+    -- ---------------------------------------------------------------
+    -- Phase E: R-side backpressure.  A 5-beat request is held by
+    -- deasserting rsp_ready mid-stream; stat_rsp_stall must count the
+    -- held cycles and the inter-beat gap must stretch.
+    -- ---------------------------------------------------------------
+    p_stat_err_rst(client_aclk, mon_stat_rst, mon_err_rst);
 
-    if unsigned(stat_ar_seen) = unsigned(gen_stat_ar_issued) and
-       unsigned(stat_xactions) = unsigned(stat_ar_seen) then
-      write(l, string'("  PASS: random mode ar_seen/xactions match"));
-      writeline(output, l);
-    else
-      write(l, string'("  FAIL: ar_seen="));
-      write(l, to_integer(unsigned(stat_ar_seen)));
-      write(l, string'(" ar_issued="));
-      write(l, to_integer(unsigned(gen_stat_ar_issued)));
-      write(l, string'(" xactions="));
-      write(l, to_integer(unsigned(stat_xactions)));
-      writeline(output, l);
-      assert false report "T4 random mismatch" severity failure;
-    end if;
+    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+          x"00004000", std_logic_vector(to_unsigned(4, C_CLIENT_LEN_WIDTH)));
 
-    if unsigned(stat_data_errors) = 0 and unsigned(stat_id_errors) = 0 then
-      write(l, string'("  PASS: no errors in random mode"));
-      writeline(output, l);
-    else
-      write(l, string'("  FAIL: data="));
-      write(l, to_integer(unsigned(stat_data_errors)));
-      write(l, string'(" id="));
-      write(l, to_integer(unsigned(stat_id_errors)));
-      writeline(output, l);
-      assert false report "T4 errors present" severity failure;
-    end if;
+    -- Wait for the first response beat to be presented, consume it, then
+    -- stall the rest: beat 2 is presented but not accepted, so both the
+    -- stall counter and the inter-beat gap are stretched.
+    loop
+      wait until rising_edge(client_aclk);
+      exit when rsp_valid(0) = '1';
+    end loop;
+    rsp_rd(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0), rsp_resp(0),
+           rsp_last(0), v_rsp_data, v_rsp_resp, v_rsp_last);
+    assert v_rsp_resp = "00" and v_rsp_last = '0'
+      report "E: first response beat wrong" severity failure;
 
-    ------------------------------------------------------------------
-    -- T5: paced generation (cfg_pace=1) -- exercises the S_PACE_WAIT path
-    ------------------------------------------------------------------
-    write(l, string'("=== T5: Paced generation (cfg_pace=1) ==="));
-    writeline(output, l);
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
-    err_rst  <= '1'; wait_cycles(2); err_rst  <= '0';
-    data_check_en <= '1';
-    cfg_arlen     <= x"07";
-    cfg_pace          <= x"00000001";
-    cfg_pace_init     <= x"00000000";
-    cfg_base_addr     <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
-    cfg_addr_range    <= std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
-    cfg_addr_mode     <= '0';
-    enable        <= '1';
-    check_ar_corner_cases <= '1';
-    wait_cycles(1000);
-    enable        <= '0';
-    wait_drained(500000);
+    rsp_ready(0) <= '0';
+    for i in 1 to 30 loop
+      wait until rising_edge(client_aclk);
+    end loop;
+    rsp_ready(0) <= '1';
 
-    if unsigned(stat_ar_seen) = unsigned(gen_stat_ar_issued) and
-       unsigned(stat_xactions) = unsigned(stat_ar_seen) then
-      write(l, string'("  PASS: paced mode ar_seen/xactions match"));
-      writeline(output, l);
-    else
-      write(l, string'("  FAIL: ar_seen="));
-      write(l, to_integer(unsigned(stat_ar_seen)));
-      write(l, string'(" ar_issued="));
-      write(l, to_integer(unsigned(gen_stat_ar_issued)));
-      write(l, string'(" xactions="));
-      write(l, to_integer(unsigned(stat_xactions)));
-      writeline(output, l);
-      assert false report "T5 paced mismatch" severity failure;
-    end if;
+    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+                rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
+                v_rsp_last, 4, "E");
 
-    if unsigned(stat_beats) = unsigned(stat_xactions) * 8 then
-      write(l, string'("  PASS: beats = xactions*8 (8-beat bursts)"));
-      writeline(output, l);
-    else
-      write(l, string'("  FAIL: beats="));
-      write(l, to_integer(unsigned(stat_beats)));
-      write(l, string'(" xactions="));
-      write(l, to_integer(unsigned(stat_xactions)));
-      writeline(output, l);
-      assert false report "T5 beats mismatch" severity failure;
-    end if;
+    p_drain(client_aclk, mon_pipeline, "phase E", wait_count);
 
-    if unsigned(stat_data_errors) = 0 and unsigned(stat_id_errors) = 0 then
-      write(l, string'("  PASS: no errors in paced mode"));
-      writeline(output, l);
-    else
-      write(l, string'("  FAIL: data="));
-      write(l, to_integer(unsigned(stat_data_errors)));
-      write(l, string'(" id="));
-      write(l, to_integer(unsigned(stat_id_errors)));
-      writeline(output, l);
-      assert false report "T5 errors present" severity failure;
-    end if;
+    assert stat_req_seen = x"00000001"
+      report "E: req_seen /= 1" severity failure;
+    assert stat_xactions = x"00000001"
+      report "E: xactions /= 1" severity failure;
+    assert stat_beats = x"00000005"
+      report "E: beats /= 5" severity failure;
+    assert to_integer(unsigned(stat_rsp_stall)) > 0
+      report "E: rsp_stall not counted" severity failure;
+    assert to_integer(unsigned(stat_interbeat_gap_max)) > 1
+      report "E: backpressure did not stretch the inter-beat gap" severity failure;
+    assert stat_burst_len_min = x"00000005" and stat_burst_len_max = x"00000005"
+      report "E: burst length stats wrong" severity failure;
+    assert stat_data_errors = x"00000000" and stat_rlast_errors = x"00000000"
+       and stat_resp_errors = x"00000000" and stat_sb_underflow_errors = x"00000000"
+      report "E: errors on backpressured traffic" severity failure;
 
-    ------------------------------------------------------------------
-    -- T6: cfg_pace=2, cfg_pace_init, and one-beat bursts
-    ------------------------------------------------------------------
-    write(l, string'("=== T6: cfg_pace=2, cfg_pace_init, one-beat bursts ==="));
-    writeline(output, l);
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
-    err_rst  <= '1'; wait_cycles(2); err_rst <= '0';
-    cfg_arlen <= x"00";
-    cfg_pace      <= x"00000002";
-    cfg_pace_init <= x"00000003";
-    cfg_base_addr <= std_logic_vector(to_unsigned(16#3000#, C_ADDR_WIDTH));
-    cfg_addr_range <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
-    cfg_addr_mode <= '0';
-    data_check_en <= '1';
-    enable <= '1';
-    check_ar_corner_cases <= '1';
-    wait_cycles(300);
-    enable <= '0';
-    wait_drained(500000);
+    -- ---------------------------------------------------------------
+    -- Phase F: Req-side backpressure on the hand-driven monitor.  The
+    -- bridge's axi_ar_mux live-refills a held req_valid at every grant
+    -- edge (line-rate sustain), so a bus-side req stall is inherently a
+    -- re-presentation; stat_req_stall is therefore exercised here on the
+    -- hand-driven monitor:  err_req_valid high with err_req_ready low for
+    -- 30 cycles, then a clean 2-beat transaction.
+    -- ---------------------------------------------------------------
+    err_stat_rst <= '1';
+    err_err_rst  <= '1';
+    wait until rising_edge(client_aclk);
+    wait for 1 ns;
+    err_stat_rst <= '0';
+    err_err_rst  <= '0';
+    wait until rising_edge(client_aclk);
+    wait for 1 ns;
 
-    assert unsigned(stat_ar_seen) = unsigned(gen_stat_ar_issued) and
-           unsigned(stat_xactions) = unsigned(stat_ar_seen) and
-           unsigned(stat_beats) = unsigned(stat_xactions) and
-           unsigned(stat_burst_len_min) = 1 and
-           unsigned(stat_burst_len_max) = 1
-      report "T6: paced one-beat accounting mismatch"
+    err_enable <= '1';
+    wait until rising_edge(client_aclk);
+
+    -- Present a request but hold req_ready low: 30 stall cycles.
+    err_req_addr  <= x"00005000";
+    err_req_len   <= x"01";          -- 2 beats
+    err_req_valid <= '1';
+    err_req_ready <= '0';
+    for i in 1 to 30 loop
+      wait until rising_edge(client_aclk);
+    end loop;
+
+    -- Complete the req handshake, then restore always-accept.
+    err_req_ready <= '1';
+    wait until rising_edge(client_aclk);
+    wait for 1 ns;
+    err_req_valid <= '0';
+    err_req_ready <= '1';
+
+    -- Clean 2-beat response with address-derived data.
+    for b in 0 to 1 loop
+      v_expected_data := (others => '0');
+      for v_word in 0 to C_CLIENT_BYTES/4-1 loop
+        v_expected_data(32*v_word+31 downto 32*v_word) :=
+          std_logic_vector(to_unsigned(16#5000# + b*64 + v_word*4, 32));
+      end loop;
+      if b = 1 then
+        rsp_w(client_aclk, err_rsp_valid, err_rsp_ready, err_rsp_data, err_rsp_resp,
+              err_rsp_last, v_expected_data, "00", '1');
+      else
+        rsp_w(client_aclk, err_rsp_valid, err_rsp_ready, err_rsp_data, err_rsp_resp,
+              err_rsp_last, v_expected_data, "00", '0');
+      end if;
+    end loop;
+
+    wait until rising_edge(client_aclk);
+    wait for 1 ns;
+    assert to_integer(unsigned(err_stat_req_stall)) > 0
+      report "F: req_stall not counted" severity failure;
+    assert err_stat_req_seen = x"00000001"
+      report "F: req_seen /= 1" severity failure;
+    assert err_stat_xactions = x"00000001"
+      report "F: xactions /= 1" severity failure;
+    assert err_stat_beats = x"00000002"
+      report "F: beats /= 2" severity failure;
+    assert err_stat_data_errors = x"00000000" and err_stat_rlast_errors = x"00000000"
+       and err_stat_resp_errors = x"00000000" and err_stat_sb_underflow_errors = x"00000000"
+      report "F: errors on backpressured req" severity failure;
+
+    -- ---------------------------------------------------------------
+    -- Phase G: Scoreboard backpressure.  A small-FIFO monitor instance
+    -- (depth 4) is flooded with 16 one-beat requests while responses are
+    -- held; its scoreboard fills and stat_sb_backpressure must count.
+    -- ---------------------------------------------------------------
+    p_stat_err_rst(client_aclk, mon_stat_rst, mon_err_rst);
+
+    rsp_ready(0) <= '0';   -- hold responses so no scoreboard pops
+    for i in 0 to 15 loop
+      req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+            std_logic_vector(to_unsigned(16#6000# + 16#100#*i, 32)),
+            std_logic_vector(to_unsigned(0, C_CLIENT_LEN_WIDTH)));
+    end loop;
+
+    wait until rising_edge(client_aclk);
+    wait for 1 ns;
+    assert to_integer(unsigned(bp_stat_sb_backpressure)) > 0
+      report "G: small monitor never saw scoreboard backpressure"
       severity failure;
-    assert unsigned(stat_data_errors) = 0 and
-           unsigned(stat_id_errors) = 0 and
-           unsigned(stat_rlast_errors) = 0 and
-           unsigned(stat_resp_errors) = 0 and
-           unsigned(stat_sb_underflow_errors) = 0
-      report "T6: unexpected paced one-beat error"
-      severity failure;
-    write(l, string'("  PASS: cfg_pace/init/one-beat path"));
-    writeline(output, l);
 
-    ------------------------------------------------------------------
-    -- T7: R-channel backpressure must be counted without corruption
-    ------------------------------------------------------------------
-    write(l, string'("=== T7: R-channel backpressure ==="));
-    writeline(output, l);
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
-    err_rst  <= '1'; wait_cycles(2); err_rst <= '0';
-    r_ready <= '1';
-    cfg_arlen <= x"07";
-    cfg_pace <= x"00000000";
-    cfg_pace_init <= x"00000000";
-    cfg_base_addr <= std_logic_vector(to_unsigned(16#4000#, C_ADDR_WIDTH));
-    cfg_addr_range <= std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
-    cfg_addr_mode <= '0';
-    data_check_en <= '1';
-    enable <= '1';
-    check_ar_corner_cases <= '1';
-    wait_cycles(50);           -- let beats flow first so a stall gap is measurable
-    r_ready <= '0';            -- stall mid-stream
-    wait_cycles(100);
-    r_ready <= '1';
-    wait_cycles(1000);
-    enable <= '0';
-    wait_drained(500000);
+    rsp_ready(0) <= '1';
+    -- Sixteen one-beat transactions: every beat carries rsp_last.
+    for n in 0 to 15 loop
+      rsp_rd(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0), rsp_resp(0),
+             rsp_last(0), v_rsp_data, v_rsp_resp, v_rsp_last);
+      assert v_rsp_resp = "00" and v_rsp_last = '1'
+        report "G: client 0 response sideband wrong" severity failure;
+    end loop;
 
-    assert unsigned(stat_r_stall) > 0
-      report "T7: R backpressure was not counted"
-      severity failure;
-    assert unsigned(stat_interbeat_gap_max) > 1
-      report "T7: R backpressure did not stretch the inter-beat gap"
-      severity failure;
-    assert unsigned(stat_data_errors) = 0 and
-           unsigned(stat_id_errors) = 0 and
-           unsigned(stat_rlast_errors) = 0 and
-           unsigned(stat_resp_errors) = 0 and
-           unsigned(stat_sb_underflow_errors) = 0
-      report "T7: R backpressure caused monitor errors"
-      severity failure;
-    write(l, string'("  PASS: R stall counted, no errors"));
-    writeline(output, l);
+    p_drain(client_aclk, mon_pipeline, "phase G", wait_count);
 
-    ------------------------------------------------------------------
-    -- T8: per-instance monitor disable while traffic continues
-    ------------------------------------------------------------------
-    write(l, string'("=== T8: monitor enable gating ==="));
-    writeline(output, l);
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
-    err_rst  <= '1'; wait_cycles(2); err_rst <= '0';
+    assert stat_req_seen = x"00000010"
+      report "G: req_seen /= 16" severity failure;
+    assert stat_xactions = x"00000010"
+      report "G: xactions /= 16" severity failure;
+    assert stat_beats = x"00000010"
+      report "G: beats /= 16" severity failure;
+    assert stat_data_errors = x"00000000" and stat_rlast_errors = x"00000000"
+       and stat_resp_errors = x"00000000" and stat_sb_underflow_errors = x"00000000"
+      report "G: errors on flooded traffic" severity failure;
+
+    -- ---------------------------------------------------------------
+    -- Phase H: Per-instance disable.  With the client-0 monitor off,
+    -- traffic flows but all stats stay inert; re-enabling resumes
+    -- cleanly with exact accounting.
+    -- ---------------------------------------------------------------
+    p_stat_err_rst(client_aclk, mon_stat_rst, mon_err_rst);
+
     mon_enable <= '0';
-    enable <= '1';
-    wait_cycles(300);
-    enable <= '0';
-    wait_cycles(5000);
+    wait until rising_edge(client_aclk);
 
-    assert unsigned(stat_ar_seen) = 0 and
-           unsigned(stat_xactions) = 0 and
-           unsigned(stat_beats) = 0 and
-           unsigned(stat_data_errors) = 0 and
-           unsigned(stat_sb_underflow_errors) = 0 and
-           pipeline_busy = '0'
-      report "T8: disabled monitor was not inert"
-      severity failure;
-    mon_enable <= '1';
-    write(l, string'("  PASS: disabled monitor remained inert"));
-    writeline(output, l);
+    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+          x"00007000", std_logic_vector(to_unsigned(0, C_CLIENT_LEN_WIDTH)));
+    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+                rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
+                v_rsp_last, 1, "H0");
 
-    ------------------------------------------------------------------
-    -- T9: each R protocol/data error counter and err_rst
-    ------------------------------------------------------------------
-    write(l, string'("=== T9: injected R errors and err_rst ==="));
-    writeline(output, l);
-    cfg_arlen <= x"00";
-    cfg_pace <= x"00000000";
-    cfg_base_addr <= std_logic_vector(to_unsigned(16#5000#, C_ADDR_WIDTH));
-    cfg_addr_range <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
-    cfg_addr_mode <= '0';
-    enable <= '1';
-    check_ar_corner_cases <= '1';
-
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
-    err_rst <= '1'; wait_cycles(2); err_rst <= '0';
-    inject_data_error <= '1';
-    wait_cycles(100);
-    enable <= '0';
-    wait_drained(500000);
-    inject_data_error <= '0';
-    assert unsigned(stat_data_errors) > 0
-      report "T9: data error was not detected"
-      severity failure;
-
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
-    err_rst <= '1'; wait_cycles(2); err_rst <= '0';
-    enable <= '1';
-    inject_id_error <= '1';
-    wait_cycles(100);
-    enable <= '0';
-    wait_drained(500000);
-    inject_id_error <= '0';
-    assert unsigned(stat_id_errors) > 0
-      report "T9: ID error was not detected"
-      severity failure;
-
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
-    err_rst <= '1'; wait_cycles(2); err_rst <= '0';
-    enable <= '1';
-    inject_resp_error <= '1';
-    wait_cycles(100);
-    enable <= '0';
-    wait_drained(500000);
-    inject_resp_error <= '0';
-    assert unsigned(stat_resp_errors) > 0
-      report "T9: response error was not detected"
-      severity failure;
-
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
-    err_rst <= '1'; wait_cycles(2); err_rst <= '0';
-    enable <= '1';
-    inject_rlast_error <= '1';
-    wait_cycles(100);
-    enable <= '0';
-    wait_drained(500000);
-    inject_rlast_error <= '0';
-    assert unsigned(stat_rlast_errors) > 0
-      report "T9: RLAST error was not detected"
-      severity failure;
-
-    err_rst <= '1'; wait_cycles(2); err_rst <= '0';
-    assert unsigned(stat_data_errors) = 0 and
-           unsigned(stat_id_errors) = 0 and
-           unsigned(stat_resp_errors) = 0 and
-           unsigned(stat_rlast_errors) = 0
-      report "T9: err_rst did not clear injected errors"
-      severity failure;
-    write(l, string'("  PASS: data/ID/RESP/RLAST errors and err_rst"));
-    writeline(output, l);
-
-    ------------------------------------------------------------------
-    -- T10: burst start near the window end is clamped/wrapped so the
-    -- full burst always fits inside [base, base+range-bsize].
-    ------------------------------------------------------------------
-    write(l, string'("=== T10: window-end clamp ==="));
-    writeline(output, l);
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
-    err_rst  <= '1'; wait_cycles(2); err_rst <= '0';
-    inject_data_error <= '0';
-    inject_id_error <= '0';
-    inject_resp_error <= '0';
-    inject_rlast_error <= '0';
-    cfg_arlen <= x"0F";
-    cfg_pace <= x"00000000";
-    cfg_pace_init <= x"00000000";
-    cfg_base_addr <= std_logic_vector(to_unsigned(16#1FF0#, C_ADDR_WIDTH));
-    cfg_addr_range <= std_logic_vector(to_unsigned(16#2000#, C_ADDR_WIDTH));
-    cfg_addr_mode <= '0';
-    data_check_en <= '1';
-    enable <= '1';
-    check_ar_corner_cases <= '1';
-    wait_cycles(100);
-    enable <= '0';
-    wait_drained(500000);
-    assert unsigned(stat_ar_seen) = unsigned(gen_stat_ar_issued) and
-           unsigned(stat_xactions) = unsigned(stat_ar_seen)
-      report "T10: boundary traffic accounting mismatch"
-      severity failure;
-    write(l, string'("  PASS: no burst exceeded the window end"));
-    writeline(output, l);
-
-    ------------------------------------------------------------------
-    -- T11: maximum burst length (255 -> 256 beats) completes
-    ------------------------------------------------------------------
-    write(l, string'("=== T11: maximum burst length ==="));
-    writeline(output, l);
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
-    err_rst  <= '1'; wait_cycles(2); err_rst <= '0';
-    cfg_arlen <= x"FF";              -- max ARLEN -> 256 beats
-    cfg_pace <= x"00000064";             -- leave time for one burst
-    cfg_pace_init <= x"00000000";
-    cfg_base_addr <= std_logic_vector(to_unsigned(16#6000#, C_ADDR_WIDTH));
-    cfg_addr_range <= std_logic_vector(to_unsigned(16#2000#, C_ADDR_WIDTH));
-    cfg_addr_mode <= '0';
-    gen_aperture <= '1';
-    enable <= '1';
-    check_ar_corner_cases <= '1';
-    wait_cycles(100);
-    enable <= '0';
-    wait_drained(500000);
-    assert unsigned(stat_burst_len_max) = 256
-      report "T11: cfg_arlen did not produce a 256-beat burst"
-      severity failure;
-    write(l, string'("  PASS: max burst length (256 beats)"));
-    writeline(output, l);
-
-    ------------------------------------------------------------------
-    -- T12: generator aperture gates AR generation; the enable-only
-    -- monitor counts every AR issued while it is enabled.
-    ------------------------------------------------------------------
-    write(l, string'("=== T12: generator aperture gates generation ==="));
-    writeline(output, l);
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
-    err_rst  <= '1'; wait_cycles(2); err_rst <= '0';
-    cfg_arlen <= x"00";
-    cfg_pace <= x"00000000";
-    cfg_pace_init <= x"00000000";
-    cfg_base_addr <= std_logic_vector(to_unsigned(16#7000#, C_ADDR_WIDTH));
-    cfg_addr_range <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
-    cfg_addr_mode <= '0';
-    gen_aperture <= '0';        -- generation gate closed
-    enable <= '1';              -- generator enabled, but gate low
-    mon_enable <= '1';          -- monitor enabled throughout
-    check_ar_corner_cases <= '1';
-    wait_cycles(100);
-    assert unsigned(stat_ar_seen) = 0 and unsigned(stat_xactions) = 0
-      report "T12: ARs generated while generator aperture was low"
-      severity failure;
-    gen_aperture <= '1';        -- open the generation window
-    wait_cycles(100);
-    enable <= '0';
-    wait_cycles(5000);
-    assert unsigned(stat_ar_seen) = unsigned(gen_stat_ar_issued) and
-           unsigned(stat_ar_seen) > 0
-      report "T12: monitor ar_seen != generator ar_issued"
-      severity failure;
-    assert unsigned(stat_xactions) = unsigned(stat_ar_seen)
-      report "T12: xactions != ar_seen"
-      severity failure;
-    assert unsigned(stat_data_errors) = 0 and
-           unsigned(stat_id_errors) = 0 and
-           unsigned(stat_rlast_errors) = 0 and
-           unsigned(stat_resp_errors) = 0 and
-           unsigned(stat_sb_underflow_errors) = 0
-      report "T12: generator aperture test caused monitor errors"
-      severity failure;
-    write(l, string'("  PASS: generator aperture gate and monitor count"));
-    writeline(output, l);
-
-    ------------------------------------------------------------------
-    -- T13: scoreboard underflow -- R beats with no AR descriptor
-    ------------------------------------------------------------------
-    write(l, string'("=== T13: scoreboard underflow ==="));
-    writeline(output, l);
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
-    err_rst  <= '1'; wait_cycles(2); err_rst <= '0';
-    enable <= '0';
-    wait_drained(500000);
-    assert unsigned(stat_sb_underflow_errors) = 0 and
-           unsigned(stat_ar_seen) = 0
-      report "T13: unexpected state before underflow injection"
-      severity failure;
-
-    -- Inject spurious R beats with no matching AR entry.  r_ready stays
-    -- high so the R monitor pops an empty scoreboard.
-    r_ready <= '1';
-    spurious_r_valid <= '1';
-    wait_cycles(3);
-    spurious_r_valid <= '0';
-    wait_cycles(5);
-
-    assert unsigned(stat_sb_underflow_errors) = 3
-      report "T13: underflow counter did not increment per spurious beat"
-      severity failure;
-    assert unsigned(stat_beats) = 3
-      report "T13: spurious beats were not counted as beats"
-      severity failure;
-    assert unsigned(stat_data_errors) = 0
-      report "T13: underflow beats must not trigger data errors"
-      severity failure;
-    write(l, string'("  PASS: underflow detected and counted"));
-    writeline(output, l);
-
-    ------------------------------------------------------------------
-    -- T14: scoreboard backpressure -- tiny FIFO stalls under load
-    ------------------------------------------------------------------
-    write(l, string'("=== T14: scoreboard backpressure ==="));
-    writeline(output, l);
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
-    err_rst  <= '1'; wait_cycles(2); err_rst <= '0';
-    spurious_r_valid <= '0';
-    r_ready <= '0';               -- hold R back so the small scoreboard fills
-    cfg_arlen <= x"0F";     -- 16-beat bursts
-    cfg_pace <= x"00000000";
-    cfg_pace_init <= x"00000000";
-    cfg_base_addr <= std_logic_vector(to_unsigned(16#2000#, C_ADDR_WIDTH));
-    cfg_addr_range <= std_logic_vector(to_unsigned(16#4000#, C_ADDR_WIDTH));
-    cfg_addr_mode <= '0';
-    gen_aperture <= '1';
-    enable <= '1';
-    wait_cycles(300);
-    enable <= '0';
-    r_ready <= '1';               -- release R so the pipeline drains
-    wait_drained(500000);
-
-    -- Small monitor (depth 4) must have seen scoreboard backpressure.
-    assert unsigned(bp_stat_sb_backpressure) > 0
-      report "T14: small monitor never saw scoreboard backpressure"
-      severity failure;
-    -- The deep monitor should not have errored; beats drain fine.
-    assert unsigned(stat_sb_underflow_errors) = 0
-      report "T14: deep monitor reported underflow"
-      severity failure;
-    assert unsigned(stat_beats) > 0 and
-           unsigned(stat_beats) = unsigned(stat_xactions) * 16
-      report "T14: beat accounting broken under backpressure"
-      severity failure;
-    write(l, string'("  PASS: scoreboard backpressure observed"));
-    writeline(output, l);
-
-    ------------------------------------------------------------------
-    -- T15: stat_rst asserted mid-traffic -- counters clear without
-    -- corrupting in-flight burst tracking.
-    ------------------------------------------------------------------
-    write(l, string'("=== T15: stat_rst during traffic ==="));
-    writeline(output, l);
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
-    err_rst  <= '1'; wait_cycles(2); err_rst  <= '0';
-    cfg_arlen <= x"07";          -- 8-beat bursts
-    cfg_pace <= x"00000000";
-    cfg_pace_init <= x"00000000";
-    cfg_base_addr <= std_logic_vector(to_unsigned(16#A000#, C_ADDR_WIDTH));
-    cfg_addr_range <= std_logic_vector(to_unsigned(16#4000#, C_ADDR_WIDTH));
-    cfg_addr_mode <= '0';
-    data_check_en <= '1';
-    mon_enable <= '1';
-    enable <= '1';
-    wait_cycles(200);            -- traffic in flight
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';   -- clear mid-run
-    wait_cycles(300);            -- more traffic
-    enable <= '0';
-    -- Full drain via pipeline_busy:  wait_drained is not a reliable drain
-    -- indicator after a mid-traffic stat_rst (the RTL counters may not
-    -- reset cleanly if an event coincides with the reset pulse).
-    for i in 1 to 200000 loop
-      exit when pipeline_busy = '0';
-      wait until rising_edge(aclk);
+    -- Let the pipeline flush while disabled.
+    for i in 1 to 50 loop
+      wait until rising_edge(client_aclk);
     end loop;
-    wait_cycles(10);
-    -- With the stat_rst-suppresses-counting fix, both the monitor and the
-    -- generator reset and suppress counting identically during the reset
-    -- window, so ar_seen == ar_issued holds exactly even across a
-    -- mid-traffic reset.  (beats vs xactions is not exact here -- a burst
-    -- straddling the reset contributes partial beats but a full
-    -- completion -- so the full accounting check stays on the clean
-    -- window below.)
-    assert unsigned(stat_ar_seen) = unsigned(gen_stat_ar_issued) and
-           unsigned(stat_ar_seen) > 0
-      report "T15: ar_seen/ar_issued diverged after mid-traffic stat_rst"
-      severity failure;
-    assert unsigned(stat_data_errors) = 0 and
-           unsigned(stat_id_errors) = 0 and
-           unsigned(stat_rlast_errors) = 0 and
-           unsigned(stat_resp_errors) = 0 and
-           unsigned(stat_sb_underflow_errors) = 0
-      report "T15: mid-traffic stat_rst corrupted burst tracking"
-      severity failure;
-    -- Clean second window:  exact accounting must hold.
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
-    enable <= '1';
-    wait_cycles(200);
-    enable <= '0';
-    wait_drained(500000);
-    if unsigned(stat_ar_seen) = unsigned(gen_stat_ar_issued) and
-       unsigned(stat_xactions) = unsigned(stat_ar_seen) and
-       unsigned(stat_beats) = unsigned(stat_xactions) * 8 then
-      write(l, string'("  PASS: clean window accounting"));
-      writeline(output, l);
-    else
-      write(l, string'("  FAIL: ar_seen="));
-      write(l, to_integer(unsigned(stat_ar_seen)));
-      write(l, string'(" ar_issued="));
-      write(l, to_integer(unsigned(gen_stat_ar_issued)));
-      write(l, string'(" xactions="));
-      write(l, to_integer(unsigned(stat_xactions)));
-      write(l, string'(" beats="));
-      write(l, to_integer(unsigned(stat_beats)));
-      writeline(output, l);
-      assert false report "T15: clean window accounting mismatch" severity failure;
-    end if;
-    assert unsigned(stat_data_errors) = 0 and
-           unsigned(stat_id_errors) = 0 and
-           unsigned(stat_rlast_errors) = 0 and
-           unsigned(stat_resp_errors) = 0 and
-           unsigned(stat_sb_underflow_errors) = 0
-      report "T15: clean window reported errors"
-      severity failure;
-    write(l, string'("  PASS: stat_rst mid-traffic, clean accounting"));
-    writeline(output, l);
 
-    ------------------------------------------------------------------
-    -- T16: disable, drain, re-enable -- clean resume without errors.
-    ------------------------------------------------------------------
-    write(l, string'("=== T16: re-enable after disable ==="));
-    writeline(output, l);
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
-    err_rst  <= '1'; wait_cycles(2); err_rst  <= '0';
-    mon_enable <= '0';           -- monitor off
-    enable <= '1';               -- traffic flows unseen
-    wait_cycles(50);
-    enable <= '0';
-    wait_cycles(20000);          -- let the mem model drain while disabled
-    mon_enable <= '1';           -- re-enable
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';   -- clean slate
-    enable <= '1';               -- fresh clean window
-    wait_cycles(300);
-    enable <= '0';
-    wait_drained(500000);
-    assert unsigned(stat_ar_seen) = unsigned(gen_stat_ar_issued) and
-           unsigned(stat_ar_seen) > 0 and
-           unsigned(stat_xactions) = unsigned(stat_ar_seen)
-      report "T16: re-enabled monitor accounting mismatch"
-      severity failure;
-    assert unsigned(stat_sb_underflow_errors) = 0
-      report "T16: re-enable saw underflow (mem not drained?)"
-      severity failure;
-    assert unsigned(stat_data_errors) = 0 and
-           unsigned(stat_id_errors) = 0 and
-           unsigned(stat_rlast_errors) = 0 and
-           unsigned(stat_resp_errors) = 0
-      report "T16: re-enabled monitor reported errors"
-      severity failure;
-    write(l, string'("  PASS: clean resume after disable/drain"));
-    writeline(output, l);
+    assert stat_req_seen = x"00000000" and stat_xactions = x"00000000"
+       and stat_beats = x"00000000"
+      report "H: disabled monitor counted traffic" severity failure;
+    assert stat_data_errors = x"00000000" and stat_sb_underflow_errors = x"00000000"
+      report "H: disabled monitor reported errors" severity failure;
+    assert mon_pipeline = '0'
+      report "H: disabled monitor pipeline not idle" severity failure;
 
-    ------------------------------------------------------------------
-    -- T17: non-zero AR ID end-to-end -- ID matching works.
-    ------------------------------------------------------------------
-    write(l, string'("=== T17: non-zero AR ID ==="));
-    writeline(output, l);
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
-    err_rst  <= '1'; wait_cycles(2); err_rst  <= '0';
-    cfg_id <= "101010";
-    cfg_arlen <= x"07";
-    cfg_pace <= x"00000000";
-    cfg_pace_init <= x"00000000";
-    cfg_base_addr <= std_logic_vector(to_unsigned(16#B000#, C_ADDR_WIDTH));
-    cfg_addr_range <= std_logic_vector(to_unsigned(16#4000#, C_ADDR_WIDTH));
-    cfg_addr_mode <= '0';
-    data_check_en <= '1';
+    -- Re-enable and run a clean window.
     mon_enable <= '1';
-    enable <= '1';
-    wait_cycles(300);
-    enable <= '0';
-    wait_drained(500000);
-    assert unsigned(stat_ar_seen) = unsigned(gen_stat_ar_issued) and
-           unsigned(stat_xactions) = unsigned(stat_ar_seen)
-      report "T17: non-zero ID accounting mismatch"
-      severity failure;
-    assert unsigned(stat_id_errors) = 0
-      report "T17: ID matching failed for non-zero ID"
-      severity failure;
-    assert unsigned(stat_data_errors) = 0 and
-           unsigned(stat_rlast_errors) = 0 and
-           unsigned(stat_resp_errors) = 0 and
-           unsigned(stat_sb_underflow_errors) = 0
-      report "T17: non-zero ID run reported errors"
-      severity failure;
-    write(l, string'("  PASS: non-zero ID matched cleanly"));
-    writeline(output, l);
+    p_stat_err_rst(client_aclk, mon_stat_rst, mon_err_rst);
 
-    ------------------------------------------------------------------
-    -- T18: RLAST early-guard -- spurious r_last with no active burst
-    -- and no scoreboard entry increments rlast_errors.
-    ------------------------------------------------------------------
-    write(l, string'("=== T18: RLAST early-guard ==="));
-    writeline(output, l);
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
-    err_rst  <= '1'; wait_cycles(2); err_rst  <= '0';
-    enable <= '0';
-    r_ready <= '1';
-    spurious_r_valid <= '1';
-    spurious_r_last  <= '1';
-    wait_cycles(3);
-    spurious_r_valid <= '0';
-    spurious_r_last  <= '0';
-    wait_cycles(5);
-    assert unsigned(stat_rlast_errors) = 3
-      report "T18: RLAST early-guard did not count spurious r_last"
-      severity failure;
-    assert unsigned(stat_beats) = 3
-      report "T18: spurious r_last beats not counted"
-      severity failure;
-    write(l, string'("  PASS: RLAST early-guard counted spurious r_last"));
-    writeline(output, l);
+    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+          x"00007100", std_logic_vector(to_unsigned(1, C_CLIENT_LEN_WIDTH)));
+    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+                rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
+                v_rsp_last, 2, "H1");
 
-    ------------------------------------------------------------------
-    -- T19: stat assertion tightening -- ar_stall cross-check, elapsed
-    -- counter, internal min/max/sum consistency, pipeline_busy.
-    ------------------------------------------------------------------
-    write(l, string'("=== T19: stat assertion tightening ==="));
-    writeline(output, l);
-    mon_enable <= '0';           -- reset counters while the monitor is off
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
-    err_rst  <= '1'; wait_cycles(2); err_rst  <= '0';
-    cfg_id <= (others => '0');
-    cfg_arlen <= x"0F";          -- 16-beat bursts (creates AR backpressure)
-    cfg_pace <= x"00000000";
-    cfg_pace_init <= x"00000000";
-    cfg_base_addr <= std_logic_vector(to_unsigned(16#E000#, C_ADDR_WIDTH));
-    cfg_addr_range <= std_logic_vector(to_unsigned(16#10000#, C_ADDR_WIDTH));
-    cfg_addr_mode <= '0';
-    data_check_en <= '1';
-    mon_enable <= '1';           -- re-enable for a clean measurement
-    enable <= '1';
-    wait_cycles(500);
+    p_drain(client_aclk, mon_pipeline, "phase H", wait_count);
+
+    assert stat_req_seen = x"00000001"
+      report "H: re-enabled req_seen /= 1" severity failure;
+    assert stat_xactions = x"00000001"
+      report "H: re-enabled xactions /= 1" severity failure;
+    assert stat_beats = x"00000002"
+      report "H: re-enabled beats /= 2" severity failure;
+    assert stat_data_errors = x"00000000" and stat_rlast_errors = x"00000000"
+       and stat_resp_errors = x"00000000" and stat_sb_underflow_errors = x"00000000"
+      report "H: re-enabled monitor reported errors" severity failure;
+
+    -- ---------------------------------------------------------------
+    -- Phase I: stat_rst mid-traffic.  A 4-beat request is issued and
+    -- stat_rst is pulsed while the response is in flight.  Burst
+    -- tracking must survive (the in-flight burst still completes with
+    -- exact beats), and a clean window must be exact.
+    -- ---------------------------------------------------------------
+    p_stat_err_rst(client_aclk, mon_stat_rst, mon_err_rst);
+
+    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+          x"00008000", std_logic_vector(to_unsigned(3, C_CLIENT_LEN_WIDTH)));
+
+    -- Pulse stat_rst while the response is still in flight.
+    wait until rising_edge(client_aclk);
+    mon_stat_rst <= '1';
+    wait until rising_edge(client_aclk);
+    wait for 1 ns;
+    mon_stat_rst <= '0';
+    wait until rising_edge(client_aclk);
+    wait for 1 ns;
+
+    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+                rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
+                v_rsp_last, 4, "I");
+
+    p_drain(client_aclk, mon_pipeline, "phase I", wait_count);
+
+    assert stat_xactions = x"00000001"
+      report "I: mid-traffic stat_rst lost the in-flight burst" severity failure;
+    assert stat_beats = x"00000004"
+      report "I: mid-traffic stat_rst lost beats" severity failure;
+    assert stat_burst_len_max = x"00000004"
+      report "I: mid-traffic stat_rst corrupted burst tracking" severity failure;
+    assert stat_data_errors = x"00000000" and stat_rlast_errors = x"00000000"
+       and stat_resp_errors = x"00000000" and stat_sb_underflow_errors = x"00000000"
+      report "I: mid-traffic stat_rst caused errors" severity failure;
+
+    -- Clean second window: exact accounting.
+    p_stat_err_rst(client_aclk, mon_stat_rst, mon_err_rst);
+    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+          x"00008100", std_logic_vector(to_unsigned(0, C_CLIENT_LEN_WIDTH)));
+    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+                rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
+                v_rsp_last, 1, "I clean");
+    p_drain(client_aclk, mon_pipeline, "phase I clean", wait_count);
+    assert stat_req_seen = x"00000001"
+      report "I: clean window req_seen /= 1" severity failure;
+    assert stat_xactions = x"00000001"
+      report "I: clean window xactions /= 1" severity failure;
+    assert stat_beats = x"00000001"
+      report "I: clean window beats /= 1" severity failure;
+
+    -- ---------------------------------------------------------------
+    -- Phase J: err_rst coincident with error detection.  A data error
+    -- accumulates, then err_rst is pulsed on the same edge a further
+    -- wrong-data beat is accepted -- the reset must win.
+    -- ---------------------------------------------------------------
+    err_stat_rst <= '1';
+    err_err_rst  <= '1';
+    wait until rising_edge(client_aclk);
+    wait for 1 ns;
+    err_stat_rst <= '0';
+    err_err_rst  <= '0';
+    wait until rising_edge(client_aclk);
+    wait for 1 ns;
+
+    err_enable <= '1';
+    wait until rising_edge(client_aclk);
+
+    req_w(client_aclk, err_req_addr, err_req_len, err_req_valid, err_req_ready,
+          x"00001000", x"01");          -- 2 beats
+
+    -- Beat 0: wrong data, OKAY, not last -> data error.
+    rsp_w(client_aclk, err_rsp_valid, err_rsp_ready, err_rsp_data, err_rsp_resp,
+          err_rsp_last, v_bad_data, "00", '0');
+    wait until rising_edge(client_aclk);
+    wait for 1 ns;
+    assert err_stat_data_errors = x"00000001"
+      report "J: data error not detected" severity failure;
+
+    -- Beat 1: wrong data, last, with err_rst asserted on the same edge.
+    err_err_rst <= '1';
+    rsp_w(client_aclk, err_rsp_valid, err_rsp_ready, err_rsp_data, err_rsp_resp,
+          err_rsp_last, v_bad_data, "00", '1');
+    wait until rising_edge(client_aclk);
+    wait for 1 ns;
+    err_err_rst <= '0';
+    wait until rising_edge(client_aclk);
+    wait for 1 ns;
+
+    assert err_stat_data_errors = x"00000000"
+      report "J: err_rst did not win over coincident error" severity failure;
+    assert err_stat_rlast_errors = x"00000000" and err_stat_resp_errors = x"00000000"
+       and err_stat_sb_underflow_errors = x"00000000"
+      report "J: unexpected errors after err_rst" severity failure;
+    assert err_stat_xactions = x"00000001"
+      report "J: xactions /= 1" severity failure;
+    assert err_stat_beats = x"00000002"
+      report "J: beats /= 2" severity failure;
+    assert err_stat_burst_len_min = x"00000002" and err_stat_burst_len_max = x"00000002"
+      report "J: burst length stats wrong" severity failure;
+
+    -- ---------------------------------------------------------------
+    -- Phase K1: Maximum burst length.  A 32-beat (len=31) request -- the
+    -- largest the credit model allows -- completes cleanly end-to-end.
+    -- ---------------------------------------------------------------
+    p_stat_err_rst(client_aclk, mon_stat_rst, mon_err_rst);
+
+    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+          x"00009000", std_logic_vector(to_unsigned(31, C_CLIENT_LEN_WIDTH)));
+    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+                rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
+                v_rsp_last, 32, "K1");
+
+    p_drain(client_aclk, mon_pipeline, "phase K1", wait_count);
+
+    assert stat_req_seen = x"00000001"
+      report "K1: req_seen /= 1" severity failure;
+    assert stat_xactions = x"00000001"
+      report "K1: xactions /= 1" severity failure;
+    assert stat_beats = x"00000020"
+      report "K1: beats /= 32" severity failure;
+    assert stat_burst_len_min = x"00000020" and stat_burst_len_max = x"00000020"
+      report "K1: burst length stats wrong" severity failure;
+    assert stat_data_errors = x"00000000" and stat_rlast_errors = x"00000000"
+       and stat_resp_errors = x"00000000" and stat_sb_underflow_errors = x"00000000"
+      report "K1: errors on max-length burst" severity failure;
+
+    -- ---------------------------------------------------------------
+    -- Phase K2: Mixed burst lengths.  No stat_rst -- accumulates with K1
+    -- so the burst-length min/max spread is captured.
+    -- ---------------------------------------------------------------
+    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+          x"00009100", std_logic_vector(to_unsigned(0, C_CLIENT_LEN_WIDTH)));
+    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+          x"00009200", std_logic_vector(to_unsigned(3, C_CLIENT_LEN_WIDTH)));
+
+    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+                rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
+                v_rsp_last, 1, "K2a");
+    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+                rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
+                v_rsp_last, 4, "K2b");
+
+    p_drain(client_aclk, mon_pipeline, "phase K2", wait_count);
+
+    assert stat_req_seen = x"00000003"
+      report "K2: req_seen /= 3" severity failure;
+    assert stat_xactions = x"00000003"
+      report "K2: xactions /= 3" severity failure;
+    assert stat_beats = x"00000025"
+      report "K2: beats /= 37" severity failure;
+    assert stat_burst_len_min = x"00000001" and stat_burst_len_max = x"00000020"
+      report "K2: mixed burst length stats wrong" severity failure;
+    assert stat_data_errors = x"00000000" and stat_rlast_errors = x"00000000"
+       and stat_resp_errors = x"00000000" and stat_sb_underflow_errors = x"00000000"
+      report "K2: errors on mixed-length traffic" severity failure;
+
+    -- ---------------------------------------------------------------
+    -- Phase L: Stat-accumulator consistency after the K1+K2 window.
+    -- min<=max, sum>=max, elapsed-vs-reference, pipeline_busy (seen
+    -- high, idle after drain), and max_outstanding.
+    -- ---------------------------------------------------------------
     assert busy_high_seen = '1'
-      report "T19: pipeline_busy never observed high during traffic"
-      severity failure;
-    enable <= '0';
-    wait_drained(500000);
-    for i in 1 to 100 loop
-      exit when pipeline_busy = '0';
-      wait until rising_edge(aclk);
-    end loop;
-    assert pipeline_busy = '0'
-      report "T19: pipeline_busy did not drop after drain"
-      severity failure;
-    assert unsigned(stat_ar_seen) = unsigned(gen_stat_ar_issued) and
-           unsigned(stat_ar_seen) > 0
-      report "T19: ar_seen/ar_issued mismatch"
-      severity failure;
-    assert unsigned(stat_ar_stall) = unsigned(gen_stat_ar_stall) and
-           unsigned(stat_ar_stall) > 0
-      report "T19: AR stall counters diverged"
-      severity failure;
-    assert unsigned(stat_elapsed_cycles) = mon_elapsed_ref
-      report "T19: elapsed cycle counter drifted"
-      severity failure;
-    -- Internal consistency of the min/max/sum accumulators.
+      report "L: pipeline_busy never observed high" severity failure;
+    assert mon_pipeline = '0'
+      report "L: pipeline_busy did not drop after drain" severity failure;
+    assert to_integer(unsigned(stat_max_outstanding)) > 0
+      report "L: max_outstanding zero" severity failure;
+    assert stat_elapsed_cycles = std_logic_vector(mon_elapsed_ref)
+      report "L: elapsed cycle counter drifted" severity failure;
     assert unsigned(stat_latency_min) <= unsigned(stat_latency_max) and
-           unsigned(stat_latency_sum) >= resize(unsigned(stat_latency_max), C_STAT_WIDTH)
-      report "T19: latency stat consistency violated"
-      severity failure;
+           unsigned(stat_latency_sum) >= resize(unsigned(stat_latency_max), C_MON_STAT_WIDTH)
+      report "L: latency stat consistency violated" severity failure;
     assert unsigned(stat_first_latency_min) <= unsigned(stat_first_latency_max) and
-           unsigned(stat_first_latency_sum) >= resize(unsigned(stat_first_latency_max), C_STAT_WIDTH)
-      report "T19: first-latency stat consistency violated"
-      severity failure;
+           unsigned(stat_first_latency_sum) >= resize(unsigned(stat_first_latency_max), C_MON_STAT_WIDTH)
+      report "L: first-latency stat consistency violated" severity failure;
     assert unsigned(stat_interbeat_gap_min) <= unsigned(stat_interbeat_gap_max) and
-           unsigned(stat_interbeat_gap_sum) >= resize(unsigned(stat_interbeat_gap_max), C_STAT_WIDTH)
-      report "T19: interbeat-gap stat consistency violated"
-      severity failure;
+           unsigned(stat_interbeat_gap_sum) >= resize(unsigned(stat_interbeat_gap_max), C_MON_STAT_WIDTH)
+      report "L: interbeat-gap stat consistency violated" severity failure;
     assert unsigned(stat_burst_len_min) <= unsigned(stat_burst_len_max) and
-           unsigned(stat_burst_len_sum) >= resize(unsigned(stat_burst_len_max), C_STAT_WIDTH)
-      report "T19: burst-length stat consistency violated"
-      severity failure;
-    assert unsigned(stat_data_errors) = 0 and
-           unsigned(stat_id_errors) = 0 and
-           unsigned(stat_rlast_errors) = 0 and
-           unsigned(stat_resp_errors) = 0 and
-           unsigned(stat_sb_underflow_errors) = 0
-      report "T19: stat assertion run reported errors"
-      severity failure;
-    write(l, string'("  PASS: ar_stall/elapsed/consistency/busy checks"));
-    writeline(output, l);
+           unsigned(stat_burst_len_sum) >= resize(unsigned(stat_burst_len_max), C_MON_STAT_WIDTH)
+      report "L: burst-length stat consistency violated" severity failure;
 
-    ------------------------------------------------------------------
-    -- T20: mixed burst lengths in one window -- blen min/max spread.
-    ------------------------------------------------------------------
-    write(l, string'("=== T20: mixed burst lengths ==="));
-    writeline(output, l);
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
-    err_rst  <= '1'; wait_cycles(2); err_rst  <= '0';
-    cfg_arlen <= x"00";          -- 1-beat bursts
-    cfg_pace <= x"00000000";
-    cfg_pace_init <= x"00000000";
-    cfg_base_addr <= std_logic_vector(to_unsigned(16#C000#, C_ADDR_WIDTH));
-    cfg_addr_range <= std_logic_vector(to_unsigned(16#8000#, C_ADDR_WIDTH));
-    cfg_addr_mode <= '0';
-    data_check_en <= '1';
-    mon_enable <= '1';
-    enable <= '1';
-    wait_cycles(100);            -- one-beat bursts
-    cfg_arlen <= x"0F";          -- switch to 16-beat bursts mid-run
-    wait_cycles(200);
-    enable <= '0';
-    wait_drained(500000);
-    assert unsigned(stat_burst_len_min) = 1 and
-           unsigned(stat_burst_len_max) = 16
-      report "T20: burst-length min/max did not capture the mix"
-      severity failure;
-    assert unsigned(stat_ar_seen) = unsigned(gen_stat_ar_issued) and
-           unsigned(stat_xactions) = unsigned(stat_ar_seen)
-      report "T20: mixed-length accounting mismatch"
-      severity failure;
-    assert unsigned(stat_data_errors) = 0 and
-           unsigned(stat_id_errors) = 0 and
-           unsigned(stat_rlast_errors) = 0 and
-           unsigned(stat_resp_errors) = 0 and
-           unsigned(stat_sb_underflow_errors) = 0
-      report "T20: mixed-length run reported errors"
-      severity failure;
-    write(l, string'("  PASS: mixed burst lengths captured"));
-    writeline(output, l);
+    -- ---------------------------------------------------------------
+    -- Phase M: Sustained varied traffic.  Five requests with distinct
+    -- addresses, mixed lengths, and idle gaps between some of them.
+    -- ---------------------------------------------------------------
+    p_stat_err_rst(client_aclk, mon_stat_rst, mon_err_rst);
 
-    ------------------------------------------------------------------
-    -- T21: narrow data-bytes path (GC_DATA_BYTES=2) -- exercises the
-    -- 2-byte data-check branch of axi_monitor_r.
-    ------------------------------------------------------------------
-    write(l, string'("=== T21: 2-byte data path ==="));
-    writeline(output, l);
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
-    err_rst  <= '1'; wait_cycles(2); err_rst  <= '0';
-    enable <= '0';               -- stop the wide path
-    check_ar_corner_cases <= '0';
-    cfg_arlen <= x"07";          -- 8-beat bursts on the narrow path
-    cfg_pace <= x"00000000";
-    cfg_pace_init <= x"00000000";
-    cfg_base_addr <= std_logic_vector(to_unsigned(16#D000#, C_ADDR_WIDTH));
-    cfg_addr_range <= std_logic_vector(to_unsigned(16#4000#, C_ADDR_WIDTH));
-    cfg_addr_mode <= '0';
-    data_check_en <= '1';
-    mon_enable <= '1';
-    enable2 <= '1';
-    wait_cycles(300);
-    enable2 <= '0';
-    -- Drain the narrow path (bounded).
-    for i in 1 to 500000 loop
-      exit when unsigned(mon2_stat_xactions) >= unsigned(mon2_stat_ar_seen);
-      wait until rising_edge(aclk);
+    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+          x"0000A000", std_logic_vector(to_unsigned(0, C_CLIENT_LEN_WIDTH)));
+    for i in 1 to 3 loop
+      wait until rising_edge(client_aclk);   -- idle gap (pacing)
     end loop;
-    wait_cycles(10);
-    assert unsigned(mon2_stat_ar_seen) = unsigned(gen2_stat_ar_issued) and
-           unsigned(mon2_stat_ar_seen) > 0 and
-           unsigned(mon2_stat_xactions) = unsigned(mon2_stat_ar_seen)
-      report "T21: narrow path accounting mismatch"
-      severity failure;
-    assert unsigned(mon2_stat_beats) = unsigned(mon2_stat_xactions) * 8
-      report "T21: narrow path beat accounting mismatch"
-      severity failure;
-    assert unsigned(mon2_stat_data_errors) = 0
-      report "T21: 2-byte data check failed"
-      severity failure;
-    assert unsigned(mon2_stat_id_errors) = 0 and
-           unsigned(mon2_stat_rlast_errors) = 0 and
-           unsigned(mon2_stat_resp_errors) = 0 and
-           unsigned(mon2_stat_sb_uf_errors) = 0
-      report "T21: narrow path protocol errors"
-      severity failure;
-    write(l, string'("  PASS: 2-byte data check clean"));
-    writeline(output, l);
+    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+          x"0000A100", std_logic_vector(to_unsigned(1, C_CLIENT_LEN_WIDTH)));
+    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+          x"0000A200", std_logic_vector(to_unsigned(2, C_CLIENT_LEN_WIDTH)));
+    for i in 1 to 3 loop
+      wait until rising_edge(client_aclk);
+    end loop;
+    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+          x"0000A300", std_logic_vector(to_unsigned(0, C_CLIENT_LEN_WIDTH)));
+    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+          x"0000A400", std_logic_vector(to_unsigned(3, C_CLIENT_LEN_WIDTH)));
 
-    ------------------------------------------------------------------
-    -- T22: err_rst coincident with error detection -- the reset wins.
-    ------------------------------------------------------------------
-    write(l, string'("=== T22: err_rst during error injection ==="));
-    writeline(output, l);
-    stat_rst <= '1'; wait_cycles(2); stat_rst <= '0';
-    err_rst  <= '1'; wait_cycles(2); err_rst  <= '0';
-    enable <= '1';
-    cfg_arlen <= x"00";          -- 1-beat bursts
-    cfg_pace <= x"00000000";
-    cfg_pace_init <= x"00000000";
-    cfg_base_addr <= std_logic_vector(to_unsigned(16#F000#, C_ADDR_WIDTH));
-    cfg_addr_range <= std_logic_vector(to_unsigned(16#1000#, C_ADDR_WIDTH));
-    cfg_addr_mode <= '0';
-    data_check_en <= '1';
-    mon_enable <= '1';
-    inject_data_error <= '1';    -- errors accumulate
-    wait_cycles(100);
-    assert unsigned(stat_data_errors) > 0
-      report "T22: no data errors accumulated"
-      severity failure;
-    err_rst <= '1';              -- reset while errors still detected
-    wait_cycles(2);
-    err_rst <= '0';
-    inject_data_error <= '0';    -- stop injecting right after
-    wait_cycles(5);
-    assert unsigned(stat_data_errors) = 0
-      report "T22: err_rst did not win over coincident error detection"
-      severity failure;
-    write(l, string'("  PASS: err_rst wins over coincident errors"));
-    writeline(output, l);
+    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+                rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
+                v_rsp_last, 1, "M1");
+    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+                rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
+                v_rsp_last, 2, "M2");
+    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+                rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
+                v_rsp_last, 3, "M3");
+    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+                rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
+                v_rsp_last, 1, "M4");
+    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+                rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
+                v_rsp_last, 4, "M5");
 
-    write(l, string'("=== Simulation complete ==="));
-    writeline(output, l);
+    p_drain(client_aclk, mon_pipeline, "phase M", wait_count);
+
+    assert stat_req_seen = x"00000005"
+      report "M: req_seen /= 5" severity failure;
+    assert stat_xactions = x"00000005"
+      report "M: xactions /= 5" severity failure;
+    assert stat_beats = x"0000000B"
+      report "M: beats /= 11" severity failure;
+    assert stat_burst_len_min = x"00000001" and stat_burst_len_max = x"00000004"
+      report "M: burst length stats wrong" severity failure;
+    assert stat_data_errors = x"00000000" and stat_rlast_errors = x"00000000"
+       and stat_resp_errors = x"00000000" and stat_sb_underflow_errors = x"00000000"
+      report "M: errors on varied traffic" severity failure;
+
+    report "ALL AXI MONITOR CHECKS PASSED" severity note;
     sim_done <= true;
     wait;
-  end process p_stimulus;
-
-  -- Watchdog
-  p_watchdog : process
-  begin
-    wait for 20 ms;
-    assert sim_done report "Watchdog timeout" severity failure;
-    wait;
   end process;
-
-end architecture;
+end architecture sim;
