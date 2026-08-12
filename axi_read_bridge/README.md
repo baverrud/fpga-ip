@@ -1,0 +1,97 @@
+# axi_read_bridge
+
+Composite client/native read path for a multi-client AXI system.
+
+The bridge provides a client-domain request/response interface and connects
+it to a native AXI read channel in another clock domain:
+
+```text
+client_aclk 100 MHz
+  req_* -> axi_ar_mux -> AR axis_cdc -> native AXI AR
+  rsp_* <- axi_r_demux <- R axis_cdc <- axis_upsizer <- native AXI R
+mem_aclk 250 MHz
+```
+
+The default configuration is a 512-bit client interface and a 128-bit native
+interface. Four native beats form one client beat. Client `req_len` counts
+client beats minus one; the bridge expands the native `ARLEN` after the AR
+CDC. For example, client `req_len=0` becomes native `ARLEN=3`, and client
+`req_len=1` becomes native `ARLEN=7`.
+
+## Generics
+
+| Generic | Default | Description |
+|---|---:|---|
+| `GC_NUM_CLIENTS` | 4 | Number of client request/response ports. |
+| `GC_ADDR_WIDTH` | 32 | Address width in bits. |
+| `GC_ID_WIDTH` | 4 | Native AR/R ID width. IDs are generated from client index. |
+| `GC_CLIENT_DATA_BYTES` | 64 | Client response width in bytes. |
+| `GC_NATIVE_DATA_BYTES` | 16 | Native R data width in bytes. |
+| `GC_NATIVE_ARLEN_WIDTH` | 8 | Native ARLEN width; use 4 for AXI3. |
+| `GC_CLIENT_FIFO_DEPTH` | 32 | Per-client response FIFO and client-beat credit depth. 32 fits SRL32. |
+| `GC_CDC_DEPTH` | 8 | Depth of each AR/R CDC FIFO; must be a power of two. |
+| `GC_SYNC_STAGES` | 2 | CDC pointer synchronizer stages. |
+
+The client ARLEN width is derived as
+`GC_NATIVE_ARLEN_WIDTH - log2(GC_CLIENT_DATA_BYTES / GC_NATIVE_DATA_BYTES)`.
+The data-byte ratio must be an integral power of two. The native AR port
+exposes the dynamic signals (`ar_id`, `ar_addr`, `ar_len`, `ar_size`,
+`ar_valid`, `ar_ready`). `ar_size` is exposed because it is derived from
+`GC_NATIVE_DATA_BYTES`. `ar_burst` (always `INCR`) and the other AXI
+sidebands are constants tied by the consumer, matching a real AXI_HP port.
+
+## Client interface
+
+`req_addr`, `req_len`, `req_valid`, and `req_ready` form the request input.
+`req_len` is the number of client-domain beats minus one. The client beat
+width is `8 * GC_CLIENT_DATA_BYTES` bits. The client must hold the request
+payload stable while `req_valid='1'` and `req_ready='0'`.
+
+### Request size limit
+
+`req_len` is `GC_NATIVE_ARLEN_WIDTH - log2(ratio)` bits wide (6 bits in
+the default configuration), so the port can encode values up to 63. A
+single request is, however, limited to `GC_CLIENT_FIFO_DEPTH` client
+beats, i.e. `req_len <= GC_CLIENT_FIFO_DEPTH - 1` (31 in the default
+configuration). The per-client credit budget (the R-side response FIFO
+depth) is the maximum number of beats a client may have in flight, and
+credits only return as responses are popped, so a larger request can
+never be granted and would deadlock. The AR mux flags such a request at
+presentation time with an assertion failure:
+
+```text
+axi_ar_mux: request beats N exceeds GC_CLIENT_FIFO_DEPTH M; request can never be granted
+```
+
+Clients must split transfers larger than `GC_CLIENT_FIFO_DEPTH` beats
+into multiple requests (e.g. one per `GC_CLIENT_FIFO_DEPTH`-beat window),
+or increase `GC_CLIENT_FIFO_DEPTH` to cover the largest single request.
+
+`rsp_data`, `rsp_resp`, `rsp_last`, `rsp_valid`, and `rsp_ready` form the
+per-client response output. One `rsp_data` beat is one client-domain beat.
+A response pop returns one client-beat credit to the AR mux.
+
+## Composition
+
+The RTL instantiates `axi_ar_mux`, two `axis_cdc` instances, `axis_upsizer`,
+and `axi_r_demux`. The integration testbench also instantiates
+`axi_mem_model` as a 128-bit native memory controller at 250 MHz.
+
+## Monitoring note
+
+The native side of this bridge supports **ID reordering**: requests from
+multiple clients are outstanding simultaneously (up to the per-client
+credit limit), and the native downstream may return R bursts in any order
+across IDs; `axi_r_demux` routes them back per client.  A per-client
+in-order scoreboard on the native AR/R bus would mis-attribute reordered
+bursts, so verify the native side with `axi_mem_model` (in-order, as in
+the integration testbench) or a per-ID scoreboard.  The client side is
+verified with the `axi_monitor` IP, which taps each client's `req_*` /
+`rsp_*` interface (no ID, in-order per client).
+
+Related constraint: the R path packs four contiguous native beats per wide
+beat (`axis_upsizer`), so the native downstream must deliver bursts
+atomically. AXI guarantees this - beats within a burst stay contiguous and
+in-order per ID, and reordering only occurs across bursts. A beat-level
+interleave across IDs within a pack window trips the upsizer's "rid changed
+within packed group" assertion.
