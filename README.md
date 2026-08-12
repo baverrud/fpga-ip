@@ -69,13 +69,17 @@ every run, removed by `run clean <ip>`).
 | IP | Path | Description |
 |----|------|-------------|
 | [axis_fifo](axis_fifo/README.md) | `axis_fifo/` | FWFT AXI4-Stream elastic buffer with registered handshake, SRL inference, UVVM testbench. |
+| [axis_cdc](axis_cdc/README.md) | `axis_cdc/` | AXI4-Stream clock-domain converter (CDC) via Gray-pointer asynchronous FIFO. Line-rate throughput on both sides. |
 | [parallel_prng](parallel_prng/README.md) | `parallel_prng/` | Multi-output XORshift PRNG with configurable parallel lanes. |
 | [jitter_gen](jitter_gen/README.md) | `jitter_gen/` | CDF-based jitter injector with configurable bucket thresholds. Wraps `parallel_prng`. |
 | [axis_latency_gen](axis_latency_gen/README.md) | `axis_latency_gen/` | AXI4-Stream delay element with configurable base delay + jitter. Wraps `axis_fifo` and `jitter_gen`. |
 | [axis_skid_buffer](axis_skid_buffer/README.md) | `axis_skid_buffer/` | AXI4-Stream 2-deep skid buffer with bypass path. Absorbs one beat of backpressure. |
+| [axis_downsizer](axis_downsizer/README.md) | `axis_downsizer/` | AXI4-Stream width downsizer (512 -> 128 default, 4:1). LSB-first unpacking, 250 MHz output line rate. |
+| [axis_upsizer](axis_upsizer/README.md) | `axis_upsizer/` | AXI4-Stream width upsizer (128 -> 512 default, 4:1). LSB-first packing, 250 MHz line rate. |
 | [pulse_extender](pulse_extender/README.md) | `pulse_extender/` | Level-triggered pulse extender. A high on `trigger` sampled at a rising edge while idle drives `pulse_out` high for a configurable number of clock cycles. |
 | [axi_mem_model](axi_mem_model/README.md) | `axi_mem_model/` | AXI3/AXI4 read-slave that models DRAM-like latency and inter-beat gaps. Configurable widths (1-128 B), zero-latency mode, 1/cycle throughput. |
 | [axi_monitor](axi_monitor/README.md) | `axi_monitor/` | Passive AXI3/AXI4 read-transaction monitor. Taps the AR/R channels, validates every R beat against a scoreboard, and accumulates transaction, latency, burst-length, and protocol-error statistics. |
+| [axi_r_demux](axi_r_demux/README.md) | `axi_r_demux/` | AXI4 read-data channel demultiplexer with per-client elastic FIFOs. 4 clients, 32-bit, depth-32 default; 250 MHz. |
 | [axilite_io](axilite_io/README.md) | `axilite_io/` | AXI4-Lite slave to register & stream bridge. Output registers (byte-strobe), input ports, AXI4-Stream push/pop channels. |
 | [axi_traffic_gen](axi_traffic_gen/README.md) | `axi_traffic_gen/` | Collection of lightweight AXI3/AXI4 traffic generators. Provides `axi_ar_gen`, a read-address generator with configurable pace and linear/PRNG addressing. |
 
