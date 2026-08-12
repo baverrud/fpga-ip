@@ -272,13 +272,18 @@ begin
     s_tvalid <= '0';
     s_tlast  <= '0';
     -- Hard line-rate guard: any input bubble fails (bandwidth regression).
+    -- Assert form (not a bare report in an if) so XSim static elaboration
+    -- does not fire it against the variable's initial value; the runtime
+    -- check and diagnostic are unchanged.
     if v_cycles /= C_N_A then
       write(l, string'("FAIL: phase A line rate not sustained: " &
                        integer'image(v_sent) & " words in " &
                        integer'image(v_cycles) & " cycles"));
       writeline(output, l);
-      report "line rate violation in phase A" severity failure;
     end if;
+    assert v_cycles = C_N_A
+      report "line rate violation in phase A"
+      severity failure;
     write(l, string'("Stim: phase A sent " & integer'image(v_sent) &
                      " words in " & integer'image(v_cycles) & " cycles"));
     writeline(output, l);

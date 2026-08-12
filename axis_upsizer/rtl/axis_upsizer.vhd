@@ -104,6 +104,7 @@ architecture rtl of axis_upsizer is
     skid_rid   : std_logic_vector(GC_ID_WIDTH-1 downto 0);
     skid_valid : std_logic;
     s_ready    : std_logic;
+    align_err  : std_logic;  -- registered tlast alignment violation flag
   end record;
 
   constant C_REC_DEFAULT : rec_t := (
@@ -122,7 +123,8 @@ architecture rtl of axis_upsizer is
     skid_rresp => (others => '0'),
     skid_rid   => (others => '0'),
     skid_valid => '0',
-    s_ready    => '1');
+    s_ready    => '1',
+    align_err  => '0');
 
   signal r : rec_t := C_REC_DEFAULT;  -- current state
   signal r_in : rec_t;  -- next state
@@ -188,10 +190,18 @@ begin
     -- exactly one beat into the skid register. That beat is moved into a new
     -- accumulator group when the current wide beat drains.
     v_accept := (s_axis_tvalid = '1') and (r.s_ready = '1');
-    if v_accept and (s_axis_tlast = '1') then
-      assert (r.cnt = GC_RATIO-1) or (GC_RATIO = 1)
-        report "axis_upsizer: tlast is not ratio-aligned"
-        severity failure;
+
+    -- Flag a tlast that is not aligned to a ratio boundary. The flag is
+    -- registered and asserted AFTER the clock edge, so the check sees the
+    -- settled handshake. A combinational assert here would spuriously fire
+    -- during delta settling: a source whose valid is combinational off a
+    -- registered FIFO empty flag deasserts one delta AFTER our registered
+    -- cnt advances, transiently pairing a stale tlast='1' with the new
+    -- group's cnt=0.
+    v.align_err := '0';
+    if v_accept and (s_axis_tlast = '1') and (GC_RATIO /= 1) and
+       (r.cnt /= GC_RATIO-1) then
+      v.align_err := '1';
     end if;
     if v_transfer then
       if r.skid_valid = '1' then
@@ -266,5 +276,12 @@ begin
       end if;
     end if;
   end process;
+
+  -- Assert the registered alignment flag: evaluated with settled state, so a
+  -- delta-race between a source's valid deassertion and our registered cnt
+  -- cannot cause a false failure.
+  assert r.align_err = '0'
+    report "axis_upsizer: tlast is not ratio-aligned"
+    severity failure;
 
 end architecture;
