@@ -302,10 +302,10 @@ Notes:
 1. **Create the directory structure:**
    ```text
    my_ip/
-   ├── rtl/           # Synthesizable source files
-   ├── tb/            # Testbench files (simple and optional UVVM)
-   ├── scripts/       # .f manifests and optional wave.do
-   └── README.md      # IP documentation
+   |-- rtl/           # Synthesizable source files
+   |-- tb/            # Testbench files (simple and optional UVVM)
+   |-- scripts/       # .f manifests and optional wave.do
+   `-- README.md      # IP documentation
    ```
 
 2. **Create at least one manifest** in `my_ip/scripts/`, typically `vhdl.f`
@@ -316,7 +316,7 @@ Notes:
    ```text
    run my_ip vhdl modelsim    # Simulate (batch)
    run my_ip vhdl vivado      # Synthesize (batch)
-  run clean my_ip            # Clean .runs/ artifacts
+   run clean my_ip            # Clean .runs/ artifacts
    ```
 
 ### Guidelines

@@ -114,7 +114,7 @@ Example:
 common/rtl/util_pkg.vhd
 axis_fifo/rtl/axis_fifo.vhd      std=2008
 vendor/rtl/fifo_core.vhd         std=2008
-axi_monitor/rtl/axi_monitor.vhd  tool=vivado,questa
+axi_monitor/rtl/axi_monitor.vhd              tool=vivado,questa
 ```
 
 Notes:
@@ -183,7 +183,7 @@ include parallel_prng/scripts/vhdl.f [rtl] std=2008
 
 [tb:traffic]
 include axi_mem_model/scripts/vhdl.f [rtl]
-axi_monitor/tb/axi_monitor_tb.vhd
+axi_traffic_gen/tb/axi_req_gen_tb.vhd
 ```
 
 Rules:

@@ -46,7 +46,7 @@ command, not from the location of the batch file.
 Select a style explicitly with `--style`:
 
 ```text
-python tools/hdl-format.py --style moderate axi_monitor/rtl/axi_monitor_top.vhd
+python tools/hdl-format.py --style moderate axi_monitor/rtl/axi_monitor.vhd
 python tools/hdl-format.py --style extreme axi_monitor/README.md
 python tools/hdl-format.py --style collapsed axi_monitor/rtl/axi_monitor_top.sv
 ```
