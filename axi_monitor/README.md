@@ -110,6 +110,258 @@ contain `A + n*GC_DATA_BYTES` filled with consecutive 32-bit words
 `axi_mem_model` through `axi_read_bridge`, so the integration testbench
 expects `stat_data_errors = 0` on clean traffic.
 
+## Instantiation
+
+The examples below use the default **64-byte, 49-bit-address, 48-bit-time**
+configuration. The monitor is fully passive: all `req_*` / `rsp_*` signals
+are inputs (it never drives the monitored interface), so it is simply tapped
+onto a client `req_*` / `rsp_*` pair of e.g. `axi_read_bridge`. Instantiate
+one `axi_monitor` per monitored client interface.
+
+### VHDL
+
+```vhdl
+-- ---------------------------------------------------------------------
+-- Signals (grouped by interface)
+-- ---------------------------------------------------------------------
+
+-- Clock / reset / timebase
+signal aclk        : std_logic;
+signal aresetn     : std_logic;  -- synchronous, active low
+signal global_time : unsigned(47 downto 0);  -- GC_TIME_WIDTH
+
+-- Control
+signal enable        : std_logic;  -- 1 = monitor active
+signal stat_rst      : std_logic;  -- clears all counters
+signal err_rst       : std_logic;  -- clears error counters only
+signal data_check_en : std_logic;  -- 1 = validate rsp_data against pattern
+signal pipeline_busy : std_logic;  -- 1 = scoreboard in flight
+
+-- req channel taps (inputs -- passive monitor)
+signal req_valid : std_logic;
+signal req_ready : std_logic;
+signal req_addr  : std_logic_vector(48 downto 0);  -- GC_ADDR_WIDTH
+signal req_len   : std_logic_vector(7 downto 0);   -- beats-1
+
+-- rsp channel taps (inputs -- passive monitor)
+signal rsp_valid : std_logic;
+signal rsp_ready : std_logic;
+signal rsp_data  : std_logic_vector(511 downto 0);  -- 8*GC_DATA_BYTES
+signal rsp_resp  : std_logic_vector(1 downto 0);
+signal rsp_last  : std_logic;
+
+-- Statistics and status (see the table above for definitions)
+signal stat_req_seen            : std_logic_vector(31 downto 0);
+signal stat_req_stall           : std_logic_vector(31 downto 0);
+signal stat_sb_backpressure     : std_logic_vector(31 downto 0);
+signal stat_xactions            : std_logic_vector(31 downto 0);
+signal stat_beats               : std_logic_vector(31 downto 0);
+signal stat_latency_sum         : std_logic_vector(47 downto 0);  -- GC_STAT_WIDTH
+signal stat_latency_min         : std_logic_vector(31 downto 0);
+signal stat_latency_max         : std_logic_vector(31 downto 0);
+signal stat_first_latency_sum   : std_logic_vector(47 downto 0);
+signal stat_first_latency_min   : std_logic_vector(31 downto 0);
+signal stat_first_latency_max   : std_logic_vector(31 downto 0);
+signal stat_interbeat_gap_sum   : std_logic_vector(47 downto 0);
+signal stat_interbeat_gap_min   : std_logic_vector(31 downto 0);
+signal stat_interbeat_gap_max   : std_logic_vector(31 downto 0);
+signal stat_burst_len_sum       : std_logic_vector(47 downto 0);
+signal stat_burst_len_min       : std_logic_vector(31 downto 0);
+signal stat_burst_len_max       : std_logic_vector(31 downto 0);
+signal stat_elapsed_cycles      : std_logic_vector(31 downto 0);
+signal stat_rsp_stall           : std_logic_vector(31 downto 0);
+signal stat_max_outstanding     : std_logic_vector(31 downto 0);
+signal stat_data_errors         : std_logic_vector(31 downto 0);
+signal stat_rlast_errors        : std_logic_vector(31 downto 0);
+signal stat_resp_errors         : std_logic_vector(31 downto 0);
+signal stat_sb_underflow_errors : std_logic_vector(31 downto 0);
+
+-- ---------------------------------------------------------------------
+-- Instantiation (grouped port map)
+-- ---------------------------------------------------------------------
+u_monitor : entity work.axi_monitor
+  generic map (
+    GC_DATA_BYTES    => 64,   -- rsp beat width (bytes)
+    GC_ADDR_WIDTH    => 49,   -- address width (bits)
+    GC_TIME_WIDTH    => 48,   -- global_time width (bits)
+    GC_STAT_WIDTH    => 48,   -- *_sum statistic width (bits)
+    GC_SB_FIFO_DEPTH => 256   -- scoreboard FIFO depth (bursts)
+  )
+  port map (
+    -- Clock / reset / timebase
+    aclk        => aclk,
+    aresetn     => aresetn,
+    global_time => global_time,
+
+    -- Control
+    enable        => enable,
+    stat_rst      => stat_rst,
+    err_rst       => err_rst,
+    data_check_en => data_check_en,
+    pipeline_busy => pipeline_busy,
+
+    -- req channel taps
+    req_valid => req_valid,
+    req_ready => req_ready,
+    req_addr  => req_addr,
+    req_len   => req_len,
+
+    -- rsp channel taps
+    rsp_valid => rsp_valid,
+    rsp_ready => rsp_ready,
+    rsp_data  => rsp_data,
+    rsp_resp  => rsp_resp,
+    rsp_last  => rsp_last,
+
+    -- Statistics and status
+    stat_req_seen            => stat_req_seen,
+    stat_req_stall           => stat_req_stall,
+    stat_sb_backpressure     => stat_sb_backpressure,
+    stat_xactions            => stat_xactions,
+    stat_beats               => stat_beats,
+    stat_latency_sum         => stat_latency_sum,
+    stat_latency_min         => stat_latency_min,
+    stat_latency_max         => stat_latency_max,
+    stat_first_latency_sum   => stat_first_latency_sum,
+    stat_first_latency_min   => stat_first_latency_min,
+    stat_first_latency_max   => stat_first_latency_max,
+    stat_interbeat_gap_sum   => stat_interbeat_gap_sum,
+    stat_interbeat_gap_min   => stat_interbeat_gap_min,
+    stat_interbeat_gap_max   => stat_interbeat_gap_max,
+    stat_burst_len_sum       => stat_burst_len_sum,
+    stat_burst_len_min       => stat_burst_len_min,
+    stat_burst_len_max       => stat_burst_len_max,
+    stat_elapsed_cycles      => stat_elapsed_cycles,
+    stat_rsp_stall           => stat_rsp_stall,
+    stat_max_outstanding     => stat_max_outstanding,
+    stat_data_errors         => stat_data_errors,
+    stat_rlast_errors        => stat_rlast_errors,
+    stat_resp_errors         => stat_resp_errors,
+    stat_sb_underflow_errors => stat_sb_underflow_errors
+  );
+```
+
+### SystemVerilog
+
+```systemverilog
+// ---------------------------------------------------------------------
+// Signals (grouped by interface)
+// ---------------------------------------------------------------------
+
+// Clock / reset / timebase
+logic aclk;
+logic aresetn;  // synchronous, active low
+logic [47:0] global_time;  // GC_TIME_WIDTH
+
+// Control
+logic enable;         // 1 = monitor active
+logic stat_rst;       // clears all counters
+logic err_rst;        // clears error counters only
+logic data_check_en;  // 1 = validate rsp_data against pattern
+logic pipeline_busy;  // 1 = scoreboard in flight
+
+// req channel taps (inputs -- passive monitor)
+logic req_valid;
+logic req_ready;
+logic [48:0] req_addr;  // GC_ADDR_WIDTH
+logic [7:0]  req_len;   // beats-1
+
+// rsp channel taps (inputs -- passive monitor)
+logic rsp_valid;
+logic rsp_ready;
+logic [511:0] rsp_data;  // 8*GC_DATA_BYTES
+logic [1:0]   rsp_resp;
+logic         rsp_last;
+
+// Statistics and status
+logic [31:0] stat_req_seen;
+logic [31:0] stat_req_stall;
+logic [31:0] stat_sb_backpressure;
+logic [31:0] stat_xactions;
+logic [31:0] stat_beats;
+logic [47:0] stat_latency_sum;  // GC_STAT_WIDTH
+logic [31:0] stat_latency_min;
+logic [31:0] stat_latency_max;
+logic [47:0] stat_first_latency_sum;
+logic [31:0] stat_first_latency_min;
+logic [31:0] stat_first_latency_max;
+logic [47:0] stat_interbeat_gap_sum;
+logic [31:0] stat_interbeat_gap_min;
+logic [31:0] stat_interbeat_gap_max;
+logic [47:0] stat_burst_len_sum;
+logic [31:0] stat_burst_len_min;
+logic [31:0] stat_burst_len_max;
+logic [31:0] stat_elapsed_cycles;
+logic [31:0] stat_rsp_stall;
+logic [31:0] stat_max_outstanding;
+logic [31:0] stat_data_errors;
+logic [31:0] stat_rlast_errors;
+logic [31:0] stat_resp_errors;
+logic [31:0] stat_sb_underflow_errors;
+
+// ---------------------------------------------------------------------
+// Instantiation (grouped port map)
+// ---------------------------------------------------------------------
+axi_monitor #(
+    .GC_DATA_BYTES    (64),   // rsp beat width (bytes)
+    .GC_ADDR_WIDTH    (49),   // address width (bits)
+    .GC_TIME_WIDTH    (48),   // global_time width (bits)
+    .GC_STAT_WIDTH    (48),   // *_sum statistic width (bits)
+    .GC_SB_FIFO_DEPTH (256)   // scoreboard FIFO depth (bursts)
+) u_monitor (
+    // Clock / reset / timebase
+    .aclk        (aclk),
+    .aresetn     (aresetn),
+    .global_time (global_time),
+
+    // Control
+    .enable        (enable),
+    .stat_rst      (stat_rst),
+    .err_rst       (err_rst),
+    .data_check_en (data_check_en),
+    .pipeline_busy (pipeline_busy),
+
+    // req channel taps
+    .req_valid (req_valid),
+    .req_ready (req_ready),
+    .req_addr  (req_addr),
+    .req_len   (req_len),
+
+    // rsp channel taps
+    .rsp_valid (rsp_valid),
+    .rsp_ready (rsp_ready),
+    .rsp_data  (rsp_data),
+    .rsp_resp  (rsp_resp),
+    .rsp_last  (rsp_last),
+
+    // Statistics and status
+    .stat_req_seen            (stat_req_seen),
+    .stat_req_stall           (stat_req_stall),
+    .stat_sb_backpressure     (stat_sb_backpressure),
+    .stat_xactions            (stat_xactions),
+    .stat_beats               (stat_beats),
+    .stat_latency_sum         (stat_latency_sum),
+    .stat_latency_min         (stat_latency_min),
+    .stat_latency_max         (stat_latency_max),
+    .stat_first_latency_sum   (stat_first_latency_sum),
+    .stat_first_latency_min   (stat_first_latency_min),
+    .stat_first_latency_max   (stat_first_latency_max),
+    .stat_interbeat_gap_sum   (stat_interbeat_gap_sum),
+    .stat_interbeat_gap_min   (stat_interbeat_gap_min),
+    .stat_interbeat_gap_max   (stat_interbeat_gap_max),
+    .stat_burst_len_sum       (stat_burst_len_sum),
+    .stat_burst_len_min       (stat_burst_len_min),
+    .stat_burst_len_max       (stat_burst_len_max),
+    .stat_elapsed_cycles      (stat_elapsed_cycles),
+    .stat_rsp_stall           (stat_rsp_stall),
+    .stat_max_outstanding     (stat_max_outstanding),
+    .stat_data_errors         (stat_data_errors),
+    .stat_rlast_errors        (stat_rlast_errors),
+    .stat_resp_errors         (stat_resp_errors),
+    .stat_sb_underflow_errors (stat_sb_underflow_errors)
+);
+```
+
 ## Testbenches
 
 - `axi_monitor_tb` (default): integration TB.  Instantiates

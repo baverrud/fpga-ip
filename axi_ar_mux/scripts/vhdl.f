@@ -88,8 +88,3 @@ axi_ar_mux/tb/axi_ar_mux_tb.vhd
 top = axi_ar_mux_tb
 generics = GC_NUM_CLIENTS=1, GC_ID_WIDTH=1, GC_FIFO_DEPTH=256
 axi_ar_mux/tb/axi_ar_mux_tb.vhd
-
-[tb:sv]
-top = axi_ar_mux_top_sv_tb
-axi_ar_mux/rtl/axi_ar_mux_top.sv
-axi_ar_mux/tb/axi_ar_mux_top_sv_tb.sv

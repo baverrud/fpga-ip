@@ -42,7 +42,7 @@ architecture sim of axi_read_bridge_tb is
   type arlen_seq_t is array (natural range <>) of integer;
   constant C_EXPECTED_ARLEN : arlen_seq_t := (3, 7, 11, 3, 3, 3, 3, 127);
 
-  signal client_aclk : std_logic := '0';
+  signal aclk : std_logic := '0';
   signal mem_aclk    : std_logic := '0';
   signal aresetn : std_logic := '0';
   signal sim_done : boolean := false;
@@ -87,12 +87,12 @@ architecture sim of axi_read_bridge_tb is
 begin
   p_client_clk : process
   begin
-    client_aclk <= '0';
+    aclk <= '0';
     while not sim_done loop
       wait for C_CLIENT_PERIOD / 2;
-      client_aclk <= not client_aclk;
+      aclk <= not aclk;
     end loop;
-    client_aclk <= '0';
+    aclk <= '0';
     wait;
   end process;
 
@@ -129,7 +129,7 @@ begin
       GC_CDC_DEPTH          => C_CDC_DEPTH
     )
     port map (
-      client_aclk => client_aclk,
+      aclk => aclk,
       mem_aclk    => mem_aclk,
       aresetn     => aresetn,
       req_addr    => req_addr,
@@ -219,7 +219,7 @@ begin
     begin
       wait_count := 0;
       loop
-        wait until rising_edge(client_aclk);
+        wait until rising_edge(aclk);
         wait for 1 ns;
         exit when req_ready(idx) = '1';
         wait_count := wait_count + 1;
@@ -235,7 +235,7 @@ begin
     begin
       wait_count := 0;
       loop
-        wait until rising_edge(client_aclk);
+        wait until rising_edge(aclk);
         wait for 1 ns;
         exit when (rsp_valid(idx) = '1') and (rsp_ready(idx) = '1');
         wait_count := wait_count + 1;
@@ -250,8 +250,8 @@ begin
     procedure p_backpressure_rsp(constant idx : natural) is
     begin
       rsp_ready(idx) <= '0';
-      wait until rising_edge(client_aclk);
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
+      wait until rising_edge(aclk);
       rsp_ready(idx) <= '1';
       p_wait_rsp(idx);
     end procedure;
@@ -260,13 +260,13 @@ begin
     aresetn <= '1';
 
     -- One 512-bit client beat becomes four native 128-bit beats.
-    wait until falling_edge(client_aclk);
+    wait until falling_edge(aclk);
     req_addr(0) <= x"00001000";
     req_len(0) <= (others => '0');
     req_valid(0) <= '1';
     wait_count := 0;
     loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
       wait for 1 ns;
       exit when req_ready(0) = '1';
       wait_count := wait_count + 1;
@@ -276,7 +276,7 @@ begin
 
     wait_count := 0;
     loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
       wait for 1 ns;
       exit when rsp_valid(0) = '1';
       wait_count := wait_count + 1;
@@ -290,13 +290,13 @@ begin
       severity failure;
 
     -- Two client beats become eight native beats and two 512-bit responses.
-    wait until falling_edge(client_aclk);
+    wait until falling_edge(aclk);
     req_addr(1) <= x"00002000";
     req_len(1) <= std_logic_vector(to_unsigned(1, C_CLIENT_LEN_WIDTH));
     req_valid(1) <= '1';
     wait_count := 0;
     loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
       wait for 1 ns;
       exit when req_ready(1) = '1';
       wait_count := wait_count + 1;
@@ -306,7 +306,7 @@ begin
 
     wait_count := 0;
     loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
       wait for 1 ns;
       exit when rsp_valid(1) = '1';
       wait_count := wait_count + 1;
@@ -321,7 +321,7 @@ begin
 
     wait_count := 0;
     loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
       wait for 1 ns;
       exit when rsp_valid(1) = '1';
       wait_count := wait_count + 1;
@@ -337,7 +337,7 @@ begin
     -- Phase 3: client 2 response under consumer backpressure (rsp_ready(2)
     -- low 2 of every 4 client cycles). Three client beats -> 12 native
     -- beats, native ARLEN 11.
-    wait until falling_edge(client_aclk);
+    wait until falling_edge(aclk);
     req_addr(2) <= x"00004000";
     req_len(2)  <= std_logic_vector(to_unsigned(2, C_CLIENT_LEN_WIDTH));
     req_valid(2) <= '1';
@@ -371,7 +371,7 @@ begin
     -- req_ready is not RR-gated, so all four are accepted on the first
     -- rising edge; the valids are low again before any grant fires, which
     -- keeps the mux live-refill from re-buffering a stale request.
-    wait until falling_edge(client_aclk);
+    wait until falling_edge(aclk);
     req_addr(0) <= std_logic_vector(to_unsigned(C_P4_ADDR(0), C_ADDR_WIDTH));
     req_len(0)  <= (others => '0');
     req_valid(0) <= '1';
@@ -388,8 +388,8 @@ begin
     -- req_ready is high only during the accept deltas and cannot be sampled
     -- externally). Deassert the valids before any grant fires so the mux
     -- live-refill cannot re-buffer a stale request.
-    wait until rising_edge(client_aclk);
-    wait until falling_edge(client_aclk);
+    wait until rising_edge(aclk);
+    wait until falling_edge(aclk);
     req_valid <= (others => '0');
     -- Responses arrive in grant (round-robin) order, which is not client
     -- order, and each is consumed immediately (rsp_ready high). Poll all
@@ -397,7 +397,7 @@ begin
     for rcvd in 0 to 3 loop
       wait_count := 0;
       loop
-        wait until rising_edge(client_aclk);
+        wait until rising_edge(aclk);
         wait for 1 ns;
         exit when (rsp_valid(0) and rsp_ready(0)) = '1' or
                   (rsp_valid(1) and rsp_ready(1)) = '1' or
@@ -425,7 +425,7 @@ begin
     -- stall propagates through the full R path to the mem model mid-burst.
     -- Checks f_native_arlen scaling at the boundary and full-length data
     -- ordering under end-to-end backpressure.
-    wait until falling_edge(client_aclk);
+    wait until falling_edge(aclk);
     req_addr(3) <= x"00005000";
     req_len(3)  <= std_logic_vector(to_unsigned(31, C_CLIENT_LEN_WIDTH));
     req_valid(3) <= '1';

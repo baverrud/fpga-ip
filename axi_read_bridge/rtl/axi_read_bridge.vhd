@@ -29,7 +29,7 @@ entity axi_read_bridge is
     GC_SYNC_STAGES       : positive range 2 to 4 := 2
   );
   port (
-    client_aclk : in std_logic;
+    aclk : in std_logic;
     mem_aclk    : in std_logic;
     aresetn     : in std_logic;
 
@@ -165,7 +165,7 @@ begin
       GC_R_BEATS_PER_POP => 1
     )
     port map (
-      aclk      => client_aclk,
+      aclk      => aclk,
       aresetn   => aresetn,
       req_addr  => req_addr,
       req_len   => core_req_len,
@@ -194,7 +194,7 @@ begin
       GC_SYNC_STAGES => GC_SYNC_STAGES
     )
     port map (
-      s_axis_aclk   => client_aclk,
+      s_axis_aclk   => aclk,
       aresetn       => aresetn,
       s_axis_tdata  => ar_cdc_s_data,
       s_axis_tvalid => ar_cdc_s_valid,
@@ -252,7 +252,7 @@ begin
       s_axis_tdata  => r_cdc_s_data,
       s_axis_tvalid => r_cdc_s_valid,
       s_axis_tready => r_cdc_s_ready,
-      m_axis_aclk   => client_aclk,
+      m_axis_aclk   => aclk,
       m_axis_tdata  => r_cdc_m_data,
       m_axis_tvalid => r_cdc_m_valid,
       m_axis_tready => r_cdc_m_ready
@@ -271,7 +271,7 @@ begin
       GC_FIFO_DEPTH  => GC_CLIENT_FIFO_DEPTH
     )
     port map (
-      aclk      => client_aclk,
+      aclk      => aclk,
       aresetn   => aresetn,
       r_id      => demux_r_id,
       r_data    => demux_r_data,

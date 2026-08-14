@@ -23,7 +23,7 @@ entity axi_read_bridge_top is
     GC_SYNC_STAGES        : positive range 2 to 4 := 2
   );
   port (
-    client_aclk : in std_logic;
+    aclk : in std_logic;
     mem_aclk    : in std_logic;
     aresetn     : in std_logic;
 
@@ -70,7 +70,7 @@ begin
       GC_SYNC_STAGES        => GC_SYNC_STAGES
     )
     port map (
-      client_aclk => client_aclk,
+      aclk => aclk,
       mem_aclk    => mem_aclk,
       aresetn     => aresetn,
       req_addr    => req_addr,

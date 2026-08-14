@@ -87,12 +87,60 @@ from `parallel_prng` (address and length PRNGs).
 in `scripts/vhdl.f` for the vivado/xsim flows.  A SystemVerilog
 mixed-language wrapper (`rtl/axi_req_gen_top.sv`) is also provided.
 
+## Instantiation
+
+The examples below use the default **64-byte, 32-bit-address,
+32-beat-max-burst** configuration.  `req_len` is beats minus one and is
+`log2ceil(GC_MAX_BURST)` bits wide (5 bits with the default).  When the
+consumer's `req_len` port is wider, zero-extend `req_len` at the
+instantiation site.
+
+### VHDL
+
 ```vhdl
+-- ---------------------------------------------------------------------
+-- Signals (grouped by interface)
+-- ---------------------------------------------------------------------
+constant C_LEN_WIDTH : positive := 5;  -- log2ceil(GC_MAX_BURST)
+
+-- Clock / reset
+signal aclk    : std_logic;
+signal aresetn : std_logic;  -- synchronous, active low
+
+-- Control
+signal enable   : std_logic;  -- per-instance enable
+signal aperture : std_logic;  -- measurement window
+signal stat_rst : std_logic;  -- clears statistic counters
+
+-- Runtime configuration
+signal cfg_req_len    : std_logic_vector(C_LEN_WIDTH-1 downto 0);
+signal cfg_len_mode   : std_logic;
+signal cfg_max_len    : std_logic_vector(C_LEN_WIDTH-1 downto 0);
+signal cfg_pace       : std_logic_vector(31 downto 0);
+signal cfg_pace_init  : std_logic_vector(31 downto 0);
+signal cfg_base_addr  : std_logic_vector(31 downto 0);
+signal cfg_addr_range : std_logic_vector(31 downto 0);
+signal cfg_addr_mode  : std_logic;
+
+-- Client request channel (generator -> consumer)
+signal req_valid : std_logic;
+signal req_ready : std_logic;
+signal req_addr  : std_logic_vector(31 downto 0);
+signal req_len   : std_logic_vector(C_LEN_WIDTH-1 downto 0);
+
+-- Statistics
+signal stat_req_stall  : std_logic_vector(31 downto 0);
+signal stat_req_issued : std_logic_vector(31 downto 0);
+signal stat_cfg_errors : std_logic_vector(31 downto 0);
+
+-- ---------------------------------------------------------------------
+-- Instantiation (grouped port map)
+-- ---------------------------------------------------------------------
 u_req_gen : entity work.axi_req_gen
   generic map (
-    GC_DATA_BYTES => 64,
-    GC_ADDR_WIDTH => 32,
-    GC_MAX_BURST  => 32
+    GC_DATA_BYTES => 64,  -- beat width (bytes)
+    GC_ADDR_WIDTH => 32,  -- address width (bits)
+    GC_MAX_BURST  => 32   -- max beats per burst
   )
   port map (
     aclk           => aclk,
@@ -116,6 +164,75 @@ u_req_gen : entity work.axi_req_gen
     stat_req_issued => stat_req_issued,
     stat_cfg_errors => stat_cfg_errors
   );
+```
+
+### SystemVerilog
+
+```systemverilog
+// ---------------------------------------------------------------------
+// Signals (grouped by interface)
+// ---------------------------------------------------------------------
+localparam int unsigned C_LEN_WIDTH = 5;  // $clog2(GC_MAX_BURST)
+
+// Clock / reset
+logic aclk;
+logic aresetn;  // synchronous, active low
+
+// Control
+logic enable;    // per-instance enable
+logic aperture;  // measurement window
+logic stat_rst;  // clears statistic counters
+
+// Runtime configuration
+logic [C_LEN_WIDTH-1:0] cfg_req_len;
+logic                   cfg_len_mode;
+logic [C_LEN_WIDTH-1:0] cfg_max_len;
+logic [31:0]            cfg_pace;
+logic [31:0]            cfg_pace_init;
+logic [31:0]            cfg_base_addr;
+logic [31:0]            cfg_addr_range;
+logic                   cfg_addr_mode;
+
+// Client request channel (generator -> consumer)
+logic                   req_valid;
+logic                   req_ready;
+logic [31:0]            req_addr;
+logic [C_LEN_WIDTH-1:0] req_len;
+
+// Statistics
+logic [31:0] stat_req_stall;
+logic [31:0] stat_req_issued;
+logic [31:0] stat_cfg_errors;
+
+// ---------------------------------------------------------------------
+// Instantiation (grouped port map)
+// ---------------------------------------------------------------------
+axi_req_gen #(
+    .GC_DATA_BYTES (64),  // beat width (bytes)
+    .GC_ADDR_WIDTH (32),  // address width (bits)
+    .GC_MAX_BURST  (32)   // max beats per burst
+) u_req_gen (
+    .aclk           (aclk),
+    .aresetn        (aresetn),
+    .enable         (enable),
+    .aperture       (aperture),
+    .stat_rst       (stat_rst),
+    .cfg_req_len    (cfg_req_len),
+    .cfg_len_mode   (cfg_len_mode),
+    .cfg_max_len    (cfg_max_len),
+    .cfg_pace       (cfg_pace),
+    .cfg_pace_init  (cfg_pace_init),
+    .cfg_base_addr  (cfg_base_addr),
+    .cfg_addr_range (cfg_addr_range),
+    .cfg_addr_mode  (cfg_addr_mode),
+    .req_valid      (req_valid),
+    .req_ready      (req_ready),
+    .req_addr       (req_addr),
+    .req_len        (req_len),
+    .stat_req_stall (stat_req_stall),
+    .stat_req_issued(stat_req_issued),
+    .stat_cfg_errors(stat_cfg_errors)
+);
 ```
 
 ## Testbenches

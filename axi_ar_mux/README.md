@@ -185,6 +185,30 @@ ports, more than the 170 pins available on `xc7a35tftg256-1`; the logic is
 identical, so the internal timing is representative. See
 `fpga-rules/vivado_synthesis_guide.md` (Timing Closure & WNS Measurement).
 
+### Possible timing improvement: delayed credit returns (measured, not adopted)
+
+The exact-credit reservation is the critical path (`credit_cnt` register
+-> beat subtract -> same-edge eligibility/`req_ready` -> buffer capture).
+The `r_pop` credit-return add sits on that chain because returns are
+applied before the eligibility computation. A candidate optimization
+applies returns **only to the register update** (visible one edge later)
+so the saturating add leaves the ready/eligibility path:
+
+- Measured (Vivado 2023.2, `xc7a200tfbg676-1`, default 4-client config,
+  same place & route flow): synthesis-only WNS at 143 MHz improves
+  **-1.337 ns -> -0.561 ns**; post-route WNS improves **-0.195 ns
+  -> +0.054 ns** (the design goes from a small violation to meeting
+  timing).
+- Trade-off: a credit return becomes visible to `req_ready` / arbitration
+  **one cycle later**. This is conservative - the stored credit stays
+  exact and a client can never over-issue. A request presented in the
+  same cycle as a pop waits one cycle (one bubble, only at the exact
+  credit boundary); steady-state line rate is unaffected.
+- **Not adopted**: the one-cycle return latency changes the documented
+  `r_pop` behavior (a same-edge pop no longer enables an immediate
+  capture). The RTL keeps the eager same-edge return; the note in
+  `rtl/axi_ar_mux.vhd` marks where this change would go.
+
 ## Reset
 
 Synchronous active-low reset (`aresetn`) clears the active and pending
@@ -338,7 +362,6 @@ with the 4-client, 32-bit-address, 4-bit-ID, depth-32 defaults, for use as
 a standalone synthesis top. The SV wrapper binds the VHDL array ports as
 packed arrays (client index in the outer dimension) and explicitly reverses
 the packed outer dimension so SV client index 0 maps to VHDL client index 0.
-The mixed-language `sv` testbench configuration checks this mapping.
 
 ## Running the Testbench
 
@@ -346,7 +369,6 @@ The mixed-language `sv` testbench configuration checks this mapping.
 run axi_ar_mux vhdl modelsim   # ModelSim batch (default target)
 run axi_ar_mux vhdl vivado     # Vivado synthesis + 143 MHz timing check
 run axi_ar_mux vhdl xsim       # XSim simulation
-run axi_ar_mux vhdl modelsim --tb sv  # Mixed-language SV wrapper smoke test
 ```
 
 The Vivado flow synthesizes `rtl/axi_ar_mux_top.vhd` and applies

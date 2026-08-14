@@ -13,7 +13,7 @@
 --                 :  - Two-process record-based state architecture with
 --                 :    fully synchronous active-low reset (aresetn).
 --Author           : Rune Baeverrud
---Current Revision : 1.00
+--Current Revision : 1.01
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 
@@ -64,6 +64,10 @@ architecture arch of axi_ar_mux is
 
   type credit_array_t is array (0 to GC_NUM_CLIENTS-1) of unsigned(C_CREDIT_W-1 downto 0);
 
+  -- Beat counts are clamped to GC_FIFO_DEPTH + 1 everywhere, so one
+  -- subtype covers all uses.
+  subtype beats_t is integer range 0 to GC_FIFO_DEPTH + 1;
+
   function f_beats(req_len : std_logic_vector(7 downto 0)) return integer is
   begin
     return to_integer(unsigned(req_len)) + 1;
@@ -97,13 +101,47 @@ architecture arch of axi_ar_mux is
     return to_integer(credit_after) > to_integer(unsigned(req_len(C_CREDIT_W-1 downto 0)));
   end function;
 
+  -- Credit return with saturation at the FIFO depth.
+  function f_sat_return(c : unsigned(C_CREDIT_W-1 downto 0))
+                        return unsigned is
+    variable v : integer;
+  begin
+    v := to_integer(c) + GC_R_BEATS_PER_POP;
+    if v > GC_FIFO_DEPTH then
+      v := GC_FIFO_DEPTH;
+    end if;
+    return to_unsigned(v, C_CREDIT_W);
+  end function;
+
+  -- One AR transaction slot (active or pending). The id is generated from
+  -- the granting client index; no beat field is stored here (payload only -
+  -- beat accounting lives in the client buffer and the credit counters).
+  type slot_t is record
+    valid : std_logic;
+    id    : std_logic_vector(GC_ID_WIDTH-1 downto 0);
+    addr  : std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
+    len   : std_logic_vector(7 downto 0);
+    size  : std_logic_vector(2 downto 0);
+    burst : std_logic_vector(1 downto 0);
+  end record;
+
+  constant C_SLOT_DEFAULT : slot_t := (
+    valid => '0',
+    id    => (others => '0'),
+    addr  => (others => '0'),
+    len   => (others => '0'),
+    size  => (others => '0'),
+    burst => (others => '0')
+  );
+
+  -- Per-client input buffer: a presented request waiting for its grant.
   type client_buf_t is record
     valid : std_logic;
     addr  : std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
     len   : std_logic_vector(7 downto 0);
     size  : std_logic_vector(2 downto 0);
     burst : std_logic_vector(1 downto 0);
-    beats : integer range 0 to GC_FIFO_DEPTH + 1;
+    beats : beats_t;
   end record;
 
   type client_buf_array_t is array (0 to GC_NUM_CLIENTS-1) of client_buf_t;
@@ -121,21 +159,8 @@ architecture arch of axi_ar_mux is
   -- buffer per client decouple client ready from ar_ready and allow a
   -- registered exact grant without losing same-client line rate.
   type rec_t is record
-    active_valid : std_logic;
-    active_id    : std_logic_vector(GC_ID_WIDTH-1 downto 0);
-    active_addr  : std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
-    active_len   : std_logic_vector(7 downto 0);
-    active_size  : std_logic_vector(2 downto 0);
-    active_burst : std_logic_vector(1 downto 0);
-    active_beats : integer range 0 to 256;
-
-    pending_valid : std_logic;
-    pending_id    : std_logic_vector(GC_ID_WIDTH-1 downto 0);
-    pending_addr  : std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
-    pending_len   : std_logic_vector(7 downto 0);
-    pending_size  : std_logic_vector(2 downto 0);
-    pending_burst : std_logic_vector(1 downto 0);
-    pending_beats : integer range 0 to 256;
+    active  : slot_t;   -- presented on AR (held until handshake)
+    pending : slot_t;   -- accepted while active is stalled
 
     client_buf : client_buf_array_t;
     rr_pointer : integer range 0 to GC_NUM_CLIENTS-1;
@@ -146,26 +171,44 @@ architecture arch of axi_ar_mux is
   end record;
 
   constant C_REC_DEFAULT : rec_t := (
-    active_valid  => '0',
-    active_id     => (others => '0'),
-    active_addr   => (others => '0'),
-    active_len    => (others => '0'),
-    active_size   => (others => '0'),
-    active_burst  => (others => '0'),
-    active_beats  => 0,
-    pending_valid => '0',
-    pending_id    => (others => '0'),
-    pending_addr  => (others => '0'),
-    pending_len   => (others => '0'),
-    pending_size  => (others => '0'),
-    pending_burst => (others => '0'),
-    pending_beats => 0,
-    client_buf    => (others => C_BUF_DEFAULT),
-    rr_pointer    => GC_NUM_CLIENTS - 1,
-    credit_cnt    => (others => to_unsigned(GC_FIFO_DEPTH, C_CREDIT_W)),
-    grant_valid   => '0',
-    grant_idx     => 0
+    active     => C_SLOT_DEFAULT,
+    pending    => C_SLOT_DEFAULT,
+    client_buf => (others => C_BUF_DEFAULT),
+    rr_pointer => GC_NUM_CLIENTS - 1,
+    credit_cnt => (others => to_unsigned(GC_FIFO_DEPTH, C_CREDIT_W)),
+    grant_valid => '0',
+    grant_idx   => 0
   );
+
+  -- Parallel rotating priority encoder: first eligible client strictly
+  -- after scan_ptr (wrapping). The eligible vector is rotated into a fixed
+  -- window and resolved with a prefix-OR guarded mux tree, so the scan
+  -- stays flat instead of a serial chain.
+  function f_rr_grant_idx(eligible : std_logic_vector;
+                          scan_ptr : integer range 0 to GC_NUM_CLIENTS-1)
+                          return integer is
+    variable w      : std_logic_vector(0 to GC_NUM_CLIENTS-1);
+    variable prefix : std_logic_vector(0 to GC_NUM_CLIENTS-1);
+    variable idx    : integer range 0 to GC_NUM_CLIENTS-1;
+    variable cidx   : integer range 0 to GC_NUM_CLIENTS-1;
+  begin
+    for k in 0 to GC_NUM_CLIENTS-1 loop
+      cidx := (scan_ptr + 1 + k) mod GC_NUM_CLIENTS;
+      w(k) := eligible(cidx);
+    end loop;
+    prefix(0) := w(0);
+    for k in 1 to GC_NUM_CLIENTS-1 loop
+      prefix(k) := prefix(k-1) or w(k);
+    end loop;
+    idx := (scan_ptr + 1) mod GC_NUM_CLIENTS;
+    for k in 1 to GC_NUM_CLIENTS-1 loop
+      cidx := (scan_ptr + 1 + k) mod GC_NUM_CLIENTS;
+      if (w(k) = '1') and (prefix(k-1) = '0') then
+        idx := cidx;
+      end if;
+    end loop;
+    return idx;
+  end function;
 
   signal r : rec_t := C_REC_DEFAULT;
   signal r_in : rec_t;
@@ -186,40 +229,116 @@ begin
     variable credit_after     : credit_array_t;
     variable credit_resv      : credit_array_t;
     variable eligible         : std_logic_vector(0 to GC_NUM_CLIENTS-1);
-    variable w                : std_logic_vector(0 to GC_NUM_CLIENTS-1);
-    variable prefix           : std_logic_vector(0 to GC_NUM_CLIENTS-1);
     variable input_ready      : std_logic_vector(0 to GC_NUM_CLIENTS-1);
     variable input_hs         : std_logic_vector(0 to GC_NUM_CLIENTS-1);
     variable grant_next_valid : boolean;
     variable grant_next_idx   : integer range 0 to GC_NUM_CLIENTS-1;
-    variable cidx             : integer range 0 to GC_NUM_CLIENTS-1;
     variable scan_ptr         : integer range 0 to GC_NUM_CLIENTS-1;
-    variable credit_next      : integer;
     variable handshake        : boolean;
     variable grant_take       : boolean;
+    variable place_active     : boolean;
+
+    -- Retire the active AR slot and promote the pending slot into it. On a
+    -- handshake the active slot frees (pending moves in if filled); without
+    -- a handshake a filled pending slot moves into an empty active slot.
+    procedure p_retire(variable s : inout rec_t;
+                       constant hs : boolean) is
+    begin
+      if hs then
+        if s.pending.valid = '1' then
+          s.active        := s.pending;
+          s.pending.valid := '0';
+        else
+          s.active.valid := '0';
+        end if;
+      elsif (s.active.valid = '0') and (s.pending.valid = '1') then
+        s.active        := s.pending;
+        s.pending.valid := '0';
+      end if;
+    end procedure;
+
+    -- Move a consumed grant into the active slot when it is free this
+    -- edge, otherwise into the pending slot.
+    procedure p_place(variable s : inout rec_t;
+                      constant idx : integer range 0 to GC_NUM_CLIENTS-1;
+                      constant to_active : boolean) is
+    begin
+      if to_active then
+        s.active.valid := '1';
+        s.active.id    := std_logic_vector(to_unsigned(idx, GC_ID_WIDTH));
+        s.active.addr  := s.client_buf(idx).addr;
+        s.active.len   := s.client_buf(idx).len;
+        s.active.size  := s.client_buf(idx).size;
+        s.active.burst := s.client_buf(idx).burst;
+      else
+        s.pending.valid := '1';
+        s.pending.id    := std_logic_vector(to_unsigned(idx, GC_ID_WIDTH));
+        s.pending.addr  := s.client_buf(idx).addr;
+        s.pending.len   := s.client_buf(idx).len;
+        s.pending.size  := s.client_buf(idx).size;
+        s.pending.burst := s.client_buf(idx).burst;
+      end if;
+    end procedure;
+
+    -- Exact eligibility for the next grant. The just-consumed client is
+    -- eligible via its live refill; the others via their buffered request
+    -- and the post-edge credits.
+    function f_eligible(buf : client_buf_array_t;
+                        credit_after : credit_array_t;
+                        req_valid : std_logic_vector;
+                        req_len : slv8_array_t;
+                        grant_take : boolean;
+                        grant_idx : integer range 0 to GC_NUM_CLIENTS-1)
+                        return std_logic_vector is
+      variable e : std_logic_vector(0 to GC_NUM_CLIENTS-1);
+    begin
+      e := (others => '0');
+      for i in 0 to GC_NUM_CLIENTS-1 loop
+        if grant_take and (grant_idx = i) then
+          if (req_valid(i) = '1') and
+             f_fits_live(credit_after(i), req_len(i)) then
+            e(i) := '1';
+          end if;
+        elsif (buf(i).valid = '1') and
+              (to_integer(credit_after(i)) >= buf(i).beats) then
+          e(i) := '1';
+        end if;
+      end loop;
+      return e;
+    end function;
+
   begin
     v := r;
 
-    ar_valid  <= r.active_valid;
-    ar_id     <= r.active_id;
-    ar_addr   <= r.active_addr;
-    ar_len    <= r.active_len;
-    ar_size   <= r.active_size;
-    ar_burst  <= r.active_burst;
+    ar_valid  <= r.active.valid;
+    ar_id     <= r.active.id;
+    ar_addr   <= r.active.addr;
+    ar_len    <= r.active.len;
+    ar_size   <= r.active.size;
+    ar_burst  <= r.active.burst;
 
     -- A grant is consumed whenever the pending AR slot is free. It then
     -- targets active AR if that slot is free at the edge, otherwise pending.
     -- The decision itself does not depend on ar_ready.
-    handshake := (r.active_valid = '1') and (ar_ready = '1');
-    grant_take := (r.grant_valid = '1') and (r.pending_valid = '0');
+    handshake := (r.active.valid = '1') and (ar_ready = '1');
+    grant_take := (r.grant_valid = '1') and (r.pending.valid = '0');
+    place_active := (r.active.valid = '0') or handshake;
 
     -- Reserve the current grant and apply credit returns before evaluating a
     -- possible same-edge buffer refill. This keeps the client handshake
     -- from accepting a request that would exceed the post-edge budget.
     -- The per-client reservation subtracts stay parallel; grant_idx only
-    -- selects the matching result.  They must live in this process: a
+    -- selects the matching result. They must live in this process: a
     -- separate combinational process for the subtract races p_logic in the
     -- same delta (a simulator may read the stale result and lose the debit).
+    --
+    -- NOTE (possible optimization, not applied): applying the returns here
+    -- keeps them on the critical reservation->ready path. Moving this loop
+    -- after the eligibility computation (register-update only) removes the
+    -- saturating add from that path and improves post-route WNS by +0.249 ns
+    -- at 143 MHz, at the cost of returns becoming visible to req_ready one
+    -- cycle later (conservative; line rate unaffected). See README
+    -- "Possible timing improvement: delayed credit returns".
     for i in 0 to GC_NUM_CLIENTS-1 loop
       credit_resv(i) := r.credit_cnt(i) - r.client_buf(i).beats;
     end loop;
@@ -229,12 +348,7 @@ begin
     end if;
     for i in 0 to GC_NUM_CLIENTS-1 loop
       if r_pop(i) = '1' then
-        credit_next := to_integer(credit_after(i)) + GC_R_BEATS_PER_POP;
-        if credit_next > GC_FIFO_DEPTH then
-          credit_after(i) := to_unsigned(GC_FIFO_DEPTH, C_CREDIT_W);
-        else
-          credit_after(i) := to_unsigned(credit_next, C_CREDIT_W);
-        end if;
+        credit_after(i) := f_sat_return(credit_after(i));
       end if;
     end loop;
 
@@ -294,90 +408,21 @@ begin
     if grant_take then
       scan_ptr := r.grant_idx;
     end if;
+    eligible := f_eligible(r.client_buf, credit_after, req_valid, req_len,
+                           grant_take, r.grant_idx);
     grant_next_valid := false;
-    grant_next_idx := 0;
     for i in 0 to GC_NUM_CLIENTS-1 loop
-      eligible(i) := '0';
-      if (grant_take and (r.grant_idx = i)) then
-        -- Live refill of the just-consumed client.
-        if (req_valid(i) = '1') and f_fits_live(credit_after(i), req_len(i)) then
-          eligible(i) := '1';
-        end if;
-      elsif (r.client_buf(i).valid = '1') and
-            (to_integer(credit_after(i)) >= r.client_buf(i).beats) then
-        eligible(i) := '1';
-      end if;
+      grant_next_valid := grant_next_valid or (eligible(i) = '1');
     end loop;
-    -- Parallel rotating priority encoder: first eligible client strictly
-    -- after scan_ptr (wrapping). The eligible vector is rotated into a fixed
-    -- window w, validity is an OR-reduce, and the index is a prefix-OR
-    -- guarded mux tree - so the scan stays flat instead of a serial chain.
-    for k in 0 to GC_NUM_CLIENTS-1 loop
-      cidx := (scan_ptr + 1 + k) mod GC_NUM_CLIENTS;
-      w(k) := eligible(cidx);
-    end loop;
-    grant_next_valid := false;
-    grant_next_idx := 0;
-    for k in 0 to GC_NUM_CLIENTS-1 loop
-      grant_next_valid := grant_next_valid or (w(k) = '1');
-    end loop;
-    prefix(0) := w(0);
-    for k in 1 to GC_NUM_CLIENTS-1 loop
-      prefix(k) := prefix(k-1) or w(k);
-    end loop;
-    grant_next_idx := (scan_ptr + 1) mod GC_NUM_CLIENTS;
-    for k in 1 to GC_NUM_CLIENTS-1 loop
-      cidx := (scan_ptr + 1 + k) mod GC_NUM_CLIENTS;
-      if (w(k) = '1') and (prefix(k-1) = '0') then
-        grant_next_idx := cidx;
-      end if;
-    end loop;
+    grant_next_idx := f_rr_grant_idx(eligible, scan_ptr);
 
-    -- Retire/promote active AR first.
-    if handshake then
-      if r.pending_valid = '1' then
-        v.active_valid := '1';
-        v.active_id := r.pending_id;
-        v.active_addr := r.pending_addr;
-        v.active_len := r.pending_len;
-        v.active_size := r.pending_size;
-        v.active_burst := r.pending_burst;
-        v.active_beats := r.pending_beats;
-        v.pending_valid := '0';
-      else
-        v.active_valid := '0';
-      end if;
-    elsif (r.active_valid = '0') and (r.pending_valid = '1') then
-      v.active_valid := '1';
-      v.active_id := r.pending_id;
-      v.active_addr := r.pending_addr;
-      v.active_len := r.pending_len;
-      v.active_size := r.pending_size;
-      v.active_burst := r.pending_burst;
-      v.active_beats := r.pending_beats;
-      v.pending_valid := '0';
-    end if;
-
-    -- Move the registered grant into active or pending AR.
+    -- Retire/promote the active AR first, then move the registered grant
+    -- into active or pending AR. p_place reads the client buffer of the
+    -- consumed grant; the buffer itself is updated below.
+    p_retire(v, handshake);
     if grant_take then
       v.rr_pointer := r.grant_idx;
-      if (r.active_valid = '0') or handshake then
-        v.active_valid := '1';
-        v.active_id := std_logic_vector(to_unsigned(r.grant_idx, GC_ID_WIDTH));
-        v.active_addr := r.client_buf(r.grant_idx).addr;
-        v.active_len := r.client_buf(r.grant_idx).len;
-        v.active_size := r.client_buf(r.grant_idx).size;
-        v.active_burst := r.client_buf(r.grant_idx).burst;
-        v.active_beats := r.client_buf(r.grant_idx).beats;
-      else
-        v.pending_valid := '1';
-        v.pending_id := std_logic_vector(to_unsigned(r.grant_idx, GC_ID_WIDTH));
-        v.pending_addr := r.client_buf(r.grant_idx).addr;
-        v.pending_len := r.client_buf(r.grant_idx).len;
-        v.pending_size := r.client_buf(r.grant_idx).size;
-        v.pending_burst := r.client_buf(r.grant_idx).burst;
-        v.pending_beats := r.client_buf(r.grant_idx).beats;
-      end if;
+      p_place(v, r.grant_idx, place_active);
     end if;
 
     v.client_buf := buf_next;
