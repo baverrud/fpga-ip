@@ -85,11 +85,14 @@ from __future__ import annotations
 import argparse
 import configparser
 import os
+import queue
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -1345,6 +1348,138 @@ def _subprocess_redirect() -> tuple[int | None, int | None]:
     return None, None
 
 
+# The tool subprocess currently running (for Ctrl-C abort); None when idle.
+_ACTIVE_PROC: subprocess.Popen | None = None
+
+
+# Ctrl-C poll granularity. A plain proc.wait() blocks the main thread in a
+# Win32 wait that is not interruptible, so polling in short increments lets
+# KeyboardInterrupt fire promptly instead of being swallowed by the tool.
+_INTERRUPT_POLL_S = 0.2
+
+
+def _kill_tool(proc: subprocess.Popen) -> None:
+    """Force-terminate an EDA tool subprocess and its whole child tree.
+
+    On Windows the child is created in its own process group
+    (CREATE_NEW_PROCESS_GROUP), so a CTRL_BREAK_EVENT reaches cmd.exe, the
+    .bat wrapper, and the tool itself (it cannot be ignored, unlike a plain
+    CTRL_C_EVENT).  CTRL_BREAK only lands when the process group shares a
+    real interactive console, so if the tree is still alive after a short
+    grace period it is force-killed with `taskkill /F /T` (whole tree),
+    falling back to a direct kill of the child. Non-Windows kills the child.
+    """
+    if proc.poll() is not None:
+        return
+    if os.name == "nt":
+        try:
+            os.kill(proc.pid, signal.CTRL_BREAK_EVENT)
+        except (OSError, ValueError):
+            pass
+        try:
+            proc.wait(timeout=2)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+        # CTRL_BREAK did not land (e.g. non-interactive console); kill the
+        # entire tree with taskkill so the tool itself cannot be orphaned.
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                       stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL)
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
+def _wait_tool(proc: subprocess.Popen) -> int:
+    """Wait for a tool subprocess with Ctrl-C kept responsive.
+
+    A plain proc.wait() blocks the main thread in a Win32 wait that is not
+    interruptible by Ctrl-C (the signal is only delivered once the child
+    exits). Polling in short increments lets KeyboardInterrupt fire promptly
+    instead; on interrupt the whole child tree is force-killed before the
+    exception is re-raised so the run/sweep aborts.
+    """
+    global _ACTIVE_PROC
+    _ACTIVE_PROC = proc
+    try:
+        while True:
+            try:
+                return proc.wait(timeout=_INTERRUPT_POLL_S)
+            except subprocess.TimeoutExpired:
+                continue
+    except KeyboardInterrupt:
+        _kill_tool(proc)
+        raise
+    finally:
+        _ACTIVE_PROC = None
+
+
+def _tee_tool(proc: subprocess.Popen, log_file) -> int:
+    """Copy a tool's combined stdout+stderr to log_file and the console.
+
+    The pipe is drained on a daemon thread so the main thread can poll the
+    process with short timeouts, keeping Ctrl-C responsive during verbose
+    (non-sweep) runs that capture output.
+    """
+    assert proc.stdout is not None
+    chunks: queue.Queue = queue.Queue()
+
+    def _reader() -> None:
+        try:
+            for chunk in iter(lambda: proc.stdout.read(65536), b""):
+                chunks.put(chunk)
+        finally:
+            chunks.put(None)
+
+    threading.Thread(target=_reader, daemon=True).start()
+    global _ACTIVE_PROC
+    _ACTIVE_PROC = proc
+    try:
+        eof = False
+        rc: int | None = None
+        while not eof:
+            try:
+                rc = proc.wait(timeout=_INTERRUPT_POLL_S)
+            except subprocess.TimeoutExpired:
+                rc = None
+            while True:
+                try:
+                    chunk = chunks.get_nowait()
+                except queue.Empty:
+                    break
+                if chunk is None:
+                    eof = True
+                    break
+                log_file.write(chunk)
+                sys.stdout.buffer.write(chunk)
+                sys.stdout.buffer.flush()
+        if rc is None:
+            rc = proc.wait()
+        # Drain anything still queued ahead of the sentinel.
+        while True:
+            try:
+                chunk = chunks.get_nowait()
+            except queue.Empty:
+                break
+            if chunk is None:
+                break
+            log_file.write(chunk)
+            sys.stdout.buffer.write(chunk)
+            sys.stdout.buffer.flush()
+        return rc
+    except KeyboardInterrupt:
+        _kill_tool(proc)
+        raise
+    finally:
+        _ACTIVE_PROC = None
+
+
 def _run_cmd(cmd: str, cwd: Path | None = None, env: dict | None = None,
              log_path: Path | None = None) -> int:
     """Run one EDA command through a CMD shell and return its exit code.
@@ -1364,30 +1499,30 @@ def _run_cmd(cmd: str, cwd: Path | None = None, env: dict | None = None,
     if not _QUIET:
         cwd_note = f" (cwd: {cwd})" if cwd is not None else ""
         print(f"cmd : cmd.exe /c \"{cmd}\"{cwd_note}")
+    # Windows: isolate the child in its own process group so a Ctrl-C abort
+    # can terminate the whole tree (cmd.exe + .bat wrapper + tool) instead
+    # of the tool swallowing the keystroke.
+    creationflags = 0
+    if os.name == "nt":
+        creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+
+    def _launch(stdout, stderr) -> subprocess.Popen:
+        return subprocess.Popen(["cmd.exe", "/c", cmd], cwd=cwd, env=env,
+                                stdout=stdout, stderr=stderr,
+                                creationflags=creationflags)
+
     if log_path is not None:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         if _QUIET:
             with log_path.open("wb") as lf:
-                return subprocess.run(
-                    ["cmd.exe", "/c", cmd], cwd=cwd, env=env,
-                    stdout=lf, stderr=subprocess.STDOUT).returncode
+                return _wait_tool(_launch(lf, subprocess.STDOUT))
         # Not quiet: tee the child output to the log file and the console
         # so the user still sees the tool output live while a capture exists
         # for failure detection and archiving.
         with log_path.open("wb") as lf:
-            proc = subprocess.Popen(
-                ["cmd.exe", "/c", cmd], cwd=cwd, env=env,
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            assert proc.stdout is not None
-            for chunk in iter(lambda: proc.stdout.read(65536), b""):
-                lf.write(chunk)
-                sys.stdout.buffer.write(chunk)
-                sys.stdout.buffer.flush()
-            proc.stdout.close()
-            return proc.wait()
+            return _tee_tool(_launch(subprocess.PIPE, subprocess.STDOUT), lf)
     out, err = _subprocess_redirect()
-    return subprocess.run(["cmd.exe", "/c", cmd], cwd=cwd, env=env,
-                          stdout=out, stderr=err).returncode
+    return _wait_tool(_launch(out, err))
 
 
 _LAST_FAILURE_ARTIFACT: Path | None = None
@@ -2517,4 +2652,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        print("\nAborted by user (Ctrl-C).", file=sys.stderr)
+        sys.exit(130)

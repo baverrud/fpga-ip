@@ -40,7 +40,7 @@ architecture sim of axi_req_gen_simple_tb is
   constant C_MON_STAT_WIDTH : positive := 48;
   constant C_MON_SB_DEPTH   : positive := 64;
 
-  signal client_aclk : std_logic := '0';
+  signal aclk : std_logic := '0';
   signal mem_aclk    : std_logic := '0';
   signal aresetn     : std_logic := '0';
   signal sim_done    : boolean := false;
@@ -135,7 +135,7 @@ architecture sim of axi_req_gen_simple_tb is
   procedure wait_cycles(n : natural) is
   begin
     for i in 1 to n loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
     end loop;
   end procedure;
 
@@ -143,12 +143,12 @@ begin
 
   p_client_clk : process
   begin
-    client_aclk <= '0';
+    aclk <= '0';
     while not sim_done loop
       wait for C_CLIENT_PERIOD / 2;
-      client_aclk <= not client_aclk;
+      aclk <= not aclk;
     end loop;
-    client_aclk <= '0';
+    aclk <= '0';
     wait;
   end process;
 
@@ -163,9 +163,9 @@ begin
     wait;
   end process;
 
-  p_time : process(client_aclk)
+  p_time : process(aclk)
   begin
-    if rising_edge(client_aclk) then
+    if rising_edge(aclk) then
       if aresetn = '0' then
         global_time <= (others => '0');
       else
@@ -197,7 +197,7 @@ begin
       GC_MAX_BURST  => C_GEN_MAX_BURST
     )
     port map (
-      aclk            => client_aclk,
+      aclk            => aclk,
       aresetn         => aresetn,
       enable          => gen_enable,
       aperture        => gen_aperture,
@@ -231,7 +231,7 @@ begin
       GC_CDC_DEPTH          => C_CDC_DEPTH
     )
     port map (
-      client_aclk => client_aclk,
+      aclk => aclk,
       mem_aclk    => mem_aclk,
       aresetn     => aresetn,
       req_addr    => req_addr,
@@ -300,7 +300,7 @@ begin
       GC_SB_FIFO_DEPTH => C_MON_SB_DEPTH
     )
     port map (
-      aclk                     => client_aclk,
+      aclk                     => aclk,
       aresetn                  => aresetn,
       global_time              => global_time,
       enable                   => mon_enable,
@@ -345,10 +345,10 @@ begin
 
   -- Check every accepted request: start aligned to C_CLIENT_BYTES and
   -- the full burst inside [base, base+range].
-  p_addr_check : process(client_aclk)
+  p_addr_check : process(aclk)
     variable burst_bytes : natural;
   begin
-    if rising_edge(client_aclk) and aresetn = '1' and
+    if rising_edge(aclk) and aresetn = '1' and
        req_valid(0) = '1' and req_ready(0) = '1' then
       assert unsigned(req_addr(0)(log2ceil(C_CLIENT_BYTES)-1 downto 0)) = 0
         report "req addr not aligned to client bytes" severity failure;

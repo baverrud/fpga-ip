@@ -46,7 +46,7 @@ architecture sim of axi_monitor_tb is
   constant C_MON_STAT_WIDTH   : positive := 48;
   constant C_MON_SB_DEPTH     : positive := 16;
 
-  signal client_aclk : std_logic := '0';
+  signal aclk : std_logic := '0';
   signal mem_aclk    : std_logic := '0';
   signal aresetn     : std_logic := '0';
   signal sim_done    : boolean := false;
@@ -156,12 +156,12 @@ begin
 
   p_client_clk : process
   begin
-    client_aclk <= '0';
+    aclk <= '0';
     while not sim_done loop
       wait for C_CLIENT_PERIOD / 2;
-      client_aclk <= not client_aclk;
+      aclk <= not aclk;
     end loop;
-    client_aclk <= '0';
+    aclk <= '0';
     wait;
   end process;
 
@@ -176,9 +176,9 @@ begin
     wait;
   end process;
 
-  p_time : process(client_aclk)
+  p_time : process(aclk)
   begin
-    if rising_edge(client_aclk) then
+    if rising_edge(aclk) then
       if aresetn = '0' then
         global_time <= (others => '0');
       else
@@ -199,9 +199,9 @@ begin
 
   -- Reference counter for stat_elapsed_cycles: increments while the
   -- client-0 monitor is enabled, cleared by stat_rst (same as the RTL).
-  p_elapsed_ref : process(client_aclk)
+  p_elapsed_ref : process(aclk)
   begin
-    if rising_edge(client_aclk) then
+    if rising_edge(aclk) then
       if aresetn = '0' or mon_stat_rst = '1' then
         mon_elapsed_ref <= (others => '0');
       elsif mon_enable = '1' then
@@ -211,9 +211,9 @@ begin
   end process;
 
   -- Latch: set the first cycle the client-0 monitor pipeline is busy.
-  p_busy_track : process(client_aclk)
+  p_busy_track : process(aclk)
   begin
-    if rising_edge(client_aclk) then
+    if rising_edge(aclk) then
       if aresetn = '0' or mon_stat_rst = '1' then
         busy_high_seen <= '0';
       elsif mon_pipeline = '1' then
@@ -234,7 +234,7 @@ begin
       GC_CDC_DEPTH          => C_CDC_DEPTH
     )
     port map (
-      client_aclk => client_aclk,
+      aclk => aclk,
       mem_aclk    => mem_aclk,
       aresetn     => aresetn,
       req_addr    => req_addr,
@@ -303,7 +303,7 @@ begin
       GC_SB_FIFO_DEPTH => C_MON_SB_DEPTH
     )
     port map (
-      aclk                    => client_aclk,
+      aclk                    => aclk,
       aresetn                 => aresetn,
       global_time             => global_time,
       enable                  => mon_enable,
@@ -356,7 +356,7 @@ begin
       GC_SB_FIFO_DEPTH => C_MON_SB_DEPTH
     )
     port map (
-      aclk                    => client_aclk,
+      aclk                    => aclk,
       aresetn                 => aresetn,
       global_time             => global_time,
       enable                  => err_enable,
@@ -412,7 +412,7 @@ begin
       GC_SB_FIFO_DEPTH => 4
     )
     port map (
-      aclk                    => client_aclk,
+      aclk                    => aclk,
       aresetn                 => aresetn,
       global_time             => global_time,
       enable                  => mon_enable,
@@ -619,16 +619,16 @@ begin
     aresetn <= '1';
 
     -- Enable the client-0 monitor (data check on).
-    wait until rising_edge(client_aclk);
+    wait until rising_edge(aclk);
     mon_enable <= '1';
 
     -- ---------------------------------------------------------------
     -- Phase A: single-beat request on client 0.  One req, one rsp beat.
     -- ---------------------------------------------------------------
-    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+    req_w(aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
           x"00001000", std_logic_vector(to_unsigned(0, C_CLIENT_LEN_WIDTH)));
 
-    rsp_rd(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0), rsp_resp(0),
+    rsp_rd(aclk, rsp_ready(0), rsp_valid(0), rsp_data(0), rsp_resp(0),
            rsp_last(0), v_rsp_data, v_rsp_resp, v_rsp_last);
     assert v_rsp_resp = "00" and v_rsp_last = '1'
       report "A: client 0 response sideband wrong" severity failure;
@@ -636,7 +636,7 @@ begin
     -- Drain the scoreboard.
     wait_count := 0;
     loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
       wait for 1 ns;
       exit when mon_pipeline = '0';
       wait_count := wait_count + 1;
@@ -667,11 +667,11 @@ begin
     -- ---------------------------------------------------------------
     -- Phase B: three-beat request on client 0 (len=2).  Three rsp beats.
     -- ---------------------------------------------------------------
-    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+    req_w(aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
           x"00002000", std_logic_vector(to_unsigned(2, C_CLIENT_LEN_WIDTH)));
 
     for n in 0 to 2 loop
-      rsp_rd(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0), rsp_resp(0),
+      rsp_rd(aclk, rsp_ready(0), rsp_valid(0), rsp_data(0), rsp_resp(0),
              rsp_last(0), v_rsp_data, v_rsp_resp, v_rsp_last);
       assert v_rsp_resp = "00"
         report "B: client 0 response resp wrong" severity failure;
@@ -686,7 +686,7 @@ begin
 
     wait_count := 0;
     loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
       wait for 1 ns;
       exit when mon_pipeline = '0';
       wait_count := wait_count + 1;
@@ -709,14 +709,14 @@ begin
     -- Phase C: stat_rst / err_rst behavior on the client-0 monitor.
     -- Pulse both and verify counters clear; traffic continues cleanly.
     -- ---------------------------------------------------------------
-    wait until falling_edge(client_aclk);
+    wait until falling_edge(aclk);
     mon_stat_rst <= '1';
     mon_err_rst  <= '1';
-    wait until rising_edge(client_aclk);
+    wait until rising_edge(aclk);
     wait for 1 ns;
     mon_stat_rst <= '0';
     mon_err_rst  <= '0';
-    wait until rising_edge(client_aclk);
+    wait until rising_edge(aclk);
     wait for 1 ns;
     assert stat_req_seen = x"00000000"
       report "C: stat_rst did not clear req_seen" severity failure;
@@ -733,15 +733,15 @@ begin
     --   Beat 1: bad resp (SLVERR), last  -> stat_resp_errors, completes
     --   Beat 2: spurious rsp_last        -> stat_rlast_errors + underflow
     -- ---------------------------------------------------------------
-    wait until falling_edge(client_aclk);
+    wait until falling_edge(aclk);
     err_enable <= '1';
-    wait until rising_edge(client_aclk);
-    wait until falling_edge(client_aclk);
-    req_w(client_aclk, err_req_addr, err_req_len, err_req_valid, err_req_ready,
+    wait until rising_edge(aclk);
+    wait until falling_edge(aclk);
+    req_w(aclk, err_req_addr, err_req_len, err_req_valid, err_req_ready,
           x"00001000", x"01");          -- 2 beats
 
     -- Beat 0: wrong data, OKAY, not last.
-    rsp_w(client_aclk, err_rsp_valid, err_rsp_ready, err_rsp_data, err_rsp_resp,
+    rsp_w(aclk, err_rsp_valid, err_rsp_ready, err_rsp_data, err_rsp_resp,
           err_rsp_last, v_bad_data, "00", '0');
 
     -- Beat 1: correct data, SLVERR, last.
@@ -750,17 +750,17 @@ begin
       v_expected_data(32*v_word+31 downto 32*v_word) :=
         std_logic_vector(to_unsigned(16#1040# + v_word*4, 32));
     end loop;
-    rsp_w(client_aclk, err_rsp_valid, err_rsp_ready, err_rsp_data, err_rsp_resp,
+    rsp_w(aclk, err_rsp_valid, err_rsp_ready, err_rsp_data, err_rsp_resp,
           err_rsp_last, v_expected_data, "10", '1');   -- SLVERR -> resp error
 
     -- Spurious rsp_last with no scoreboard entry.
-    rsp_w(client_aclk, err_rsp_valid, err_rsp_ready, err_rsp_data, err_rsp_resp,
+    rsp_w(aclk, err_rsp_valid, err_rsp_ready, err_rsp_data, err_rsp_resp,
           err_rsp_last, v_bad_data, "00", '1');
 
     -- Drain and check.
     wait_count := 0;
     loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
       wait for 1 ns;
       exit when err_pipeline = '0';
       wait_count := wait_count + 1;
@@ -787,34 +787,34 @@ begin
     -- deasserting rsp_ready mid-stream; stat_rsp_stall must count the
     -- held cycles and the inter-beat gap must stretch.
     -- ---------------------------------------------------------------
-    p_stat_err_rst(client_aclk, mon_stat_rst, mon_err_rst);
+    p_stat_err_rst(aclk, mon_stat_rst, mon_err_rst);
 
-    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+    req_w(aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
           x"00004000", std_logic_vector(to_unsigned(4, C_CLIENT_LEN_WIDTH)));
 
     -- Wait for the first response beat to be presented, consume it, then
     -- stall the rest: beat 2 is presented but not accepted, so both the
     -- stall counter and the inter-beat gap are stretched.
     loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
       exit when rsp_valid(0) = '1';
     end loop;
-    rsp_rd(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0), rsp_resp(0),
+    rsp_rd(aclk, rsp_ready(0), rsp_valid(0), rsp_data(0), rsp_resp(0),
            rsp_last(0), v_rsp_data, v_rsp_resp, v_rsp_last);
     assert v_rsp_resp = "00" and v_rsp_last = '0'
       report "E: first response beat wrong" severity failure;
 
     rsp_ready(0) <= '0';
     for i in 1 to 30 loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
     end loop;
     rsp_ready(0) <= '1';
 
-    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+    p_rsp_burst(aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
                 rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
                 v_rsp_last, 4, "E");
 
-    p_drain(client_aclk, mon_pipeline, "phase E", wait_count);
+    p_drain(aclk, mon_pipeline, "phase E", wait_count);
 
     assert stat_req_seen = x"00000001"
       report "E: req_seen /= 1" severity failure;
@@ -842,15 +842,15 @@ begin
     -- ---------------------------------------------------------------
     err_stat_rst <= '1';
     err_err_rst  <= '1';
-    wait until rising_edge(client_aclk);
+    wait until rising_edge(aclk);
     wait for 1 ns;
     err_stat_rst <= '0';
     err_err_rst  <= '0';
-    wait until rising_edge(client_aclk);
+    wait until rising_edge(aclk);
     wait for 1 ns;
 
     err_enable <= '1';
-    wait until rising_edge(client_aclk);
+    wait until rising_edge(aclk);
 
     -- Present a request but hold req_ready low: 30 stall cycles.
     err_req_addr  <= x"00005000";
@@ -858,12 +858,12 @@ begin
     err_req_valid <= '1';
     err_req_ready <= '0';
     for i in 1 to 30 loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
     end loop;
 
     -- Complete the req handshake, then restore always-accept.
     err_req_ready <= '1';
-    wait until rising_edge(client_aclk);
+    wait until rising_edge(aclk);
     wait for 1 ns;
     err_req_valid <= '0';
     err_req_ready <= '1';
@@ -876,15 +876,15 @@ begin
           std_logic_vector(to_unsigned(16#5000# + b*64 + v_word*4, 32));
       end loop;
       if b = 1 then
-        rsp_w(client_aclk, err_rsp_valid, err_rsp_ready, err_rsp_data, err_rsp_resp,
+        rsp_w(aclk, err_rsp_valid, err_rsp_ready, err_rsp_data, err_rsp_resp,
               err_rsp_last, v_expected_data, "00", '1');
       else
-        rsp_w(client_aclk, err_rsp_valid, err_rsp_ready, err_rsp_data, err_rsp_resp,
+        rsp_w(aclk, err_rsp_valid, err_rsp_ready, err_rsp_data, err_rsp_resp,
               err_rsp_last, v_expected_data, "00", '0');
       end if;
     end loop;
 
-    wait until rising_edge(client_aclk);
+    wait until rising_edge(aclk);
     wait for 1 ns;
     assert to_integer(unsigned(err_stat_req_stall)) > 0
       report "F: req_stall not counted" severity failure;
@@ -903,16 +903,16 @@ begin
     -- (depth 4) is flooded with 16 one-beat requests while responses are
     -- held; its scoreboard fills and stat_sb_backpressure must count.
     -- ---------------------------------------------------------------
-    p_stat_err_rst(client_aclk, mon_stat_rst, mon_err_rst);
+    p_stat_err_rst(aclk, mon_stat_rst, mon_err_rst);
 
     rsp_ready(0) <= '0';   -- hold responses so no scoreboard pops
     for i in 0 to 15 loop
-      req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+      req_w(aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
             std_logic_vector(to_unsigned(16#6000# + 16#100#*i, 32)),
             std_logic_vector(to_unsigned(0, C_CLIENT_LEN_WIDTH)));
     end loop;
 
-    wait until rising_edge(client_aclk);
+    wait until rising_edge(aclk);
     wait for 1 ns;
     assert to_integer(unsigned(bp_stat_sb_backpressure)) > 0
       report "G: small monitor never saw scoreboard backpressure"
@@ -921,13 +921,13 @@ begin
     rsp_ready(0) <= '1';
     -- Sixteen one-beat transactions: every beat carries rsp_last.
     for n in 0 to 15 loop
-      rsp_rd(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0), rsp_resp(0),
+      rsp_rd(aclk, rsp_ready(0), rsp_valid(0), rsp_data(0), rsp_resp(0),
              rsp_last(0), v_rsp_data, v_rsp_resp, v_rsp_last);
       assert v_rsp_resp = "00" and v_rsp_last = '1'
         report "G: client 0 response sideband wrong" severity failure;
     end loop;
 
-    p_drain(client_aclk, mon_pipeline, "phase G", wait_count);
+    p_drain(aclk, mon_pipeline, "phase G", wait_count);
 
     assert stat_req_seen = x"00000010"
       report "G: req_seen /= 16" severity failure;
@@ -944,20 +944,20 @@ begin
     -- traffic flows but all stats stay inert; re-enabling resumes
     -- cleanly with exact accounting.
     -- ---------------------------------------------------------------
-    p_stat_err_rst(client_aclk, mon_stat_rst, mon_err_rst);
+    p_stat_err_rst(aclk, mon_stat_rst, mon_err_rst);
 
     mon_enable <= '0';
-    wait until rising_edge(client_aclk);
+    wait until rising_edge(aclk);
 
-    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+    req_w(aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
           x"00007000", std_logic_vector(to_unsigned(0, C_CLIENT_LEN_WIDTH)));
-    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+    p_rsp_burst(aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
                 rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
                 v_rsp_last, 1, "H0");
 
     -- Let the pipeline flush while disabled.
     for i in 1 to 50 loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
     end loop;
 
     assert stat_req_seen = x"00000000" and stat_xactions = x"00000000"
@@ -970,15 +970,15 @@ begin
 
     -- Re-enable and run a clean window.
     mon_enable <= '1';
-    p_stat_err_rst(client_aclk, mon_stat_rst, mon_err_rst);
+    p_stat_err_rst(aclk, mon_stat_rst, mon_err_rst);
 
-    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+    req_w(aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
           x"00007100", std_logic_vector(to_unsigned(1, C_CLIENT_LEN_WIDTH)));
-    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+    p_rsp_burst(aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
                 rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
                 v_rsp_last, 2, "H1");
 
-    p_drain(client_aclk, mon_pipeline, "phase H", wait_count);
+    p_drain(aclk, mon_pipeline, "phase H", wait_count);
 
     assert stat_req_seen = x"00000001"
       report "H: re-enabled req_seen /= 1" severity failure;
@@ -996,25 +996,25 @@ begin
     -- tracking must survive (the in-flight burst still completes with
     -- exact beats), and a clean window must be exact.
     -- ---------------------------------------------------------------
-    p_stat_err_rst(client_aclk, mon_stat_rst, mon_err_rst);
+    p_stat_err_rst(aclk, mon_stat_rst, mon_err_rst);
 
-    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+    req_w(aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
           x"00008000", std_logic_vector(to_unsigned(3, C_CLIENT_LEN_WIDTH)));
 
     -- Pulse stat_rst while the response is still in flight.
-    wait until rising_edge(client_aclk);
+    wait until rising_edge(aclk);
     mon_stat_rst <= '1';
-    wait until rising_edge(client_aclk);
+    wait until rising_edge(aclk);
     wait for 1 ns;
     mon_stat_rst <= '0';
-    wait until rising_edge(client_aclk);
+    wait until rising_edge(aclk);
     wait for 1 ns;
 
-    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+    p_rsp_burst(aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
                 rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
                 v_rsp_last, 4, "I");
 
-    p_drain(client_aclk, mon_pipeline, "phase I", wait_count);
+    p_drain(aclk, mon_pipeline, "phase I", wait_count);
 
     assert stat_xactions = x"00000001"
       report "I: mid-traffic stat_rst lost the in-flight burst" severity failure;
@@ -1027,13 +1027,13 @@ begin
       report "I: mid-traffic stat_rst caused errors" severity failure;
 
     -- Clean second window: exact accounting.
-    p_stat_err_rst(client_aclk, mon_stat_rst, mon_err_rst);
-    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+    p_stat_err_rst(aclk, mon_stat_rst, mon_err_rst);
+    req_w(aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
           x"00008100", std_logic_vector(to_unsigned(0, C_CLIENT_LEN_WIDTH)));
-    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+    p_rsp_burst(aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
                 rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
                 v_rsp_last, 1, "I clean");
-    p_drain(client_aclk, mon_pipeline, "phase I clean", wait_count);
+    p_drain(aclk, mon_pipeline, "phase I clean", wait_count);
     assert stat_req_seen = x"00000001"
       report "I: clean window req_seen /= 1" severity failure;
     assert stat_xactions = x"00000001"
@@ -1048,35 +1048,35 @@ begin
     -- ---------------------------------------------------------------
     err_stat_rst <= '1';
     err_err_rst  <= '1';
-    wait until rising_edge(client_aclk);
+    wait until rising_edge(aclk);
     wait for 1 ns;
     err_stat_rst <= '0';
     err_err_rst  <= '0';
-    wait until rising_edge(client_aclk);
+    wait until rising_edge(aclk);
     wait for 1 ns;
 
     err_enable <= '1';
-    wait until rising_edge(client_aclk);
+    wait until rising_edge(aclk);
 
-    req_w(client_aclk, err_req_addr, err_req_len, err_req_valid, err_req_ready,
+    req_w(aclk, err_req_addr, err_req_len, err_req_valid, err_req_ready,
           x"00001000", x"01");          -- 2 beats
 
     -- Beat 0: wrong data, OKAY, not last -> data error.
-    rsp_w(client_aclk, err_rsp_valid, err_rsp_ready, err_rsp_data, err_rsp_resp,
+    rsp_w(aclk, err_rsp_valid, err_rsp_ready, err_rsp_data, err_rsp_resp,
           err_rsp_last, v_bad_data, "00", '0');
-    wait until rising_edge(client_aclk);
+    wait until rising_edge(aclk);
     wait for 1 ns;
     assert err_stat_data_errors = x"00000001"
       report "J: data error not detected" severity failure;
 
     -- Beat 1: wrong data, last, with err_rst asserted on the same edge.
     err_err_rst <= '1';
-    rsp_w(client_aclk, err_rsp_valid, err_rsp_ready, err_rsp_data, err_rsp_resp,
+    rsp_w(aclk, err_rsp_valid, err_rsp_ready, err_rsp_data, err_rsp_resp,
           err_rsp_last, v_bad_data, "00", '1');
-    wait until rising_edge(client_aclk);
+    wait until rising_edge(aclk);
     wait for 1 ns;
     err_err_rst <= '0';
-    wait until rising_edge(client_aclk);
+    wait until rising_edge(aclk);
     wait for 1 ns;
 
     assert err_stat_data_errors = x"00000000"
@@ -1095,15 +1095,15 @@ begin
     -- Phase K1: Maximum burst length.  A 32-beat (len=31) request -- the
     -- largest the credit model allows -- completes cleanly end-to-end.
     -- ---------------------------------------------------------------
-    p_stat_err_rst(client_aclk, mon_stat_rst, mon_err_rst);
+    p_stat_err_rst(aclk, mon_stat_rst, mon_err_rst);
 
-    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+    req_w(aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
           x"00009000", std_logic_vector(to_unsigned(31, C_CLIENT_LEN_WIDTH)));
-    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+    p_rsp_burst(aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
                 rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
                 v_rsp_last, 32, "K1");
 
-    p_drain(client_aclk, mon_pipeline, "phase K1", wait_count);
+    p_drain(aclk, mon_pipeline, "phase K1", wait_count);
 
     assert stat_req_seen = x"00000001"
       report "K1: req_seen /= 1" severity failure;
@@ -1121,19 +1121,19 @@ begin
     -- Phase K2: Mixed burst lengths.  No stat_rst -- accumulates with K1
     -- so the burst-length min/max spread is captured.
     -- ---------------------------------------------------------------
-    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+    req_w(aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
           x"00009100", std_logic_vector(to_unsigned(0, C_CLIENT_LEN_WIDTH)));
-    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+    req_w(aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
           x"00009200", std_logic_vector(to_unsigned(3, C_CLIENT_LEN_WIDTH)));
 
-    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+    p_rsp_burst(aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
                 rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
                 v_rsp_last, 1, "K2a");
-    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+    p_rsp_burst(aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
                 rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
                 v_rsp_last, 4, "K2b");
 
-    p_drain(client_aclk, mon_pipeline, "phase K2", wait_count);
+    p_drain(aclk, mon_pipeline, "phase K2", wait_count);
 
     assert stat_req_seen = x"00000003"
       report "K2: req_seen /= 3" severity failure;
@@ -1177,42 +1177,42 @@ begin
     -- Phase M: Sustained varied traffic.  Five requests with distinct
     -- addresses, mixed lengths, and idle gaps between some of them.
     -- ---------------------------------------------------------------
-    p_stat_err_rst(client_aclk, mon_stat_rst, mon_err_rst);
+    p_stat_err_rst(aclk, mon_stat_rst, mon_err_rst);
 
-    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+    req_w(aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
           x"0000A000", std_logic_vector(to_unsigned(0, C_CLIENT_LEN_WIDTH)));
     for i in 1 to 3 loop
-      wait until rising_edge(client_aclk);   -- idle gap (pacing)
+      wait until rising_edge(aclk);   -- idle gap (pacing)
     end loop;
-    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+    req_w(aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
           x"0000A100", std_logic_vector(to_unsigned(1, C_CLIENT_LEN_WIDTH)));
-    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+    req_w(aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
           x"0000A200", std_logic_vector(to_unsigned(2, C_CLIENT_LEN_WIDTH)));
     for i in 1 to 3 loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
     end loop;
-    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+    req_w(aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
           x"0000A300", std_logic_vector(to_unsigned(0, C_CLIENT_LEN_WIDTH)));
-    req_w(client_aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
+    req_w(aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
           x"0000A400", std_logic_vector(to_unsigned(3, C_CLIENT_LEN_WIDTH)));
 
-    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+    p_rsp_burst(aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
                 rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
                 v_rsp_last, 1, "M1");
-    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+    p_rsp_burst(aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
                 rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
                 v_rsp_last, 2, "M2");
-    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+    p_rsp_burst(aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
                 rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
                 v_rsp_last, 3, "M3");
-    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+    p_rsp_burst(aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
                 rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
                 v_rsp_last, 1, "M4");
-    p_rsp_burst(client_aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
+    p_rsp_burst(aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
                 rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
                 v_rsp_last, 4, "M5");
 
-    p_drain(client_aclk, mon_pipeline, "phase M", wait_count);
+    p_drain(aclk, mon_pipeline, "phase M", wait_count);
 
     assert stat_req_seen = x"00000005"
       report "M: req_seen /= 5" severity failure;

@@ -55,3 +55,9 @@ top = axi_read_tester_tb
 axi_mem_model/rtl/axi_mem_model_core.vhd
 axi_mem_model/rtl/axi_mem_model.vhd
 axi_read_tester/tb/axi_read_tester_tb.vhd
+
+[tb:simple]
+top = axi_read_tester_simple_tb
+axi_mem_model/rtl/axi_mem_model_core.vhd
+axi_mem_model/rtl/axi_mem_model.vhd
+axi_read_tester/tb/axi_read_tester_simple_tb.vhd

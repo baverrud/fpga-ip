@@ -41,7 +41,7 @@ architecture sim of axi_req_gen_tb is
   constant C_MON_STAT_WIDTH : positive := 48;
   constant C_MON_SB_DEPTH   : positive := 64;
 
-  signal client_aclk : std_logic := '0';
+  signal aclk : std_logic := '0';
   signal mem_aclk    : std_logic := '0';
   signal aresetn     : std_logic := '0';
   signal sim_done    : boolean := false;
@@ -139,12 +139,12 @@ begin
 
   p_client_clk : process
   begin
-    client_aclk <= '0';
+    aclk <= '0';
     while not sim_done loop
       wait for C_CLIENT_PERIOD / 2;
-      client_aclk <= not client_aclk;
+      aclk <= not aclk;
     end loop;
-    client_aclk <= '0';
+    aclk <= '0';
     wait;
   end process;
 
@@ -159,9 +159,9 @@ begin
     wait;
   end process;
 
-  p_time : process(client_aclk)
+  p_time : process(aclk)
   begin
-    if rising_edge(client_aclk) then
+    if rising_edge(aclk) then
       if aresetn = '0' then
         global_time <= (others => '0');
       else
@@ -193,7 +193,7 @@ begin
       GC_MAX_BURST  => C_GEN_MAX_BURST
     )
     port map (
-      aclk            => client_aclk,
+      aclk            => aclk,
       aresetn         => aresetn,
       enable          => gen_enable,
       aperture        => gen_aperture,
@@ -227,7 +227,7 @@ begin
       GC_CDC_DEPTH          => C_CDC_DEPTH
     )
     port map (
-      client_aclk => client_aclk,
+      aclk => aclk,
       mem_aclk    => mem_aclk,
       aresetn     => aresetn,
       req_addr    => req_addr,
@@ -296,7 +296,7 @@ begin
       GC_SB_FIFO_DEPTH => C_MON_SB_DEPTH
     )
     port map (
-      aclk                     => client_aclk,
+      aclk                     => aclk,
       aresetn                  => aresetn,
       global_time              => global_time,
       enable                   => mon_enable,
@@ -341,10 +341,10 @@ begin
 
   -- Check every accepted request: start aligned to C_CLIENT_BYTES and
   -- the full burst inside [base, base+range].
-  p_addr_check : process(client_aclk)
+  p_addr_check : process(aclk)
     variable burst_bytes : natural;
   begin
-    if rising_edge(client_aclk) and aresetn = '1' and
+    if rising_edge(aclk) and aresetn = '1' and
        req_valid(0) = '1' and req_ready(0) = '1' then
       assert unsigned(req_addr(0)(log2ceil(C_CLIENT_BYTES)-1 downto 0)) = 0
         report "req addr not aligned to client bytes" severity failure;
@@ -359,11 +359,11 @@ begin
   -- Count transitions between consecutive accepted request addresses.
   -- Cleared by addr_var_rst (pulsed by p_reset_stats); proves random
   -- addressing actually varies the presented addresses.
-  p_addr_var : process(client_aclk)
+  p_addr_var : process(aclk)
     variable prev_addr : std_logic_vector(C_ADDR_WIDTH-1 downto 0) := (others => '0');
     variable have_prev : boolean := false;
   begin
-    if rising_edge(client_aclk) then
+    if rising_edge(aclk) then
       if aresetn = '0' or addr_var_rst = '1' then
         addr_changes <= 0;
         prev_addr    := (others => '0');
@@ -380,9 +380,9 @@ begin
 
   -- Reference counter for stat_elapsed_cycles: increments while the
   -- client-0 monitor is enabled, cleared by mon_stat_rst (same as RTL).
-  p_elapsed_ref : process(client_aclk)
+  p_elapsed_ref : process(aclk)
   begin
-    if rising_edge(client_aclk) then
+    if rising_edge(aclk) then
       if aresetn = '0' or mon_stat_rst = '1' then
         mon_elapsed_ref <= (others => '0');
       elsif mon_enable = '1' then
@@ -397,18 +397,18 @@ begin
     -- Pulse the generator and monitor soft resets.
     procedure p_reset_stats is
     begin
-      wait until falling_edge(client_aclk);
+      wait until falling_edge(aclk);
       gen_stat_rst <= '1';
       mon_stat_rst <= '1';
       mon_err_rst  <= '1';
       addr_var_rst <= '1';
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
       wait for 1 ns;
       gen_stat_rst <= '0';
       mon_stat_rst <= '0';
       mon_err_rst  <= '0';
       addr_var_rst <= '0';
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
       wait for 1 ns;
     end procedure;
 
@@ -420,7 +420,7 @@ begin
     begin
       waited := 0;
       loop
-        wait until rising_edge(client_aclk);
+        wait until rising_edge(aclk);
         wait for 1 ns;
         exit when mon_pipeline = '0';
         waited := waited + 1;
@@ -510,7 +510,7 @@ begin
     cfg_addr_range <= x"00008000";
     cfg_addr_mode  <= '0';
 
-    wait until rising_edge(client_aclk);
+    wait until rising_edge(aclk);
     gen_aperture <= '1';
 
     -- ---------------------------------------------------------------
@@ -519,7 +519,7 @@ begin
     p_reset_stats;
     gen_enable <= '1';
     for i in 1 to 1500 loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
     end loop;
     gen_enable <= '0';
     p_drain("phase 1");
@@ -543,7 +543,7 @@ begin
     cfg_pace <= x"00000002";
     gen_enable <= '1';
     for i in 1 to 2000 loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
     end loop;
     gen_enable <= '0';
     p_drain("phase 2");
@@ -569,7 +569,7 @@ begin
     cfg_addr_mode <= '1';
     gen_enable <= '1';
     for i in 1 to 1500 loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
     end loop;
     gen_enable <= '0';
     p_drain("phase 3");
@@ -593,7 +593,7 @@ begin
     cfg_max_len   <= std_logic_vector(to_unsigned(15, C_GEN_LEN_WIDTH));
     gen_enable <= '1';
     for i in 1 to 2000 loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
     end loop;
     gen_enable <= '0';
     p_drain("phase 4");
@@ -624,7 +624,7 @@ begin
     cfg_max_len   <= std_logic_vector(to_unsigned(15, C_GEN_LEN_WIDTH));
     gen_enable <= '1';
     for i in 1 to 2000 loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
     end loop;
     gen_enable <= '0';
     p_drain("phase 4B");
@@ -654,15 +654,15 @@ begin
     cfg_req_len  <= std_logic_vector(to_unsigned(3, C_GEN_LEN_WIDTH));
     gen_enable <= '1';
     for i in 1 to 100 loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
     end loop;
     rsp_ready(0) <= '0';              -- apply response backpressure
     for i in 1 to 200 loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
     end loop;
     rsp_ready(0) <= '1';              -- release
     for i in 1 to 300 loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
     end loop;
     gen_enable <= '0';
     p_drain("phase 5");
@@ -685,7 +685,7 @@ begin
     cfg_req_len <= std_logic_vector(to_unsigned(31, C_GEN_LEN_WIDTH));
     gen_enable <= '1';
     for i in 1 to 1000 loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
     end loop;
     gen_enable <= '0';
     p_drain("phase 6");
@@ -710,11 +710,11 @@ begin
     cfg_req_len <= std_logic_vector(to_unsigned(3, C_GEN_LEN_WIDTH));
     gen_enable <= '1';
     for i in 1 to 200 loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
     end loop;
     p_reset_stats;                     -- clear mid-traffic
     for i in 1 to 200 loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
     end loop;
     gen_enable <= '0';
     p_drain("phase 7");
@@ -724,7 +724,7 @@ begin
     p_reset_stats;
     gen_enable <= '1';
     for i in 1 to 300 loop
-      wait until rising_edge(client_aclk);
+      wait until rising_edge(aclk);
     end loop;
     gen_enable <= '0';
     p_drain("phase 7 clean");

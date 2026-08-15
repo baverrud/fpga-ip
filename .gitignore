@@ -81,6 +81,7 @@ webtalk*.log
 webtalk*.jou
 vivado*.log
 vivado*.jou
+viv/
 
 # --- Vivado project sub-directories (created by synth_vivado_project.tcl) ---
 *_proj/
