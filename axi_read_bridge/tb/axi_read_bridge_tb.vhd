@@ -17,17 +17,17 @@ entity axi_read_bridge_tb is
 end entity axi_read_bridge_tb;
 
 architecture sim of axi_read_bridge_tb is
-  constant C_NUM_CLIENTS : positive := 4;
-  constant C_ADDR_WIDTH  : positive := 32;
-  constant C_ID_WIDTH    : positive := 4;
-  constant C_CLIENT_BYTES : positive := 64;
-  constant C_NATIVE_BYTES : positive := 16;
-  constant C_CLIENT_LEN_WIDTH : positive := 6;
+  constant C_NUM_CLIENTS       : positive := 4;
+  constant C_ADDR_WIDTH        : positive := 32;
+  constant C_ID_WIDTH          : positive := 4;
+  constant C_CLIENT_BYTES      : positive := 64;
+  constant C_NATIVE_BYTES      : positive := 16;
+  constant C_CLIENT_LEN_WIDTH  : positive := 6;
   constant C_CLIENT_FIFO_DEPTH : positive := 32;
-  constant C_CDC_DEPTH : positive := 8;
-  constant C_CLIENT_PERIOD : time := 10 ns;
-  constant C_MEM_PERIOD : time := 4 ns;
-  constant C_TIMEOUT : time := 2 ms;
+  constant C_CDC_DEPTH         : positive := 8;
+  constant C_CLIENT_PERIOD     : time := 10 ns;
+  constant C_MEM_PERIOD        : time := 4 ns;
+  constant C_TIMEOUT           : time := 2 ms;
 
   -- Per-client response base addresses for the arbitration (phase 4) test.
   type addr4_t is array (0 to 3) of natural;
@@ -39,12 +39,18 @@ architecture sim of axi_read_bridge_tb is
   --   [2] client 2 len=2  -> 12  native beats -> ARLEN 11 (backpressure)
   --   [3..6] all four clients len=0 -> 4 each -> ARLEN 3 (arbitration)
   --   [7] client 3 len=31 -> 128 native beats -> ARLEN 127 (credit limit)
+  --   [8..9]   phase 6: clients 0,1 len=0 under AR backpressure -> ARLEN 3
+  --   [10]     phase 7: client 0 len=0 issued before mid-flight reset -> 3
+  --   [11]     phase 7: client 0 len=0 after reset -> ARLEN 3
+  --   [12]     phase 8: client 0 len=0 with SLVERR -> ARLEN 3
+  --   [13..14] phase 9: client 1 len=0 re-presented -> ARLEN 3 each
   type arlen_seq_t is array (natural range <>) of integer;
-  constant C_EXPECTED_ARLEN : arlen_seq_t := (3, 7, 11, 3, 3, 3, 3, 127);
+  constant C_EXPECTED_ARLEN : arlen_seq_t :=
+    (3, 7, 11, 3, 3, 3, 3, 127, 3, 3, 3, 3, 3, 3, 3);
 
-  signal aclk : std_logic := '0';
-  signal mem_aclk    : std_logic := '0';
-  signal aresetn : std_logic := '0';
+  signal aclk     : std_logic := '0';
+  signal mem_aclk : std_logic := '0';
+  signal aresetn  : std_logic := '0';
   signal sim_done : boolean := false;
 
   signal req_addr  : slv_array_t(0 to C_NUM_CLIENTS-1)(C_ADDR_WIDTH-1 downto 0) := (others => (others => '0'));
@@ -72,8 +78,17 @@ architecture sim of axi_read_bridge_tb is
   signal r_valid : std_logic;
   signal r_ready : std_logic;
 
-  signal ar_seen : natural := 0;
+  signal ar_seen          : natural := 0;
   signal watchdog_expired : boolean := false;
+
+  -- Native-side injection controls (phases 6 and 8). ar_ready_enable gates
+  -- the whole native AR handshake for backpressure testing; r_resp_inject
+  -- forces the native response code seen by the bridge for error testing.
+  signal mem_ar_ready : std_logic;
+  signal ar_ready_enable : std_logic := '1';
+  signal mem_ar_valid : std_logic;
+  signal mem_r_resp   : std_logic_vector(1 downto 0);
+  signal r_resp_inject : std_logic_vector(1 downto 0) := "00";
 
   function f_expected_data(base_addr : natural) return std_logic_vector is
     variable v_data : std_logic_vector(8*C_CLIENT_BYTES-1 downto 0) := (others => '0');
@@ -129,30 +144,30 @@ begin
       GC_CDC_DEPTH          => C_CDC_DEPTH
     )
     port map (
-      aclk => aclk,
-      mem_aclk    => mem_aclk,
-      aresetn     => aresetn,
-      req_addr    => req_addr,
-      req_len     => req_len,
-      req_valid   => req_valid,
-      req_ready   => req_ready,
-      rsp_data    => rsp_data,
-      rsp_resp    => rsp_resp,
-      rsp_last    => rsp_last,
-      rsp_valid   => rsp_valid,
-      rsp_ready   => rsp_ready,
-      ar_id       => ar_id,
-      ar_addr     => ar_addr,
-      ar_len      => ar_len,
-      ar_size     => ar_size,
-      ar_valid    => ar_valid,
-      ar_ready    => ar_ready,
-      r_id        => r_id,
-      r_data      => r_data,
-      r_resp      => r_resp,
-      r_last      => r_last,
-      r_valid     => r_valid,
-      r_ready     => r_ready
+      aclk      => aclk,
+      mem_aclk  => mem_aclk,
+      aresetn   => aresetn,
+      req_addr  => req_addr,
+      req_len   => req_len,
+      req_valid => req_valid,
+      req_ready => req_ready,
+      rsp_data  => rsp_data,
+      rsp_resp  => rsp_resp,
+      rsp_last  => rsp_last,
+      rsp_valid => rsp_valid,
+      rsp_ready => rsp_ready,
+      ar_id     => ar_id,
+      ar_addr   => ar_addr,
+      ar_len    => ar_len,
+      ar_size   => ar_size,
+      ar_valid  => ar_valid,
+      ar_ready  => ar_ready,
+      r_id      => r_id,
+      r_data    => r_data,
+      r_resp    => r_resp,
+      r_last    => r_last,
+      r_valid   => r_valid,
+      r_ready   => r_ready
     );
 
   u_mem : entity work.axi_mem_model
@@ -165,26 +180,34 @@ begin
       GC_R_FIFO_DEPTH  => 8
     )
     port map (
-      aclk            => mem_aclk,
-      aresetn         => aresetn,
-      ar_base_enable  => '0',
+      aclk             => mem_aclk,
+      aresetn          => aresetn,
+      ar_base_enable   => '0',
       ar_jitter_enable => '0',
-      r_base_enable   => '0',
-      r_jitter_enable => '0',
-      base_latency    => (others => '0'),
-      base_beat_gap   => (others => '0'),
-      ar_id           => ar_id,
-      ar_addr         => ar_addr,
-      ar_len          => ar_len,
-      ar_valid        => ar_valid,
-      ar_ready        => ar_ready,
-      r_id            => r_id,
-      r_data          => r_data,
-      r_resp          => r_resp,
-      r_last          => r_last,
-      r_valid        => r_valid,
-      r_ready        => r_ready
+      r_base_enable    => '0',
+      r_jitter_enable  => '0',
+      base_latency     => (others => '0'),
+      base_beat_gap    => (others => '0'),
+      ar_id            => ar_id,
+      ar_addr          => ar_addr,
+      ar_len           => ar_len,
+      ar_valid         => mem_ar_valid,
+      ar_ready         => mem_ar_ready,
+      r_id             => r_id,
+      r_data           => r_data,
+      r_resp           => mem_r_resp,
+      r_last           => r_last,
+      r_valid          => r_valid,
+      r_ready          => r_ready
     );
+
+  -- Gated native AR handshake and error-injection mux between the memory
+  -- model and the bridge native side (phases 6 and 8). Gating both ar_valid
+  -- (into the model) and ar_ready (into the bridge) keeps the handshake
+  -- coherent while the bridge's AR pipeline backs up.
+  mem_ar_valid <= ar_valid and ar_ready_enable;
+  ar_ready     <= mem_ar_ready and ar_ready_enable;
+  r_resp       <= mem_r_resp when r_resp_inject = "00" else r_resp_inject;
 
   p_ar_monitor : process(mem_aclk)
   begin
@@ -220,7 +243,6 @@ begin
       wait_count := 0;
       loop
         wait until rising_edge(aclk);
-        wait for 1 ns;
         exit when req_ready(idx) = '1';
         wait_count := wait_count + 1;
         assert wait_count < 1000 report "request accept timeout" severity failure;
@@ -236,7 +258,6 @@ begin
       wait_count := 0;
       loop
         wait until rising_edge(aclk);
-        wait for 1 ns;
         exit when (rsp_valid(idx) = '1') and (rsp_ready(idx) = '1');
         wait_count := wait_count + 1;
         assert wait_count < 4000 report "response timeout" severity failure;
@@ -255,6 +276,22 @@ begin
       rsp_ready(idx) <= '1';
       p_wait_rsp(idx);
     end procedure;
+
+    -- Wait a number of client-clock cycles.
+    procedure wait_cycles(n : natural) is
+    begin
+      for i in 1 to n loop
+        wait until rising_edge(aclk);
+      end loop;
+    end procedure;
+
+    -- Wait a number of native-clock cycles.
+    procedure wait_mem_cycles(n : natural) is
+    begin
+      for i in 1 to n loop
+        wait until rising_edge(mem_aclk);
+      end loop;
+    end procedure;
   begin
     wait for 100 ns;
     aresetn <= '1';
@@ -267,7 +304,6 @@ begin
     wait_count := 0;
     loop
       wait until rising_edge(aclk);
-      wait for 1 ns;
       exit when req_ready(0) = '1';
       wait_count := wait_count + 1;
       assert wait_count < 1000 report "client 0 request timeout" severity failure;
@@ -277,7 +313,6 @@ begin
     wait_count := 0;
     loop
       wait until rising_edge(aclk);
-      wait for 1 ns;
       exit when rsp_valid(0) = '1';
       wait_count := wait_count + 1;
       assert wait_count < 2000 report "client 0 response timeout" severity failure;
@@ -297,7 +332,6 @@ begin
     wait_count := 0;
     loop
       wait until rising_edge(aclk);
-      wait for 1 ns;
       exit when req_ready(1) = '1';
       wait_count := wait_count + 1;
       assert wait_count < 1000 report "client 1 request timeout" severity failure;
@@ -307,7 +341,6 @@ begin
     wait_count := 0;
     loop
       wait until rising_edge(aclk);
-      wait for 1 ns;
       exit when rsp_valid(1) = '1';
       wait_count := wait_count + 1;
       assert wait_count < 2000 report "client 1 first response timeout" severity failure;
@@ -322,7 +355,6 @@ begin
     wait_count := 0;
     loop
       wait until rising_edge(aclk);
-      wait for 1 ns;
       exit when rsp_valid(1) = '1';
       wait_count := wait_count + 1;
       assert wait_count < 2000 report "client 1 second response timeout" severity failure;
@@ -398,7 +430,6 @@ begin
       wait_count := 0;
       loop
         wait until rising_edge(aclk);
-        wait for 1 ns;
         exit when (rsp_valid(0) and rsp_ready(0)) = '1' or
                   (rsp_valid(1) and rsp_ready(1)) = '1' or
                   (rsp_valid(2) and rsp_ready(2)) = '1' or
@@ -451,7 +482,134 @@ begin
     end loop;
     rsp_ready(3) <= '1';
 
-    assert ar_seen = 8
+    -- Phase 6: native AR backpressure. Gate the whole native AR handshake
+    -- low so two client requests back up in the AR pipeline (mux active +
+    -- pending slots and the AR CDC FIFO). req_ready stays independent of
+    -- ar_ready, so both requests are accepted while the native AR is
+    -- stalled; on release both ARs transfer and both responses return.
+    wait until falling_edge(aclk);
+    ar_ready_enable <= '0';
+    wait_mem_cycles(4);
+    req_addr(0) <= std_logic_vector(to_unsigned(16#6000#, C_ADDR_WIDTH));
+    req_len(0)  <= (others => '0');
+    req_valid(0) <= '1';
+    p_wait_accept(0);
+    req_valid(0) <= '0';
+    req_addr(1) <= std_logic_vector(to_unsigned(16#6040#, C_ADDR_WIDTH));
+    req_len(1)  <= (others => '0');
+    req_valid(1) <= '1';
+    p_wait_accept(1);
+    req_valid(1) <= '0';
+    wait_mem_cycles(4);          -- keep the stall while both ARs are pending
+    wait until falling_edge(aclk);
+    ar_ready_enable <= '1';
+    p_wait_rsp(0);
+    assert rsp_data(0) = f_expected_data(16#6000#)
+      report "client 0 data mismatch under AR backpressure"
+      severity failure;
+    assert rsp_resp(0) = "00" and rsp_last(0) = '1'
+      report "client 0 sideband mismatch under AR backpressure"
+      severity failure;
+    p_wait_rsp(1);
+    assert rsp_data(1) = f_expected_data(16#6040#)
+      report "client 1 data mismatch under AR backpressure"
+      severity failure;
+    assert rsp_resp(1) = "00" and rsp_last(1) = '1'
+      report "client 1 sideband mismatch under AR backpressure"
+      severity failure;
+
+    -- Phase 7: reset while a response is in flight. Issue a request with the
+    -- client response held off (rsp_ready low), let the native AR transfer
+    -- and the R beats buffer, then assert reset. Everything must flush (mux
+    -- slots, AR/R CDC FIFOs, demux FIFOs, memory model) and a fresh request
+    -- after reset must complete end to end.
+    wait until falling_edge(aclk);
+    rsp_ready(0) <= '0';
+    req_addr(0) <= std_logic_vector(to_unsigned(16#7000#, C_ADDR_WIDTH));
+    req_len(0)  <= (others => '0');
+    req_valid(0) <= '1';
+    p_wait_accept(0);
+    req_valid(0) <= '0';
+    wait_mem_cycles(8);          -- AR crosses; R beats buffer behind stall
+    wait until falling_edge(aclk);
+    aresetn <= '0';
+    wait_cycles(4);
+    wait_mem_cycles(4);
+    aresetn <= '1';
+    wait_cycles(4);
+    rsp_ready(0) <= '1';
+    assert rsp_valid = (rsp_valid'range => '0')
+      report "reset did not flush pending responses"
+      severity failure;
+    -- A fresh request after reset must work.
+    wait until falling_edge(aclk);
+    req_addr(0) <= std_logic_vector(to_unsigned(16#7100#, C_ADDR_WIDTH));
+    req_len(0)  <= (others => '0');
+    req_valid(0) <= '1';
+    p_wait_accept(0);
+    req_valid(0) <= '0';
+    p_wait_rsp(0);
+    assert rsp_data(0) = f_expected_data(16#7100#)
+      report "client 0 data mismatch after mid-flight reset"
+      severity failure;
+    assert rsp_resp(0) = "00" and rsp_last(0) = '1'
+      report "client 0 sideband mismatch after mid-flight reset"
+      severity failure;
+
+    -- Phase 8: native r_resp error propagation. Force SLVERR on every
+    -- native beat of one request and verify it reaches the client response.
+    wait until falling_edge(aclk);
+    r_resp_inject <= "10";       -- SLVERR
+    req_addr(0) <= std_logic_vector(to_unsigned(16#8000#, C_ADDR_WIDTH));
+    req_len(0)  <= (others => '0');
+    req_valid(0) <= '1';
+    p_wait_accept(0);
+    req_valid(0) <= '0';
+    p_wait_rsp(0);
+    assert rsp_data(0) = f_expected_data(16#8000#)
+      report "client 0 data mismatch with SLVERR"
+      severity failure;
+    assert rsp_resp(0) = "10"
+      report "SLVERR not propagated to client response"
+      severity failure;
+    assert rsp_last(0) = '1'
+      report "client 0 response missing last with SLVERR"
+      severity failure;
+    r_resp_inject <= "00";
+
+    -- Phase 9: two requests re-presented to the same client before the first
+    -- response is consumed. Both must be accepted and returned in order
+    -- with correct data and last.
+    wait until falling_edge(aclk);
+    rsp_ready(1) <= '0';
+    req_addr(1) <= std_logic_vector(to_unsigned(16#9000#, C_ADDR_WIDTH));
+    req_len(1)  <= (others => '0');
+    req_valid(1) <= '1';
+    p_wait_accept(1);
+    req_valid(1) <= '0';
+    req_addr(1) <= std_logic_vector(to_unsigned(16#9040#, C_ADDR_WIDTH));
+    req_len(1)  <= (others => '0');
+    req_valid(1) <= '1';
+    p_wait_accept(1);
+    req_valid(1) <= '0';
+    wait_cycles(8);              -- let both ARs issue and R beats buffer
+    rsp_ready(1) <= '1';
+    p_wait_rsp(1);
+    assert rsp_data(1) = f_expected_data(16#9000#)
+      report "client 1 first data mismatch (re-presentation)"
+      severity failure;
+    assert rsp_resp(1) = "00" and rsp_last(1) = '1'
+      report "client 1 first sideband mismatch (re-presentation)"
+      severity failure;
+    p_wait_rsp(1);
+    assert rsp_data(1) = f_expected_data(16#9040#)
+      report "client 1 second data mismatch (re-presentation)"
+      severity failure;
+    assert rsp_resp(1) = "00" and rsp_last(1) = '1'
+      report "client 1 second sideband mismatch (re-presentation)"
+      severity failure;
+
+    assert ar_seen = 15
       report "unexpected native AR transaction count"
       severity failure;
     report "ALL AXI READ BRIDGE CHECKS PASSED" severity note;

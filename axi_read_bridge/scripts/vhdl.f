@@ -33,3 +33,7 @@ axi_read_bridge/constraints/axi_read_bridge.xdc
 [tb:default]
 top = axi_read_bridge_tb
 axi_read_bridge/tb/axi_read_bridge_tb.vhd
+
+[tb:simple]
+top = axi_read_bridge_simple_tb
+axi_read_bridge/tb/axi_read_bridge_simple_tb.vhd
