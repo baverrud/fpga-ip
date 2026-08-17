@@ -102,3 +102,6 @@ Thumbs.db
 .DS_Store
 Ehthumbs.db
 [Dd]esktop.ini
+
+# --- IP under development (not yet committed) ---
+axis_load_balancer/
