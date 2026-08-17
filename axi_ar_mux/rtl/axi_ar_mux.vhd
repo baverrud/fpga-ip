@@ -159,8 +159,8 @@ architecture arch of axi_ar_mux is
   -- buffer per client decouple client ready from ar_ready and allow a
   -- registered exact grant without losing same-client line rate.
   type rec_t is record
-    active  : slot_t;   -- presented on AR (held until handshake)
-    pending : slot_t;   -- accepted while active is stalled
+    active  : slot_t;  -- presented on AR (held until handshake)
+    pending : slot_t;  -- accepted while active is stalled
 
     client_buf : client_buf_array_t;
     rr_pointer : integer range 0 to GC_NUM_CLIENTS-1;
@@ -171,11 +171,11 @@ architecture arch of axi_ar_mux is
   end record;
 
   constant C_REC_DEFAULT : rec_t := (
-    active     => C_SLOT_DEFAULT,
-    pending    => C_SLOT_DEFAULT,
-    client_buf => (others => C_BUF_DEFAULT),
-    rr_pointer => GC_NUM_CLIENTS - 1,
-    credit_cnt => (others => to_unsigned(GC_FIFO_DEPTH, C_CREDIT_W)),
+    active      => C_SLOT_DEFAULT,
+    pending     => C_SLOT_DEFAULT,
+    client_buf  => (others => C_BUF_DEFAULT),
+    rr_pointer  => GC_NUM_CLIENTS - 1,
+    credit_cnt  => (others => to_unsigned(GC_FIFO_DEPTH, C_CREDIT_W)),
     grant_valid => '0',
     grant_idx   => 0
   );
@@ -260,7 +260,7 @@ begin
     -- Move a consumed grant into the active slot when it is free this
     -- edge, otherwise into the pending slot.
     procedure p_place(variable s : inout rec_t;
-                      constant idx : integer range 0 to GC_NUM_CLIENTS-1;
+                      constant idx       : integer range 0 to GC_NUM_CLIENTS-1;
                       constant to_active : boolean) is
     begin
       if to_active then
@@ -285,10 +285,10 @@ begin
     -- and the post-edge credits.
     function f_eligible(buf : client_buf_array_t;
                         credit_after : credit_array_t;
-                        req_valid : std_logic_vector;
-                        req_len : slv8_array_t;
-                        grant_take : boolean;
-                        grant_idx : integer range 0 to GC_NUM_CLIENTS-1)
+                        req_valid    : std_logic_vector;
+                        req_len      : slv8_array_t;
+                        grant_take   : boolean;
+                        grant_idx    : integer range 0 to GC_NUM_CLIENTS-1)
                         return std_logic_vector is
       variable e : std_logic_vector(0 to GC_NUM_CLIENTS-1);
     begin
@@ -399,16 +399,21 @@ begin
       end if;
     end loop;
 
-    -- Compute the next exact grant from buffered requests and post-edge
-    -- credits. The just-consumed client is re-arbitrated from its live
-    -- refill (its buffer refills on the same edge), so a single eligible
-    -- client can sustain line rate; exact credit is still checked, and RR
-    -- keeps other clients ahead of the re-granted one for fairness.
+    -- Compute the next exact grant from the post-accept buffers (buf_next)
+    -- and post-edge credits.  Using buf_next - which already includes a
+    -- request accepted into an empty buffer this cycle - makes the pipeline
+    -- self-priming: the very first request after reset is granted on the
+    -- same edge it is accepted, so req_ready never bubbles and the input
+    -- holds line rate from the first cycle, not just steady state.  The
+    -- just-consumed client is re-arbitrated from its live refill (its buffer
+    -- refills on the same edge), so a single eligible client can sustain
+    -- line rate; exact credit is still checked, and RR keeps other clients
+    -- ahead of the re-granted one for fairness.
     scan_ptr := r.rr_pointer;
     if grant_take then
       scan_ptr := r.grant_idx;
     end if;
-    eligible := f_eligible(r.client_buf, credit_after, req_valid, req_len,
+    eligible := f_eligible(buf_next, credit_after, req_valid, req_len,
                            grant_take, r.grant_idx);
     grant_next_valid := false;
     for i in 0 to GC_NUM_CLIENTS-1 loop

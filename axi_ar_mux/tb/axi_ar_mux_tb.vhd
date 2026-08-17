@@ -228,6 +228,54 @@ begin
       report "FAIL: ar_valid should be '0' after reset" severity failure;
 
     ------------------------------------------------------------------
+    -- Test 0: first-request input line rate right after reset.
+    -- The very first request after reset must be accepted on the first
+    -- presented cycle with no req_ready bubble (self-priming pipeline),
+    -- and a held-valid source must sustain one request per cycle from
+    -- the very start.  This catches a pipeline-priming bubble that would
+    -- deassert req_ready for one cycle after the first accept.
+    ------------------------------------------------------------------
+    report "AR-MUX PHASE: test0 first-request line rate";
+    ar_ready <= '1';
+    req_valid(0) <= '1';
+    req_addr(0)  <= f_addr(0, 0);
+    req_len(0)   <= x"00";   -- 1 beat
+    req_size(0)  <= "010";
+    req_burst(0) <= "01";
+
+    stream_input_count := 0;
+    stream_ar_count    := 0;
+    for cycle in 0 to 2 * GC_FIFO_DEPTH + 4 loop
+      wait until rising_edge(aclk);
+      -- A presented request must be accepted immediately, every cycle.
+      if req_valid(0) = '1' then
+        assert req_ready(0) = '1'
+          report "FAIL: req_ready bubble on first requests (cycle " &
+                 integer'image(cycle) & ")"
+          severity failure;
+        stream_input_count := stream_input_count + 1;
+        if stream_input_count < f_min(4, GC_FIFO_DEPTH) then
+          req_addr(0) <= f_addr(0, stream_input_count);
+        else
+          req_valid(0) <= '0';
+        end if;
+      end if;
+      if (ar_valid = '1') and (ar_ready = '1') then
+        stream_ar_count := stream_ar_count + 1;
+      end if;
+      exit when (stream_input_count = f_min(4, GC_FIFO_DEPTH)) and
+                (stream_ar_count = f_min(4, GC_FIFO_DEPTH));
+    end loop;
+    assert stream_input_count = f_min(4, GC_FIFO_DEPTH)
+      report "FAIL: first requests were not all accepted"
+      severity failure;
+    assert stream_ar_count = f_min(4, GC_FIFO_DEPTH)
+      report "FAIL: first requests were not all forwarded"
+      severity failure;
+    req_valid(0) <= '0';
+    wait until rising_edge(aclk);
+
+    ------------------------------------------------------------------
     -- Test 1: single transaction, immediate AR handshake
     ------------------------------------------------------------------
     report "AR-MUX PHASE: reset";
