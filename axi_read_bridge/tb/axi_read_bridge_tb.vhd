@@ -67,7 +67,6 @@ architecture sim of axi_read_bridge_tb is
   signal ar_id    : std_logic_vector(C_ID_WIDTH-1 downto 0);
   signal ar_addr  : std_logic_vector(C_ADDR_WIDTH-1 downto 0);
   signal ar_len   : std_logic_vector(7 downto 0);
-  signal ar_size  : std_logic_vector(2 downto 0);
   signal ar_valid : std_logic;
   signal ar_ready : std_logic;
 
@@ -159,7 +158,6 @@ begin
       ar_id     => ar_id,
       ar_addr   => ar_addr,
       ar_len    => ar_len,
-      ar_size   => ar_size,
       ar_valid  => ar_valid,
       ar_ready  => ar_ready,
       r_id      => r_id,
@@ -215,9 +213,6 @@ begin
       if aresetn = '1' and ar_valid = '1' and ar_ready = '1' then
         report "native AR id=" & integer'image(to_integer(unsigned(ar_id))) &
           " len=" & integer'image(to_integer(unsigned(ar_len))) severity note;
-        assert ar_size = "100"
-          report "native ARSIZE is not 128-bit (4 bytes exponent)"
-          severity failure;
         if ar_seen < C_EXPECTED_ARLEN'length then
           assert to_integer(unsigned(ar_len)) = C_EXPECTED_ARLEN(ar_seen)
             report "native ARLEN mismatch at transaction " & integer'image(ar_seen)

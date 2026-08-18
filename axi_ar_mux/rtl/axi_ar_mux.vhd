@@ -37,8 +37,6 @@ entity axi_ar_mux is
     -- Client request interfaces (slave)
     req_addr  : in  slv_array_t(0 to GC_NUM_CLIENTS-1)(GC_ADDR_WIDTH-1 downto 0);
     req_len   : in  slv8_array_t(0 to GC_NUM_CLIENTS-1);                           -- ARLEN (beats - 1)
-    req_size  : in  slv_array_t(0 to GC_NUM_CLIENTS-1)(2 downto 0);                -- ARSIZE
-    req_burst : in  slv_array_t(0 to GC_NUM_CLIENTS-1)(1 downto 0);                -- ARBURST
     req_valid : in  std_logic_vector(0 to GC_NUM_CLIENTS-1);
     req_ready : out std_logic_vector(0 to GC_NUM_CLIENTS-1);
 
@@ -49,8 +47,6 @@ entity axi_ar_mux is
     ar_id    : out std_logic_vector(GC_ID_WIDTH-1 downto 0);
     ar_addr  : out std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
     ar_len   : out std_logic_vector(7 downto 0);
-    ar_size  : out std_logic_vector(2 downto 0);
-    ar_burst : out std_logic_vector(1 downto 0);
     ar_valid : out std_logic;
     ar_ready : in  std_logic
   );
@@ -121,17 +117,13 @@ architecture arch of axi_ar_mux is
     id    : std_logic_vector(GC_ID_WIDTH-1 downto 0);
     addr  : std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
     len   : std_logic_vector(7 downto 0);
-    size  : std_logic_vector(2 downto 0);
-    burst : std_logic_vector(1 downto 0);
   end record;
 
   constant C_SLOT_DEFAULT : slot_t := (
     valid => '0',
     id    => (others => '0'),
     addr  => (others => '0'),
-    len   => (others => '0'),
-    size  => (others => '0'),
-    burst => (others => '0')
+    len   => (others => '0')
   );
 
   -- Per-client input buffer: a presented request waiting for its grant.
@@ -139,8 +131,6 @@ architecture arch of axi_ar_mux is
     valid : std_logic;
     addr  : std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
     len   : std_logic_vector(7 downto 0);
-    size  : std_logic_vector(2 downto 0);
-    burst : std_logic_vector(1 downto 0);
     beats : beats_t;
   end record;
 
@@ -150,8 +140,6 @@ architecture arch of axi_ar_mux is
     valid => '0',
     addr  => (others => '0'),
     len   => (others => '0'),
-    size  => (others => '0'),
-    burst => (others => '0'),
     beats => 0
   );
 
@@ -268,15 +256,11 @@ begin
         s.active.id    := std_logic_vector(to_unsigned(idx, GC_ID_WIDTH));
         s.active.addr  := s.client_buf(idx).addr;
         s.active.len   := s.client_buf(idx).len;
-        s.active.size  := s.client_buf(idx).size;
-        s.active.burst := s.client_buf(idx).burst;
       else
         s.pending.valid := '1';
         s.pending.id    := std_logic_vector(to_unsigned(idx, GC_ID_WIDTH));
         s.pending.addr  := s.client_buf(idx).addr;
         s.pending.len   := s.client_buf(idx).len;
-        s.pending.size  := s.client_buf(idx).size;
-        s.pending.burst := s.client_buf(idx).burst;
       end if;
     end procedure;
 
@@ -314,8 +298,6 @@ begin
     ar_id     <= r.active.id;
     ar_addr   <= r.active.addr;
     ar_len    <= r.active.len;
-    ar_size   <= r.active.size;
-    ar_burst  <= r.active.burst;
 
     -- A grant is consumed whenever the pending AR slot is free. It then
     -- targets active AR if that slot is free at the edge, otherwise pending.
@@ -393,8 +375,6 @@ begin
         buf_next(i).valid := '1';
         buf_next(i).addr  := req_addr(i);
         buf_next(i).len   := req_len(i);
-        buf_next(i).size  := req_size(i);
-        buf_next(i).burst := req_burst(i);
         buf_next(i).beats := f_clamp_beats(f_beats(req_len(i)));
       end if;
     end loop;

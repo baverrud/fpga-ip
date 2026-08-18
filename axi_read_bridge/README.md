@@ -34,11 +34,10 @@ CDC. For example, client `req_len=0` becomes native `ARLEN=3`, and client
 
 The client ARLEN width is derived as
 `GC_NATIVE_ARLEN_WIDTH - log2(GC_CLIENT_DATA_BYTES / GC_NATIVE_DATA_BYTES)`.
-The data-byte ratio must be an integral power of two. The native AR port
-exposes the dynamic signals (`ar_id`, `ar_addr`, `ar_len`, `ar_size`,
-`ar_valid`, `ar_ready`). `ar_size` is exposed because it is derived from
-`GC_NATIVE_DATA_BYTES`. `ar_burst` (always `INCR`) and the other AXI
-sidebands are constants tied by the consumer, matching a real AXI_HP port.
+The data-byte ratio must be an integral power of two. The core native AR port
+exposes the dynamic signals (`ar_id`, `ar_addr`, `ar_len`, `ar_valid`,
+`ar_ready`). ARSIZE, ARBURST, and the other AXI sidebands are constants tied
+by the AXI-facing wrapper or consumer, matching a real AXI_HP port.
 
 ## Client interface
 
@@ -141,7 +140,6 @@ signal rsp_ready : std_logic_vector(0 to C_NUM_CLIENTS-1);
 signal ar_id    : std_logic_vector(3 downto 0);   -- client index
 signal ar_addr  : std_logic_vector(31 downto 0);  -- araddr
 signal ar_len   : std_logic_vector(7 downto 0);   -- native arlen (beats-1)
-signal ar_size  : std_logic_vector(2 downto 0);   -- arsize
 signal ar_valid : std_logic;
 signal ar_ready : std_logic;
 
@@ -191,7 +189,6 @@ u_bridge : entity work.axi_read_bridge
     ar_id    => ar_id,
     ar_addr  => ar_addr,
     ar_len   => ar_len,
-    ar_size  => ar_size,
     ar_valid => ar_valid,
     ar_ready => ar_ready,
 
@@ -236,7 +233,6 @@ logic [C_NUM_CLIENTS-1:0]        rsp_ready;
 logic [3:0]  ar_id;     // client index
 logic [31:0] ar_addr;   // araddr
 logic [7:0]  ar_len;    // native arlen (beats-1)
-logic [2:0]  ar_size;   // arsize
 logic        ar_valid;
 logic        ar_ready;
 
@@ -284,7 +280,6 @@ axi_read_bridge #(
     .ar_id    (ar_id),
     .ar_addr  (ar_addr),
     .ar_len   (ar_len),
-    .ar_size  (ar_size),
     .ar_valid (ar_valid),
     .ar_ready (ar_ready),
 

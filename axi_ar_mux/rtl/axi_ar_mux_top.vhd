@@ -52,12 +52,9 @@ end entity axi_ar_mux_top;
 architecture rtl of axi_ar_mux_top is
   constant C_RATIO       : positive := GC_CLIENT_DATA_WIDTH / GC_NATIVE_DATA_WIDTH;
   constant C_RATIO_LOG2  : natural := log2ceil(C_RATIO);
-  constant C_CLIENT_SIZE : natural := log2ceil(GC_CLIENT_DATA_WIDTH / 8);
   constant C_NATIVE_SIZE : natural := log2ceil(GC_NATIVE_DATA_WIDTH / 8);
 
   signal core_req_len   : slv8_array_t(0 to GC_NUM_CLIENTS-1);
-  signal core_req_size  : slv_array_t(0 to GC_NUM_CLIENTS-1)(2 downto 0);
-  signal core_req_burst : slv_array_t(0 to GC_NUM_CLIENTS-1)(1 downto 0);
   signal core_ar_len    : std_logic_vector(7 downto 0);
 
   function f_native_arlen(client_arlen : std_logic_vector(7 downto 0))
@@ -86,7 +83,7 @@ begin
          is_power_of_two(GC_NATIVE_DATA_WIDTH / 8)
     report "axi_ar_mux_top: data widths in bytes must be powers of two"
     severity failure;
-  assert C_CLIENT_SIZE <= 7 and C_NATIVE_SIZE <= 7
+  assert C_NATIVE_SIZE <= 7
     report "axi_ar_mux_top: AXI ARSIZE cannot encode the configured data width"
     severity failure;
   assert GC_CLIENT_ARLEN_WIDTH <= 8
@@ -101,8 +98,6 @@ begin
     for i in 0 to GC_NUM_CLIENTS-1 loop
       core_req_len(i) <= (others => '0');
       core_req_len(i)(GC_CLIENT_ARLEN_WIDTH-1 downto 0) <= req_len(i);
-      core_req_size(i) <= std_logic_vector(to_unsigned(C_CLIENT_SIZE, 3));
-      core_req_burst(i) <= GC_BURST_TYPE;
     end loop;
   end process;
 
@@ -123,16 +118,12 @@ begin
       aresetn   => aresetn,
       req_addr  => req_addr,
       req_len   => core_req_len,
-      req_size  => core_req_size,
-      req_burst => core_req_burst,
       req_valid => req_valid,
       req_ready => req_ready,
       r_pop     => r_pop,
       ar_id     => ar_id,
       ar_addr   => ar_addr,
       ar_len    => core_ar_len,
-      ar_size   => open,
-      ar_burst  => open,
       ar_valid  => ar_valid,
       ar_ready  => ar_ready
     );

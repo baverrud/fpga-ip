@@ -8,6 +8,7 @@
 
 library ieee;
 use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
 use work.util_pkg.all;
 
 entity axi_read_bridge_top is
@@ -85,7 +86,6 @@ begin
       ar_id       => ar_id,
       ar_addr     => ar_addr,
       ar_len      => ar_len,
-      ar_size     => ar_size,
       ar_valid    => ar_valid,
       ar_ready    => ar_ready,
       r_id        => r_id,
@@ -95,4 +95,6 @@ begin
       r_valid     => r_valid,
       r_ready     => r_ready
     );
+
+  ar_size <= std_logic_vector(to_unsigned(log2ceil(GC_NATIVE_DATA_BYTES), 3));
 end architecture rtl;

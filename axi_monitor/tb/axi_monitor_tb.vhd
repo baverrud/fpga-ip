@@ -249,7 +249,6 @@ begin
       ar_id       => ar_id,
       ar_addr     => ar_addr,
       ar_len      => ar_len,
-      ar_size     => ar_size,
       ar_valid    => ar_valid,
       ar_ready    => ar_ready,
       r_id        => r_id,

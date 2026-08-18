@@ -46,8 +46,6 @@ architecture sim of axi_ar_mux_tb is
 
   signal req_addr  : slv_array_t(0 to GC_NUM_CLIENTS-1)(GC_ADDR_WIDTH-1 downto 0);
   signal req_len   : slv8_array_t(0 to GC_NUM_CLIENTS-1);
-  signal req_size  : slv_array_t(0 to GC_NUM_CLIENTS-1)(2 downto 0);
-  signal req_burst : slv_array_t(0 to GC_NUM_CLIENTS-1)(1 downto 0);
   signal req_valid : std_logic_vector(0 to GC_NUM_CLIENTS-1) := (others => '0');
   signal req_ready : std_logic_vector(0 to GC_NUM_CLIENTS-1);
   signal r_pop : std_logic_vector(0 to GC_NUM_CLIENTS-1) := (others => '0');
@@ -55,8 +53,6 @@ architecture sim of axi_ar_mux_tb is
   signal ar_id    : std_logic_vector(GC_ID_WIDTH-1 downto 0);
   signal ar_addr  : std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
   signal ar_len   : std_logic_vector(7 downto 0);
-  signal ar_size  : std_logic_vector(2 downto 0);
-  signal ar_burst : std_logic_vector(1 downto 0);
   signal ar_valid : std_logic;
   signal ar_ready : std_logic := '0';
 
@@ -92,16 +88,12 @@ begin
       aresetn   => aresetn,
       req_addr  => req_addr,
       req_len   => req_len,
-      req_size  => req_size,
-      req_burst => req_burst,
       req_valid => req_valid,
       req_ready => req_ready,
       r_pop     => r_pop,
       ar_id     => ar_id,
       ar_addr   => ar_addr,
       ar_len    => ar_len,
-      ar_size   => ar_size,
-      ar_burst  => ar_burst,
       ar_valid  => ar_valid,
       ar_ready  => ar_ready
     );
@@ -151,8 +143,6 @@ begin
       req_valid(cli) <= '1';
       req_addr(cli)  <= addr;
       req_len(cli)   <= len;
-      req_size(cli)  <= "010";  -- 4 bytes
-      req_burst(cli) <= "01";   -- INCR
       -- Hold valid until a rising edge observes ready high; that edge is
       -- the capture/handshake edge.  Release valid immediately after so the
       -- same request cannot be granted twice.
@@ -184,10 +174,6 @@ begin
         report "FAIL: ar_addr mismatch" severity failure;
       assert ar_len = len
         report "FAIL: ar_len mismatch" severity failure;
-      assert ar_size = "010"
-        report "FAIL: ar_size not forwarded" severity failure;
-      assert ar_burst = "01"
-        report "FAIL: ar_burst not forwarded" severity failure;
     end procedure;
 
     procedure p_wait_ar(
@@ -240,8 +226,6 @@ begin
     req_valid(0) <= '1';
     req_addr(0)  <= f_addr(0, 0);
     req_len(0)   <= x"00";   -- 1 beat
-    req_size(0)  <= "010";
-    req_burst(0) <= "01";
 
     stream_input_count := 0;
     stream_ar_count    := 0;
@@ -372,8 +356,6 @@ begin
     req_valid(0) <= '1';
     req_addr(0)  <= f_addr(0, 4);
     req_len(0)   <= std_logic_vector(to_unsigned(GC_FIFO_DEPTH - 1, 8));
-    req_size(0)  <= "010";
-    req_burst(0) <= "01";
     for k in 0 to 5 loop
       wait until rising_edge(aclk);
       assert req_ready(0) = '0'
@@ -465,8 +447,6 @@ begin
       req_valid(0) <= '1';
       req_addr(0)  <= f_addr(0, 9);
       req_len(0)   <= x"01";
-      req_size(0)  <= "010";
-      req_burst(0) <= "01";
       p_send(v_other, f_addr(v_other, 10), x"00");
       p_wait_ar(v_other, f_addr(v_other, 10), x"00");
       wait until rising_edge(aclk);
@@ -488,8 +468,6 @@ begin
     req_valid(0) <= '1';
     req_addr(0)  <= f_addr(0, 500);
     req_len(0)   <= x"00";
-    req_size(0)  <= "010";
-    req_burst(0) <= "01";
     stream_input_count := 0;
     stream_ar_count := 0;
     for cycle in 0 to 4 * GC_FIFO_DEPTH + 8 loop
@@ -534,8 +512,6 @@ begin
     for i in 0 to GC_NUM_CLIENTS-1 loop
       req_addr(i)  <= f_addr(i, 20);
       req_len(i)   <= x"00";
-      req_size(i)  <= "010";
-      req_burst(i) <= "01";
     end loop;
 
     -- Wait for the first pipelined grant to be presented.
@@ -644,8 +620,6 @@ begin
       req_valid(0) <= '1';
       req_addr(0)  <= f_addr(0, 402);
       req_len(0)   <= x"00";
-      req_size(0)  <= "010";
-      req_burst(0) <= "01";
       for k in 0 to 3 loop
         wait until rising_edge(aclk);
         assert req_ready(0) = '0'

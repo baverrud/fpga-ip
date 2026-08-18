@@ -47,19 +47,14 @@ module axi_ar_mux_top #(
 );
 
     localparam int unsigned C_RATIO = GC_CLIENT_DATA_WIDTH / GC_NATIVE_DATA_WIDTH;
-    localparam logic [2:0] C_CLIENT_SIZE = $clog2(GC_CLIENT_DATA_WIDTH / 8);
     localparam logic [2:0] C_NATIVE_SIZE = $clog2(GC_NATIVE_DATA_WIDTH / 8);
 
     logic [GC_NUM_CLIENTS-1:0][GC_ADDR_WIDTH-1:0] req_addr_vhdl;
     logic [GC_NUM_CLIENTS-1:0][7:0]               req_len_vhdl;
-    logic [GC_NUM_CLIENTS-1:0][2:0]               req_size_vhdl;
-    logic [GC_NUM_CLIENTS-1:0][1:0]               req_burst_vhdl;
     logic [GC_NUM_CLIENTS-1:0]                    req_valid_vhdl;
     logic [GC_NUM_CLIENTS-1:0]                    req_ready_vhdl;
     logic [GC_NUM_CLIENTS-1:0]                    r_pop_vhdl;
     logic [7:0]                                   core_ar_len;
-    logic [2:0]                                   core_ar_size;
-    logic [1:0]                                   core_ar_burst;
 
     genvar client;
     generate
@@ -67,8 +62,6 @@ module axi_ar_mux_top #(
             assign req_addr_vhdl[GC_NUM_CLIENTS-1-client] = req_addr[client];
             assign req_len_vhdl[GC_NUM_CLIENTS-1-client] =
               {{(8-GC_CLIENT_ARLEN_WIDTH){1'b0}}, req_len[client]};
-            assign req_size_vhdl[GC_NUM_CLIENTS-1-client] = C_CLIENT_SIZE;
-            assign req_burst_vhdl[GC_NUM_CLIENTS-1-client] = GC_BURST_TYPE;
             assign req_valid_vhdl[GC_NUM_CLIENTS-1-client] = req_valid[client];
             assign req_ready[client] = req_ready_vhdl[GC_NUM_CLIENTS-1-client];
             assign r_pop_vhdl[GC_NUM_CLIENTS-1-client] = r_pop[client];
@@ -86,16 +79,12 @@ module axi_ar_mux_top #(
       .aresetn   (aresetn),
       .req_addr  (req_addr_vhdl),
       .req_len   (req_len_vhdl),
-      .req_size  (req_size_vhdl),
-      .req_burst (req_burst_vhdl),
       .req_valid (req_valid_vhdl),
       .req_ready (req_ready_vhdl),
       .r_pop     (r_pop_vhdl),
       .ar_id     (ar_id),
       .ar_addr   (ar_addr),
       .ar_len    (core_ar_len),
-      .ar_size   (core_ar_size),
-      .ar_burst  (core_ar_burst),
       .ar_valid  (ar_valid),
       .ar_ready  (ar_ready)
   );

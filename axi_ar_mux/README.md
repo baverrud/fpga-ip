@@ -15,8 +15,8 @@ with very low logic usage.
 
 ## Overview
 
-Each client presents a read command (`req_addr`, `req_len`, `req_size`,
-`req_burst`, `req_valid`/`req_ready`). A per-client credit counter (the
+Each client presents a read command (`req_addr`, `req_len`,
+`req_valid`/`req_ready`). A per-client credit counter (the
 R-side FIFO depth) limits how many beats that client may have in flight:
 a request of `arlen + 1` beats is only arbitrated when its credits fit.
 Round-robin arbitration picks a fair winner among eligible clients, the
@@ -55,16 +55,12 @@ popped from that client's FIFO.
 | `aresetn`   | in  | Synchronous reset, active low. |
 | `req_addr`  | in  | Per-client ARADDR, `GC_ADDR_WIDTH` bits each. |
 | `req_len`   | in  | Per-client ARLEN (beats - 1), 8 bits each. |
-| `req_size`  | in  | Per-client ARSIZE (3 bits each). |
-| `req_burst` | in  | Per-client ARBURST (2 bits each). |
 | `req_valid` | in  | Per-client request valid. |
 | `req_ready` | out | Per-client request accepted (combinational, independent of `ar_ready`; one pending request can be buffered). |
 | `r_pop`     | in  | Per-client credit return pulses (one per R beat popped). |
 | `ar_id`     | out | AR ID (client index), `GC_ID_WIDTH` bits. |
 | `ar_addr`   | out | ARADDR of the forwarded transaction. |
 | `ar_len`    | out | ARLEN of the forwarded transaction. |
-| `ar_size`   | out | ARSIZE of the forwarded transaction. |
-| `ar_burst`  | out | ARBURST of the forwarded transaction. |
 | `ar_valid`  | out | Forwarded transaction valid (registered, holds until handshake). |
 | `ar_ready`  | in  | Downstream accepts the forwarded transaction. |
 
@@ -78,7 +74,7 @@ next-state/output process (`p_logic`), and a register process (`p_reg`).
 The micro-architecture is:
 
 1. **Registered AR outputs with one-entry prefetch.** `ar_valid`/`ar_id`/
-  `ar_addr`/`ar_len`/`ar_size`/`ar_burst` are registered from an active
+  `ar_addr`/`ar_len` are registered from an active
   transaction record, so `ar_valid` holds until the handshake. One pending
   request can be accepted while AR is stalled. `req_ready` is combinational
   from the current exact arbitration and pending-slot availability, and is
@@ -95,6 +91,27 @@ The micro-architecture is:
   accepted into the pending slot, but it is not presented on AR until the
   active transaction handshakes. This preserves the AXI requirement that
   `ar_valid` and its payload remain stable until the handshake.
+
+### Request-to-AR latency
+
+For a request that is accepted and immediately selected by the arbiter, with
+`ar_ready='1'`, the minimum request-to-AR handshake latency is **2 `aclk`
+cycles**:
+
+```text
+Edge N   : req_valid & req_ready handshake; request enters the client buffer
+Edge N+1 : registered grant enters the active AR slot; ar_valid becomes high
+Edge N+2 : ar_valid & ar_ready handshake
+```
+
+The `ar_valid` transition is visible after edge N+1, but the AR transfer is
+sampled at edge N+2. This latency comes from the registered grant and active
+AR slot. A request may take longer if another client is selected first, if
+the request waits for credit, or if `ar_ready='0'`. The fixed two-cycle
+pipeline latency does not create a steady-state throughput bubble: after the
+pipeline is filled, eligible requests can produce one AR handshake per clock.
+The first-request self-priming behavior keeps `req_ready` asserted on the
+initial request; it does not bypass the registered AR pipeline.
 
 4. **Credit tracking.** Each client starts with `GC_FIFO_DEPTH` credits. A
   request is captured into a per-client input buffer on `req_valid &
@@ -129,10 +146,11 @@ multiple requests (e.g. one per `GC_FIFO_DEPTH`-beat window), or raise
 
 ## AXI Read-Address Channel
 
-The forwarded channel carries the full AXI4 AR payload: `ar_id` (client
-index), `ar_addr`, `ar_len`, `ar_size`, `ar_burst`, `ar_valid`/`ar_ready`.
-`ar_id` is generated from the client index so the R responses can be routed
-back by `axi_r_demux` (its `r_id` decode uses the same index).
+The mux forwards the variable AR fields `ar_id` (client index), `ar_addr`,
+`ar_len`, `ar_valid`/`ar_ready`. `ar_id` is generated from the client index
+so the R responses can be routed back by `axi_r_demux` (its `r_id` decode uses
+the same index). ARSIZE, ARBURST, and other AXI AR sidebands are fixed by the
+integration wrapper or downstream interface.
 
 ### Wider R side (axis_upsizer)
 
@@ -148,8 +166,8 @@ depth times `GC_RATIO` to keep the same number of in-flight R beats.
 ## Compliance and assumptions
 
 The client request interface uses standard valid/ready semantics. A client
-must hold `req_addr`, `req_len`, `req_size`, and `req_burst` stable while
-`req_valid='1'` and `req_ready='0'`, and may present a new request after a
+must hold `req_addr` and `req_len` stable while `req_valid='1'` and
+`req_ready='0'`, and may present a new request after a
 handshake without deasserting `req_valid`. The mux captures the payload and
 beat count from the same handshake.
 
@@ -240,8 +258,6 @@ signal aresetn : std_logic;  -- synchronous, active low
 -- Client request interfaces (array indexed 0..C_NUM_CLIENTS-1)
 signal req_addr  : slv_array_t(0 to C_NUM_CLIENTS-1)(31 downto 0);  -- araddr
 signal req_len   : slv8_array_t(0 to C_NUM_CLIENTS-1);              -- arlen (beats-1)
-signal req_size  : slv_array_t(0 to C_NUM_CLIENTS-1)(2 downto 0);   -- arsize
-signal req_burst : slv_array_t(0 to C_NUM_CLIENTS-1)(1 downto 0);   -- arburst
 signal req_valid : std_logic_vector(0 to C_NUM_CLIENTS-1);
 signal req_ready : std_logic_vector(0 to C_NUM_CLIENTS-1);
 signal r_pop     : std_logic_vector(0 to C_NUM_CLIENTS-1);          -- credits from axi_r_demux
@@ -250,8 +266,6 @@ signal r_pop     : std_logic_vector(0 to C_NUM_CLIENTS-1);          -- credits f
 signal ar_id    : std_logic_vector(3 downto 0);   -- client index
 signal ar_addr  : std_logic_vector(31 downto 0);  -- araddr
 signal ar_len   : std_logic_vector(7 downto 0);   -- arlen
-signal ar_size  : std_logic_vector(2 downto 0);   -- arsize
-signal ar_burst : std_logic_vector(1 downto 0);   -- arburst
 signal ar_valid : std_logic;
 signal ar_ready : std_logic;
 
@@ -273,8 +287,6 @@ u_armux : entity work.axi_ar_mux
     -- Client request interfaces
     req_addr  => req_addr,
     req_len   => req_len,
-    req_size  => req_size,
-    req_burst => req_burst,
     req_valid => req_valid,
     req_ready => req_ready,
 
@@ -285,8 +297,6 @@ u_armux : entity work.axi_ar_mux
     ar_id    => ar_id,
     ar_addr  => ar_addr,
     ar_len   => ar_len,
-    ar_size  => ar_size,
-    ar_burst => ar_burst,
     ar_valid => ar_valid,
     ar_ready => ar_ready
   );
@@ -307,8 +317,6 @@ logic aresetn;  // synchronous, active low
 // Client request interfaces (packed arrays, client index outer)
 logic [C_NUM_CLIENTS-1:0][31:0] req_addr;
 logic [C_NUM_CLIENTS-1:0][7:0]  req_len;
-logic [C_NUM_CLIENTS-1:0][2:0]  req_size;
-logic [C_NUM_CLIENTS-1:0][1:0]  req_burst;
 logic [C_NUM_CLIENTS-1:0]       req_valid;
 logic [C_NUM_CLIENTS-1:0]       req_ready;
 logic [C_NUM_CLIENTS-1:0]       r_pop;  // credits from axi_r_demux
@@ -317,8 +325,6 @@ logic [C_NUM_CLIENTS-1:0]       r_pop;  // credits from axi_r_demux
 logic [3:0]   ar_id;     // client index
 logic [31:0]  ar_addr;   // araddr
 logic [7:0]   ar_len;    // arlen
-logic [2:0]   ar_size;   // arsize
-logic [1:0]   ar_burst;  // arburst
 logic         ar_valid;
 logic         ar_ready;
 
@@ -338,8 +344,6 @@ axi_ar_mux #(
     // Client request interfaces
     .req_addr  (req_addr),
     .req_len   (req_len),
-    .req_size  (req_size),
-    .req_burst (req_burst),
     .req_valid (req_valid),
     .req_ready (req_ready),
 
@@ -350,8 +354,6 @@ axi_ar_mux #(
     .ar_id    (ar_id),
     .ar_addr  (ar_addr),
     .ar_len   (ar_len),
-    .ar_size  (ar_size),
-    .ar_burst (ar_burst),
     .ar_valid (ar_valid),
     .ar_ready (ar_ready)
 );
@@ -382,8 +384,9 @@ clients/address/ID/credit) verifies:
 
 - **Reset:** all `req_ready` low, `ar_valid` low.
 - **Single transaction:** `req_ready` pulses (pipelined grant accept), the
-  AR channel presents the correct `ar_id`/`ar_addr`/`ar_len`/`ar_size`/
-  `ar_burst`, and the credit drops by `arlen + 1` after the handshake.
+  AR channel presents the correct `ar_id`/`ar_addr`/`ar_len`, and the credit
+  drops by `arlen + 1` after the handshake. Fixed AXI AR attributes are
+  supplied by the wrapper or integration boundary.
 - **AR lock:** with `ar_ready` low, `ar_valid` holds the transaction, no
   other client is granted, and the handshake completes on release.
 - **Credit limits + pop returns:** an over-credit request is blocked;

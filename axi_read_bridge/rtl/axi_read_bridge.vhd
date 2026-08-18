@@ -47,14 +47,11 @@ entity axi_read_bridge is
     rsp_valid : out std_logic_vector(0 to GC_NUM_CLIENTS-1);
     rsp_ready : in std_logic_vector(0 to GC_NUM_CLIENTS-1);
 
-    -- Native AXI read-address channel. ar_size is exposed because it is
-    -- derived from GC_NATIVE_DATA_BYTES (config-dependent). ar_burst and the
-    -- AXI sidebands (lock/cache/prot/qos/region/user) are constants tied by
-    -- the consumer (always INCR), matching a real AXI_HP port.
+    -- Native AXI read-address channel. AXI sidebands, including ARSIZE and
+    -- ARBURST, are constants tied by the integration boundary.
     ar_id    : out std_logic_vector(GC_ID_WIDTH-1 downto 0);
     ar_addr  : out std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
     ar_len   : out std_logic_vector(GC_NATIVE_ARLEN_WIDTH-1 downto 0);
-    ar_size  : out std_logic_vector(2 downto 0);
     ar_valid : out std_logic;
     ar_ready : in std_logic;
 
@@ -80,8 +77,6 @@ architecture rtl of axi_read_bridge is
   constant C_R_PAYLOAD_WIDTH   : positive := GC_ID_WIDTH + C_CLIENT_DATA_WIDTH + 3;
 
   signal core_req_len   : slv8_array_t(0 to GC_NUM_CLIENTS-1);
-  signal core_req_size  : slv_array_t(0 to GC_NUM_CLIENTS-1)(2 downto 0);
-  signal core_req_burst : slv_array_t(0 to GC_NUM_CLIENTS-1)(1 downto 0);
   signal core_r_pop     : std_logic_vector(0 to GC_NUM_CLIENTS-1);
 
   signal mux_ar_id    : std_logic_vector(GC_ID_WIDTH-1 downto 0);
@@ -104,6 +99,7 @@ architecture rtl of axi_read_bridge is
   signal up_m_id    : std_logic_vector(GC_ID_WIDTH-1 downto 0);
   signal up_m_valid : std_logic;
   signal up_m_ready : std_logic;
+  signal up_m_data_arr : slv32_array_t(0 to C_CLIENT_DATA_WIDTH/32-1);
 
   signal r_cdc_s_data  : std_logic_vector(C_R_PAYLOAD_WIDTH-1 downto 0);
   signal r_cdc_s_valid : std_logic;
@@ -124,6 +120,16 @@ architecture rtl of axi_read_bridge is
     return std_logic_vector(to_unsigned(native_beats - 1, GC_NATIVE_ARLEN_WIDTH));
   end function;
 begin
+  -- Debug-friendly 32-bit word view of the upsizer output. Word 0 is the
+  -- least-significant 32-bit word.
+  p_up_m_data_array : process(all)
+  begin
+    for word_idx in up_m_data_arr'range loop
+      up_m_data_arr(word_idx) <=
+        up_m_data(32*word_idx+31 downto 32*word_idx);
+    end loop;
+  end process;
+
   assert GC_CLIENT_DATA_BYTES >= GC_NATIVE_DATA_BYTES
     report "axi_read_bridge: client data width must be >= native data width"
     severity failure;
@@ -151,8 +157,6 @@ begin
       v_len := (others => '0');
       v_len(C_CLIENT_ARLEN_WIDTH-1 downto 0) := req_len(i);
       core_req_len(i) <= v_len;
-      core_req_size(i) <= std_logic_vector(to_unsigned(C_CLIENT_SIZE, 3));
-      core_req_burst(i) <= "01";
     end loop;
   end process;
 
@@ -169,16 +173,12 @@ begin
       aresetn   => aresetn,
       req_addr  => req_addr,
       req_len   => core_req_len,
-      req_size  => core_req_size,
-      req_burst => core_req_burst,
       req_valid => req_valid,
       req_ready => req_ready,
       r_pop     => core_r_pop,
       ar_id     => mux_ar_id,
       ar_addr   => mux_ar_addr,
       ar_len    => mux_ar_len,
-      ar_size   => open,
-      ar_burst  => open,
       ar_valid  => mux_ar_valid,
       ar_ready  => mux_ar_ready
     );
@@ -209,7 +209,6 @@ begin
   ar_addr <= ar_cdc_m_data(C_AR_PAYLOAD_WIDTH-GC_ID_WIDTH-1 downto 8);
   native_ar_len <= f_native_arlen(ar_cdc_m_data(7 downto 0));
   ar_len <= native_ar_len;
-  ar_size <= std_logic_vector(to_unsigned(C_NATIVE_SIZE, 3));
   ar_valid <= ar_cdc_m_valid;
   ar_cdc_m_ready <= ar_ready;
 
