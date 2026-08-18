@@ -270,7 +270,6 @@ begin
       -- Assert reset for 4 clock cycles to initialise the DUT and FIFOs
       gen_pulse(aresetn, '0', aclk, 4, "Asserting reset (seed " & integer'image(seed_num) & ")");
       wait until rising_edge(aclk);
-      wait for 1 ns;
 
       log(ID_SEQUENCER, "");
       log(ID_SEQUENCER, "--- Seed " & integer'image(seed_num) & " ---");
@@ -517,7 +516,6 @@ begin
       end loop;
       aresetn <= '1';
       wait until rising_edge(aclk);
-      wait for 1 ns;
 
       -- Check that o_data registers are zeroed after reset
       check_value(dbg_o_data(0), x"00000000", ERROR, "o_data[0] after reset");

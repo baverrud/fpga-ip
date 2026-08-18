@@ -200,7 +200,6 @@ th_inst : entity work.axis_fifo_uvvm_th
       
       -- Delay next checks to let signals settle fully
       wait until rising_edge(aclk);
-      wait for 1 ns;
 
       log(ID_SEQUENCER, "");
       log(ID_SEQUENCER, "=== Seed " & integer'image(seed_num) & " ===");
@@ -233,13 +232,11 @@ th_inst : entity work.axis_fifo_uvvm_th
       log(ID_SEQUENCER, "Phase 1b: Sustained-stall data stability check...");
       set_rx_backpressure(1.0, 8);
       wait until rising_edge(aclk);
-      wait for 1 ns;
       check_value(dbg_m_tvalid, '1', ERROR, "m_tvalid must be high while FIFO is non-empty");
       check_value(to_integer(fifo_count), C_DEPTH, ERROR, "fifo_count must remain full before drain");
       v_stall_data := dbg_m_tdata;
       for stall_cycle in 1 to 4 loop
         wait until rising_edge(aclk);
-        wait for 1 ns;
         check_value(dbg_m_tready, '0', ERROR, "m_tready must stay low during forced stall");
         check_value(dbg_m_tvalid, '1', ERROR, "m_tvalid dropped during forced stall");
         check_value(dbg_m_tdata, v_stall_data, ERROR, "m_tdata changed during forced stall");
@@ -315,7 +312,6 @@ th_inst : entity work.axis_fifo_uvvm_th
       await_all("Queue data before reset");
 
       wait until rising_edge(aclk);
-      wait for 1 ns;
       if to_integer(fifo_count) = 0 then
         alert(ERROR, "Expected non-empty FIFO before in-flight reset");
       end if;
@@ -325,7 +321,6 @@ th_inst : entity work.axis_fifo_uvvm_th
       wait until rising_edge(aclk);
       aresetn <= '1';
       wait until rising_edge(aclk);
-      wait for 1 ns;
 
       check_value(to_integer(fifo_count), 0, ERROR, "fifo_count should clear to 0 after in-flight reset");
       check_value(dbg_m_tvalid, '0', ERROR, "m_tvalid should be 0 after in-flight reset");

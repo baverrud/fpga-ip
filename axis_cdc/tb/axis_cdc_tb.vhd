@@ -166,7 +166,8 @@ begin
     aresetn       <= '0';
     phase_b       <= '0';
     phase_c_start <= '0';
-    wait for 1 ns;
+    wait until rising_edge(m_clk);
+    wait until rising_edge(m_clk);
     assert s_tready = '0'
       report "FAIL: source ready asserted during reset"
       severity failure;
@@ -185,7 +186,8 @@ begin
     wait until phase_b_done = '1';
     phase_b <= '0';
     aresetn <= '0';               -- pulse shared reset (recovery test)
-    wait for 1 ns;
+    wait until rising_edge(m_clk);
+    wait until rising_edge(m_clk);
     assert s_tready = '0'
       report "FAIL: source ready asserted during reset pulse"
       severity failure;

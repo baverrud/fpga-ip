@@ -219,7 +219,6 @@ begin
     wait_count := 0;
     loop
       wait until rising_edge(aclk);
-      wait for 1 ns;
       exit when pipeline_busy = '0';
       wait_count := wait_count + 1;
       assert wait_count < 100 report "drain timeout" severity failure;

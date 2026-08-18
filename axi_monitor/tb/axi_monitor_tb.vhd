@@ -547,11 +547,9 @@ begin
       s_rst <= '1';
       e_rst <= '1';
       wait until rising_edge(clk);
-      wait for 1 ns;
       s_rst <= '0';
       e_rst <= '0';
       wait until rising_edge(clk);
-      wait for 1 ns;
     end procedure;
 
     -- Wait until the monitor pipeline drains (scoreboard empty).
@@ -565,7 +563,6 @@ begin
       waited := 0;
       loop
         wait until rising_edge(clk);
-        wait for 1 ns;
         exit when pipeline = '0';
         waited := waited + 1;
         assert waited < 100000
@@ -637,7 +634,6 @@ begin
     wait_count := 0;
     loop
       wait until rising_edge(aclk);
-      wait for 1 ns;
       exit when mon_pipeline = '0';
       wait_count := wait_count + 1;
       assert wait_count < 4000 report "phase A drain timeout" severity failure;
@@ -687,7 +683,6 @@ begin
     wait_count := 0;
     loop
       wait until rising_edge(aclk);
-      wait for 1 ns;
       exit when mon_pipeline = '0';
       wait_count := wait_count + 1;
       assert wait_count < 4000 report "phase B drain timeout" severity failure;
@@ -713,11 +708,9 @@ begin
     mon_stat_rst <= '1';
     mon_err_rst  <= '1';
     wait until rising_edge(aclk);
-    wait for 1 ns;
     mon_stat_rst <= '0';
     mon_err_rst  <= '0';
     wait until rising_edge(aclk);
-    wait for 1 ns;
     assert stat_req_seen = x"00000000"
       report "C: stat_rst did not clear req_seen" severity failure;
     assert stat_xactions = x"00000000" and stat_beats = x"00000000"
@@ -761,7 +754,6 @@ begin
     wait_count := 0;
     loop
       wait until rising_edge(aclk);
-      wait for 1 ns;
       exit when err_pipeline = '0';
       wait_count := wait_count + 1;
       assert wait_count < 100 report "phase D drain timeout" severity failure;
@@ -843,11 +835,9 @@ begin
     err_stat_rst <= '1';
     err_err_rst  <= '1';
     wait until rising_edge(aclk);
-    wait for 1 ns;
     err_stat_rst <= '0';
     err_err_rst  <= '0';
     wait until rising_edge(aclk);
-    wait for 1 ns;
 
     err_enable <= '1';
     wait until rising_edge(aclk);
@@ -864,7 +854,6 @@ begin
     -- Complete the req handshake, then restore always-accept.
     err_req_ready <= '1';
     wait until rising_edge(aclk);
-    wait for 1 ns;
     err_req_valid <= '0';
     err_req_ready <= '1';
 
@@ -885,7 +874,6 @@ begin
     end loop;
 
     wait until rising_edge(aclk);
-    wait for 1 ns;
     assert to_integer(unsigned(err_stat_req_stall)) > 0
       report "F: req_stall not counted" severity failure;
     assert err_stat_req_seen = x"00000001"
@@ -913,7 +901,6 @@ begin
     end loop;
 
     wait until rising_edge(aclk);
-    wait for 1 ns;
     assert to_integer(unsigned(bp_stat_sb_backpressure)) > 0
       report "G: small monitor never saw scoreboard backpressure"
       severity failure;
@@ -1005,10 +992,8 @@ begin
     wait until rising_edge(aclk);
     mon_stat_rst <= '1';
     wait until rising_edge(aclk);
-    wait for 1 ns;
     mon_stat_rst <= '0';
     wait until rising_edge(aclk);
-    wait for 1 ns;
 
     p_rsp_burst(aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
                 rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
@@ -1049,11 +1034,9 @@ begin
     err_stat_rst <= '1';
     err_err_rst  <= '1';
     wait until rising_edge(aclk);
-    wait for 1 ns;
     err_stat_rst <= '0';
     err_err_rst  <= '0';
     wait until rising_edge(aclk);
-    wait for 1 ns;
 
     err_enable <= '1';
     wait until rising_edge(aclk);
@@ -1065,7 +1048,6 @@ begin
     rsp_w(aclk, err_rsp_valid, err_rsp_ready, err_rsp_data, err_rsp_resp,
           err_rsp_last, v_bad_data, "00", '0');
     wait until rising_edge(aclk);
-    wait for 1 ns;
     assert err_stat_data_errors = x"00000001"
       report "J: data error not detected" severity failure;
 
@@ -1074,10 +1056,8 @@ begin
     rsp_w(aclk, err_rsp_valid, err_rsp_ready, err_rsp_data, err_rsp_resp,
           err_rsp_last, v_bad_data, "00", '1');
     wait until rising_edge(aclk);
-    wait for 1 ns;
     err_err_rst <= '0';
     wait until rising_edge(aclk);
-    wait for 1 ns;
 
     assert err_stat_data_errors = x"00000000"
       report "J: err_rst did not win over coincident error" severity failure;

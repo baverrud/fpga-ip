@@ -80,19 +80,19 @@ begin
     report "=== Pushing Data ===";
 
     axis_write(aclk, s_axis_tdata, s_axis_tvalid, s_axis_tready, x"A1");
-    wait for 1 ns;
+    wait until rising_edge(aclk);
     assert fifo_count = 1
       report "FAIL: fifo_count should be 1 after 1st push, got " & integer'image(to_integer(fifo_count))
       severity error;
 
     axis_write(aclk, s_axis_tdata, s_axis_tvalid, s_axis_tready, x"B2");
-    wait for 1 ns;
+  wait until rising_edge(aclk);
     assert fifo_count = 2
       report "FAIL: fifo_count should be 2 after 2nd push, got " & integer'image(to_integer(fifo_count))
       severity error;
 
     axis_write(aclk, s_axis_tdata, s_axis_tvalid, s_axis_tready, x"C3");
-    wait for 1 ns;
+  wait until rising_edge(aclk);
 
     -- Assert full status: fifo_count must equal GC_FIFO_DEPTH
     -- and s_axis_tready must be deasserted.
@@ -125,7 +125,7 @@ begin
     report "=== Simultaneous Push-Pop (Protocol-compliant) ===";
     axis_pop (aclk, m_axis_tready, m_axis_tvalid);
     axis_write(aclk, s_axis_tdata, s_axis_tvalid, s_axis_tready, x"D4");
-    wait for 1 ns;
+    wait until rising_edge(aclk);
 
     -- Occupancy returned to 3 (popped 1 -> 2, then pushed 1 -> 3).
     assert fifo_count = 3
@@ -139,7 +139,7 @@ begin
     m_axis_tready <= '0';
     for i in 1 to 4 loop
       wait until rising_edge(aclk);
-      wait for 1 ns;
+      wait until rising_edge(aclk);
       assert m_axis_tvalid = '1'
         report "FAIL: m_axis_tvalid dropped during sustained stall"
         severity error;
@@ -160,19 +160,19 @@ begin
     assert v_data = x"B2"
       report "FAIL: Expected 0xB2, got " & integer'image(to_integer(unsigned(v_data)))
       severity error;
-    wait for 1 ns;
+    wait until rising_edge(aclk);
 
     axis_read(aclk, m_axis_tready, m_axis_tvalid, m_axis_tdata, v_data);
     assert v_data = x"C3"
       report "FAIL: Expected 0xC3, got " & integer'image(to_integer(unsigned(v_data)))
       severity error;
-    wait for 1 ns;
+    wait until rising_edge(aclk);
 
     axis_read(aclk, m_axis_tready, m_axis_tvalid, m_axis_tdata, v_data);
     assert v_data = x"D4"
       report "FAIL: Expected 0xD4, got " & integer'image(to_integer(unsigned(v_data)))
       severity error;
-    wait for 1 ns;
+    wait until rising_edge(aclk);
 
     assert fifo_count = 0
       report "FAIL: fifo_count should be 0 when empty"
@@ -192,7 +192,7 @@ begin
     m_axis_tready <= '1';
     wait until rising_edge(aclk);
     m_axis_tready <= '0';
-    wait for 1 ns;
+    wait until rising_edge(aclk);
 
     assert fifo_count = 0
       report "FAIL: fifo_count mutated during dummy read when empty!"
@@ -208,7 +208,7 @@ begin
     axis_write(aclk, s_axis_tdata, s_axis_tvalid, s_axis_tready, x"E5");
     axis_write(aclk, s_axis_tdata, s_axis_tvalid, s_axis_tready, x"F6");
     axis_write(aclk, s_axis_tdata, s_axis_tvalid, s_axis_tready, x"07");
-    wait for 1 ns;
+    wait until rising_edge(aclk);
 
     assert fifo_count = 3
       report "FAIL: Not full during corner case prep, got " & integer'image(to_integer(fifo_count))
@@ -224,7 +224,7 @@ begin
     s_axis_tdata  <= x"99";
     s_axis_tvalid <= '1';
     wait until rising_edge(aclk);
-    wait for 1 ns;
+    wait until rising_edge(aclk);
     s_axis_tvalid <= '0';
 
     assert fifo_count = 3
@@ -242,19 +242,19 @@ begin
     assert v_data = x"E5"
       report "FAIL: Expected first element to be 0xE5, got " & integer'image(to_integer(unsigned(v_data)))
       severity error;
-    wait for 1 ns;
+    wait until rising_edge(aclk);
 
     axis_read(aclk, m_axis_tready, m_axis_tvalid, m_axis_tdata, v_data);
     assert v_data = x"F6"
       report "FAIL: Expected second element to be 0xF6, got " & integer'image(to_integer(unsigned(v_data)))
       severity error;
-    wait for 1 ns;
+    wait until rising_edge(aclk);
 
     axis_read(aclk, m_axis_tready, m_axis_tvalid, m_axis_tdata, v_data);
     assert v_data = x"07"
       report "FAIL: Expected third element to be 0x07, got " & integer'image(to_integer(unsigned(v_data)))
       severity error;
-    wait for 1 ns;
+    wait until rising_edge(aclk);
 
     assert fifo_count = 0
       report "FAIL: Expected empty queue after verify drain"
@@ -269,17 +269,17 @@ begin
     report "--- CORNER CASE 3: Single-cycle Back-to-Back Transit Pipeline ---";
 
     axis_write(aclk, s_axis_tdata, s_axis_tvalid, s_axis_tready, x"11");
-    wait for 1 ns;
+  wait until rising_edge(aclk);
     axis_read(aclk, m_axis_tready, m_axis_tvalid, m_axis_tdata, v_data);
     assert v_data = x"11" report "FAIL: Transit 1 failed, expected 0x11" severity error;
-    wait for 1 ns;
+  wait until rising_edge(aclk);
     assert fifo_count = 0 report "FAIL: Transient count did not return to 0" severity error;
 
     axis_write(aclk, s_axis_tdata, s_axis_tvalid, s_axis_tready, x"22");
-    wait for 1 ns;
+  wait until rising_edge(aclk);
     axis_read(aclk, m_axis_tready, m_axis_tvalid, m_axis_tdata, v_data);
     assert v_data = x"22" report "FAIL: Transit 2 failed, expected 0x22" severity error;
-    wait for 1 ns;
+  wait until rising_edge(aclk);
     assert fifo_count = 0 report "FAIL: Transient count did not return to 0 after transit 2" severity error;
 
     -- ================================================================
@@ -289,7 +289,7 @@ begin
 
     axis_write(aclk, s_axis_tdata, s_axis_tvalid, s_axis_tready, x"5A");
     axis_write(aclk, s_axis_tdata, s_axis_tvalid, s_axis_tready, x"6B");
-    wait for 1 ns;
+    wait until rising_edge(aclk);
     assert fifo_count = 2
       report "FAIL: setup for in-flight reset expected fifo_count=2"
       severity error;
@@ -299,7 +299,7 @@ begin
     wait until rising_edge(aclk);
     aresetn <= '1';
     wait until rising_edge(aclk);
-    wait for 1 ns;
+    wait until rising_edge(aclk);
 
     assert fifo_count = 0
       report "FAIL: fifo_count should clear to 0 after in-flight reset"
@@ -316,7 +316,7 @@ begin
     assert v_data = x"77"
       report "FAIL: post-reset functional check failed (expected 0x77)"
       severity error;
-    wait for 1 ns;
+    wait until rising_edge(aclk);
     assert fifo_count = 0
       report "FAIL: fifo_count should return to 0 after post-reset push/pop"
       severity error;

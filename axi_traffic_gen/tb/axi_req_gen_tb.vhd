@@ -403,13 +403,11 @@ begin
       mon_err_rst  <= '1';
       addr_var_rst <= '1';
       wait until rising_edge(aclk);
-      wait for 1 ns;
       gen_stat_rst <= '0';
       mon_stat_rst <= '0';
       mon_err_rst  <= '0';
       addr_var_rst <= '0';
       wait until rising_edge(aclk);
-      wait for 1 ns;
     end procedure;
 
     -- Wait until the monitor pipeline drains (scoreboard empty).
@@ -421,7 +419,6 @@ begin
       waited := 0;
       loop
         wait until rising_edge(aclk);
-        wait for 1 ns;
         exit when mon_pipeline = '0';
         waited := waited + 1;
         assert waited < 500000

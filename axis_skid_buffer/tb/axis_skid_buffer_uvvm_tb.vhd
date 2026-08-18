@@ -223,7 +223,6 @@ begin
       -- Reset
       gen_pulse(aresetn, '0', aclk, 1, "Asserting reset");
       wait until rising_edge(aclk);
-      wait for 1 ns;
 
       log(ID_SEQUENCER, "");
       log(ID_SEQUENCER, "=== Seed " & integer'image(seed_num) & " ===");
@@ -296,7 +295,6 @@ begin
       -- Explicit post-reset idle checks using DUT handshake observe ports.
       for probe in 1 to 2 loop
         wait until rising_edge(aclk);
-        wait for 1 ns;
         check_value(dbg_m_valid, '0', ERROR,
                     "post-reset idle: m_axis_tvalid low (probe " & integer'image(probe) & ")");
         check_value(dbg_s_ready, '1', ERROR,

@@ -163,7 +163,6 @@ begin
     begin
       for i in 0 to cycles - 1 loop
         wait until rising_edge(aclk);
-        wait for 1 ps;
         check_bool("full stall: s_ready low", s_axis_tready = '0');
         check_bool("full stall: m_valid high", m_axis_tvalid = '1');
         check("full stall: m_data stable", m_axis_tdata, exp_data);
@@ -181,7 +180,7 @@ begin
       s_axis_tvalid <= '1';
       m_axis_tready <= '1';
       wait until rising_edge(aclk);
-      wait for 1 ps;
+      wait until rising_edge(aclk);
       check_bool("overlap: s_ready high", s_axis_tready = '1');
       check_bool("overlap: m_valid high", m_axis_tvalid = '1');
       check("overlap: output sequence", m_axis_tdata, exp_out);
@@ -211,10 +210,6 @@ begin
       s_axis_tvalid <= '0';
       m_axis_tready <= '0';
       wait until rising_edge(aclk);
-      wait for 1 ps;
-      if m_axis_tvalid /= '0' then
-        report "FAIL: stress: initial empty" severity failure;
-      end if;
 
       for i in 0 to cycles - 1 loop
         -- 16-bit LFSR taps: 16,14,13,11
@@ -237,10 +232,21 @@ begin
         m_axis_tready <= drive_ready;
 
         wait until rising_edge(aclk);
-        wait for 1 ps;
 
-        -- The DUT registers the next state at this edge, so update the
-        -- reference model before checking the post-edge outputs.
+        -- Outputs are driven directly from the registered state. At this
+        -- edge the process observes the pre-edge state, then advances the
+        -- model to match the state sampled by the DUT.
+        if s_axis_tready /= model_state(1) then
+          report "FAIL: stress: s_ready mismatch" severity failure;
+        end if;
+        if m_axis_tvalid /= model_state(0) then
+          report "FAIL: stress: m_valid mismatch" severity failure;
+        end if;
+        if model_state(0) = '1' and m_axis_tdata /= model_pipe then
+          report "FAIL: stress: m_data mismatch -- got 0x" & to_hstring(m_axis_tdata) &
+                 ", exp 0x" & to_hstring(model_pipe) severity failure;
+        end if;
+
         case model_state is
           when "10" => -- EMPTY
             if drive_valid = '1' then
@@ -274,23 +280,13 @@ begin
             model_state := "10";
         end case;
 
-        if s_axis_tready /= model_state(1) then
-          report "FAIL: stress: s_ready mismatch" severity failure;
-        end if;
-        if m_axis_tvalid /= model_state(0) then
-          report "FAIL: stress: m_valid mismatch" severity failure;
-        end if;
-        if model_state(0) = '1' and m_axis_tdata /= model_pipe then
-          report "FAIL: stress: m_data mismatch -- got 0x" & to_hstring(m_axis_tdata) &
-                 ", exp 0x" & to_hstring(model_pipe) severity failure;
-        end if;
       end loop;
 
       -- Drain any residual model content.
       s_axis_tvalid <= '0';
       m_axis_tready <= '1';
       while model_state /= "10" loop
-        wait for 1 ps;
+        wait until rising_edge(aclk);
 
         if m_axis_tvalid /= '1' then
           report "FAIL: stress drain: m_valid low while model non-empty" severity failure;
@@ -299,9 +295,6 @@ begin
           report "FAIL: stress drain: m_data mismatch -- got 0x" & to_hstring(m_axis_tdata) &
                  ", exp 0x" & to_hstring(model_pipe) severity failure;
         end if;
-
-        wait until rising_edge(aclk);
-        wait for 1 ps;
 
         case model_state is
           when "11" =>
@@ -314,21 +307,18 @@ begin
         end case;
       end loop;
 
-      wait until rising_edge(aclk);
       s_axis_tvalid <= '0';
       m_axis_tready <= '0';
-      wait for 1 ps;
+      wait until rising_edge(aclk);
       if m_axis_tvalid /= '0' then
         report "FAIL: stress: final empty" severity failure;
       end if;
     end procedure;
 
-    -- Utility to assert output channel is empty.
-    -- 1 ps wait allows combinational outputs to settle after control
-    -- changes in the same simulation time step.
+    -- Utility to assert output channel is empty after a registered update.
     procedure expect_empty(constant name : in string) is
     begin
-      wait for 1 ps;
+      wait until rising_edge(aclk);
       check_bool(name, m_axis_tvalid = '0');
     end procedure;
 

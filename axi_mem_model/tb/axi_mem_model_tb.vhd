@@ -216,7 +216,6 @@ begin
       ar_valid(idx) <= '1';
       for cycle in 1 to C_WAIT_TIMEOUT loop
         wait until rising_edge(aclk);
-        wait for 1 ns;
         if ar_ready(idx) = '1' then
           accepted := true;
           exit;
@@ -286,7 +285,6 @@ begin
         received := false;
         for cycle in 1 to C_WAIT_TIMEOUT loop
           wait until rising_edge(aclk);
-          wait for 1 ns;
           if r_valid(idx) = '1' then
             received := true;
             exit;
@@ -315,7 +313,6 @@ begin
         -- between the previous AR operation and this check.
         r_ready(idx) <= '1';
         wait until rising_edge(aclk);
-        wait for 1 ns;
         r_ready(idx) <= '0';
       end loop;
       r_ready(idx) <= '1';
@@ -421,7 +418,6 @@ begin
       final_seen := false;
       for wait_idx in 1 to C_WAIT_TIMEOUT loop
         wait until rising_edge(aclk);
-        wait for 1 ns;
         if r_valid(idx) = '1' and r_last(idx) = '1' then
           final_seen := true;
           exit;
@@ -451,7 +447,6 @@ begin
       r_ready(idx) <= '1';
       for wait_idx in 1 to C_WAIT_TIMEOUT loop
         wait until rising_edge(aclk);
-        wait for 1 ns;
         exit when ar_ready(idx) = '1';
         if wait_idx = C_WAIT_TIMEOUT then
           report tag & " TIMEOUT waiting for pending ARREADY" severity failure;
@@ -468,7 +463,6 @@ begin
       send_ar(idx, X"9", X"00009000", X"00", tag);
       for i in 0 to 60 loop
         wait until rising_edge(aclk);
-        wait for 1 ns;
         if r_valid(idx) = '1' then exit; end if;
       end loop;
       if r_valid(idx) = '0' then
@@ -491,7 +485,6 @@ begin
       send_ar(idx, X"E", X"0000E000", X"03", tag);
       for wait_idx in 1 to C_WAIT_TIMEOUT loop
         wait until rising_edge(aclk);
-        wait for 1 ns;
         exit when r_valid(idx) = '1';
         if wait_idx = C_WAIT_TIMEOUT then
           report tag & " TIMEOUT waiting for reset-test RVALID" severity failure;
