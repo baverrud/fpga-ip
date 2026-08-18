@@ -37,7 +37,9 @@ The client ARLEN width is derived as
 The data-byte ratio must be an integral power of two. The core native AR port
 exposes the dynamic signals (`ar_id`, `ar_addr`, `ar_len`, `ar_valid`,
 `ar_ready`). ARSIZE, ARBURST, and the other AXI sidebands are constants tied
-by the AXI-facing wrapper or consumer, matching a real AXI_HP port.
+by the AXI-facing wrapper or consumer, matching a real AXI_HP port. The
+`axi_read_bridge_top` wrapper exposes the derived `ar_size` at that AXI
+boundary; the core `axi_read_bridge` entity does not.
 
 ## Client interface
 

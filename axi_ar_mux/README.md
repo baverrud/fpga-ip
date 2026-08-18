@@ -359,11 +359,13 @@ axi_ar_mux #(
 );
 ```
 
-`rtl/axi_ar_mux_top.vhd` / `rtl/axi_ar_mux_top.sv` expose the same ports
-with the 4-client, 32-bit-address, 4-bit-ID, depth-32 defaults, for use as
-a standalone synthesis top. The SV wrapper binds the VHDL array ports as
-packed arrays (client index in the outer dimension) and explicitly reverses
-the packed outer dimension so SV client index 0 maps to VHDL client index 0.
+`rtl/axi_ar_mux_top.vhd` / `rtl/axi_ar_mux_top.sv` provide a standalone
+synthesis wrapper with the 4-client, 32-bit-address, 4-bit-ID, depth-32
+defaults. The wrapper converts client-domain `ARLEN` to native `ARLEN` and
+adds the fixed AXI-facing `ar_size` and `ar_burst` outputs. The SV wrapper
+binds the VHDL array ports as packed arrays (client index in the outer
+dimension) and explicitly reverses the packed outer dimension so SV client
+index 0 maps to VHDL client index 0.
 
 ## Running the Testbench
 
