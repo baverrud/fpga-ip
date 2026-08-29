@@ -103,6 +103,28 @@ package axi3_pkg is
   end view;
   alias slave_axi3 is master_axi3'converse;
 
+  -- Constrained AXI3 HP record for Zynq-7000: ID=6, ADDR=32, DATA=64.
+  -- User sidebands absent from the wrapper are stubbed to 1 bit.
+  subtype axi3_hp_t is axi3_t (
+    awid  ( 5 downto 0),
+    awaddr(31 downto 0),
+    awuser( 0 downto 0),
+    wid   ( 5 downto 0),
+    wdata (63 downto 0),
+    wstrb ( 7 downto 0),
+    wuser ( 0 downto 0),
+    bid   ( 5 downto 0),
+    buser ( 0 downto 0),
+    arid  ( 5 downto 0),
+    araddr(31 downto 0),
+    aruser( 0 downto 0),
+    rid   ( 5 downto 0),
+    rdata (63 downto 0),
+    ruser ( 0 downto 0)
+  );
+
+  type axi3_hp_array_t is array (natural range <>) of axi3_hp_t;
+
   -- ===================================================================
   -- Per-channel records (<=4 unconstrained elements each)
   -- ===================================================================

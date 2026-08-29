@@ -99,10 +99,11 @@ package axi4_pkg is
   alias slave_axi4 is master_axi4'converse;
 
   -- ===================================================================
-  -- Constrained subtype -- Zynq MPSoC AXI4 slave (ID=6, ADDR=49, DATA=128)
+  -- Constrained subtype -- Zynq MPSoC AXI4 high-performance slave
+  -- (ID=6, ADDR=49, DATA=128)
   -- ===================================================================
   -- Matches S_AXI_HP0_FPD through S_AXI_HP3_FPD, S_AXI_HPC0_FPD,
-  -- S_AXI_HPC1_FPD, and S_AXI_LPD in the ZCU104 block design wrapper.
+  -- S_AXI_HPC1_FPD and S_AXI_LPD high-performance slave interfaces.
   -- All user sidebands are stubbed to 1-bit (0 downto 0).
   --
   -- The `master`/`slave` views of axi4_t apply directly -- no new views
@@ -130,9 +131,10 @@ package axi4_pkg is
   type axi4_hp_array_t is array (natural range <>) of axi4_hp_t;
 
   -- ===================================================================
-  -- Constrained subtype -- Zynq MPSoC AXI4 HPM FPD master (ID=16, ADDR=40, DATA=128)
+  -- Constrained subtype -- Zynq MPSoC AXI4 HPM FPD master
+  -- (ID=16, ADDR=40, DATA=128)
   -- ===================================================================
-  -- Matches M_AXI_HPM0_FPD in the ZCU104 block design wrapper.
+  -- Matches a 40-bit address, 128-bit data HPM FPD interface.
   -- W/B/R channel user sidebands not present in wrapper -- stubbed to 1-bit.
   -- ===================================================================
 
@@ -154,9 +156,10 @@ package axi4_pkg is
   );
 
   -- ===================================================================
-  -- Constrained subtype -- Zynq MPSoC AXI4 HPM LPD master (ID=16, ADDR=40, DATA=32)
+  -- Constrained subtype -- Zynq MPSoC AXI4 HPM LPD master
+  -- (ID=16, ADDR=40, DATA=32)
   -- ===================================================================
-  -- Matches M_AXI_HPM0_LPD in the ZCU104 block design wrapper.
+  -- Matches a 40-bit address, 32-bit data HPM LPD interface.
   -- W/B/R channel user sidebands not present in wrapper -- stubbed to 1-bit.
   -- ===================================================================
 

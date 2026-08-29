@@ -78,6 +78,18 @@ package axilite_pkg is
   );
 
   -- ===================================================================
+  -- Constrained subtype -- Zynq-7000 AXI4-Lite (32-bit addr, 32-bit data)
+  -- ===================================================================
+
+  subtype axilite_m32_t is axilite_t (
+    awaddr(31 downto 0),
+    wdata (31 downto 0),
+    wstrb ( 3 downto 0),
+    araddr(31 downto 0),
+    rdata (31 downto 0)
+  );
+
+  -- ===================================================================
   -- Array type for multi-bus designs
   -- ===================================================================
   -- Use for internal signals in top-level designs.  The mode view
@@ -87,6 +99,7 @@ package axilite_pkg is
   -- ===================================================================
 
   type axilite_m40_array_t is array (natural range <>) of axilite_m40_t;
+  type axilite_m32_array_t is array (natural range <>) of axilite_m32_t;
 
   -- ===================================================================
   -- AXI4-Lite BFM helpers (M40 bus + 16-bit register map window)
