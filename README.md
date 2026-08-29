@@ -28,8 +28,8 @@ run all all all                  # Sweep: every IP/manifest/tool, batch
 run clean axis_fifo              # Remove axis_fifo/.runs/ build artifacts
 ```
 
-- Windows: `run` is `run.bat` (thin wrapper around `python run.py`).
-- Linux: use `python3 run.py ...` with the same arguments.
+- Windows: `run` is `run.bat` (thin wrapper around `python tools/run.py`).
+- Linux: use `python3 tools/run.py ...` with the same arguments.
 - The EDA tools must be on `PATH`; no machine-specific paths are referenced
   by any script in this repository.
 
@@ -42,8 +42,7 @@ For every command, option, mode, and workflow, see the
 
 ```text
 fpga-ip/
-├── run.py                     # The single manifest runner (all tools)
-├── run.bat                    # Windows entry point for run.py
+├── run.bat                    # Windows entry point for tools/run.py
 ├── tool_capabilities.ini      # Machine-parsed EDA tool capabilities
 ├── toolchains.ini.example     # Example machine-local tool setup (gitignored real file)
 ├── README.md                  # This file: overview + index
@@ -79,6 +78,8 @@ every run, removed by `run clean <ip>`).
 | [axis_load_balancer](axis_load_balancer/README.md) | `axis_load_balancer/` | Packet-aware AXI4-Stream load balancer; selects the lowest-fill output data FIFO and keeps each packet on its selected channel. |
 | [pulse_extender](pulse_extender/README.md) | `pulse_extender/` | Level-triggered pulse extender. A high on `trigger` sampled at a rising edge while idle drives `pulse_out` high for a configurable number of clock cycles. |
 | [axi_mem_model](axi_mem_model/README.md) | `axi_mem_model/` | AXI3/AXI4 read-slave that models DRAM-like latency and inter-beat gaps. Configurable widths (1-128 B), zero-latency mode, 1/cycle throughput. |
+| [axi_ar_mux](axi_ar_mux/README.md) | `axi_ar_mux/` | Credit-based AXI4 read-address multiplexer with fair round-robin arbitration for multiple clients. |
+| [axi_read_bridge](axi_read_bridge/README.md) | `axi_read_bridge/` | Multi-client native AXI read path with request/response conversion and clock-domain crossing. |
 | [axi_monitor](axi_monitor/README.md) | `axi_monitor/` | Passive client read-transaction monitor for the `req_*` / `rsp_*` interfaces (no ID). Taps a client of `axi_read_bridge`, validates every rsp beat against a scoreboard, and accumulates transaction, latency, burst-length, and protocol-error statistics. |
 | [axi_read_tester](axi_read_tester/README.md) | `axi_read_tester/` | Synthesizable multi-client AXI read-path tester: shared `axi_read_bridge` plus per-client `axi_req_gen` / `axi_monitor` / `axilite_io` slices, exposed as a native AXI read master. Silicon read-path test/diagnostic engine (not a testbench). |
 | [axi_r_demux](axi_r_demux/README.md) | `axi_r_demux/` | AXI4 read-data channel demultiplexer with per-client elastic FIFOs. 4 clients, 32-bit, depth-32 default; 250 MHz. |
@@ -92,7 +93,7 @@ every run, removed by `run clean <ip>`).
 | Document | What it covers |
 |----------|----------------|
 | [User Manual](doc/user-manual.md) | All `run.py` commands, modes, build directories, sweeps, exit codes, troubleshooting |
-| [HDL Format Guide](doc/hdl-format-guide.md) | `hdl-format.py` styles, wrapper formatting, README code blocks, and validation options |
+| [hdltool Guide](doc/hdltool.md) | HDL formatting, wrapper analysis, name maps, shim generation, and validation options |
 | [.f Manifest Format](doc/f-manifest-spec.md) | The `.f` file format used by `<ip>/scripts/*.f` |
 | [tool_capabilities.ini](doc/tool-capabilities-spec.md) | How tools and their capability features are declared |
 | [toolchains.ini](doc/toolchains-spec.md) | Machine-local tool setup registry (per-machine, gitignored) |

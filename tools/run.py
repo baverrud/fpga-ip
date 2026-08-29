@@ -97,7 +97,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent          # fpga-ip repo root
+REPO_ROOT = Path(__file__).resolve().parents[1]      # fpga-ip repo root
 INI_PATH = REPO_ROOT / "tool_capabilities.ini"        # tool capability profiles
 RUNS_DIRNAME = ".runs"                                # disposable per-tool build dirs
 TOOLCHAINS_ENV = "FPGA_IP_TOOLCHAINS"                 # optional local config path

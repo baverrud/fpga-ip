@@ -20,7 +20,7 @@ The canonical command:
 run <ip> <manifest> <tool> [--tb <testbench>] [mode]
 ```
 
-Python equivalent: `python run.py <ip> <manifest> <tool> [...]`.
+Python equivalent: `python tools/run.py <ip> <manifest> <tool> [...]`.
 
 ### Arguments
 

@@ -16,5 +16,5 @@ REM
 REM run.py is the only launcher (the legacy run_legacy.bat / common/scripts
 REM stack was removed after the migration).
 REM ===========================================================================
-python "%~dp0run.py" %*
+python "%~dp0tools\run.py" %*
 exit /b %ERRORLEVEL%

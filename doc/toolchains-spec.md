@@ -27,7 +27,7 @@ names and installation paths differ per machine. A template is provided as
 Lookup precedence:
 
 1. The file named by `FPGA_IP_TOOLCHAINS`.
-2. Ignored repository-local `toolchains.ini` (beside `run.py`).
+2. Ignored repository-local `toolchains.ini` in the repository root.
 3. `%APPDATA%/fpga-ip/toolchains.ini` on Windows.
 4. `~/.config/fpga-ip/toolchains.ini` on other systems.
 5. The current process environment if no registry is available.

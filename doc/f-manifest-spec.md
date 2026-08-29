@@ -94,7 +94,7 @@ Rules:
 ### 2.4 File entries
 
 A file entry is a path relative to the **repository root** (the directory
-containing `run.py` and `tool_capabilities.ini`), optionally followed by
+containing `tool_capabilities.ini` and the `tools/` directory), optionally followed by
 space-separated `key=value` attributes:
 
 ```text
