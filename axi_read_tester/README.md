@@ -43,7 +43,7 @@ observe engine.
 | Generic              | Default | Description |
 |----------------------|---------|-------------|
 | `GC_NUM_CLIENTS`     | 4    | Number of client slices. |
-| `GC_ADDR_WIDTH`      | 32   | Address width. |
+| `GC_ADDR_WIDTH`      | 32   | Address width (`axi_read_tester_array` defaults to 49). |
 | `GC_ID_WIDTH`        | 4    | Native AR/R ID width; must encode `GC_NUM_CLIENTS`. |
 | `GC_CLIENT_DATA_BYTES` | 64 | Client beat width (bytes). |
 | `GC_NATIVE_DATA_BYTES` | 16 | Native beat width (bytes). |
@@ -63,9 +63,10 @@ observe engine.
   domains (the bridge crosses between them; they may be the same clock).
 - **Per-client AXI4-Lite slave** (`s_axi_*`) - register config/status, 16-bit
   address, 32-bit data, indexed by client.
-- **`aperture`, `stat_rst`, `err_rst`** - per-client external control
-  (measurement window, clear statistics, clear monitor error counters). Not
-  register-backed, so an array of these testers can share common control.
+- **`aperture`, `stat_rst`, `err_rst`** - global external controls for all
+  client slices in one tester (measurement window, clear statistics, clear
+  monitor error counters). Not register-backed, so an array of testers can
+  share common control.
 - **`global_time`** - shared unsigned time reference feeding the monitor
   latency statistics.
 - **`pipeline_busy`** - per-client monitor busy status (0 = drained).
@@ -102,6 +103,17 @@ Each slave uses the standard `axilite_io` register map (see below).
 - `global_time`, `aperture`, `stat_rst`, `err_rst` are generated/shared inside
   the top (all testers see the same values).
 - Native read masters `ar_*` / `r_*` are arrayed, one per tester.
+
+## Direct tester array wrapper
+
+`axi_read_tester_array.vhd` is a thin wrapper that directly instantiates
+`GC_NUM_TESTERS` copies of `axi_read_tester`. It has defaults of **4 tester
+cores**, `GC_ADDR_WIDTH = 49`, and `GC_ID_WIDTH = 6`. Unlike
+`axi_read_tester_top`, it does not
+add a local global `axilite_io`; all AXI4-Lite client ports are flattened with
+index `tester * GC_NUM_CLIENTS + client`. Its scalar `aperture`, `stat_rst`,
+`err_rst`, and `global_time` inputs are shared by every tester and client.
+Native AXI read channels are arrayed one per tester.
 
 ## Per-client Register Map (via `axilite_io`)
 
