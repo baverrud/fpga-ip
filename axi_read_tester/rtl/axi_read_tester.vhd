@@ -52,7 +52,7 @@ entity axi_read_tester is
     GC_CLIENT_FIFO_DEPTH : positive range 2 to positive'high := 32;
     GC_CDC_DEPTH         : positive range 2 to 1024 := 8;
     GC_SYNC_STAGES       : positive range 2 to 4 := 2;
-    GC_MON_SB_DEPTH      : positive := 256;     -- per-client monitor scoreboard depth
+    GC_MON_SB_DEPTH      : positive := 32;     -- per-client monitor scoreboard depth
     GC_MON_TIME_WIDTH    : positive := 48       -- global_time counter width
   );
   port (
@@ -88,11 +88,10 @@ entity axi_read_tester is
     -- o_data[5] bit 0.
     led : out std_logic_vector(0 to GC_NUM_CLIENTS-1);
 
-    -- External per-client control (not register-backed, so an array of these
-    -- testers shares common control signals):
-    aperture : in std_logic_vector(0 to GC_NUM_CLIENTS-1);  -- measurement window
-    stat_rst : in std_logic_vector(0 to GC_NUM_CLIENTS-1);  -- clears statistics
-    err_rst  : in std_logic_vector(0 to GC_NUM_CLIENTS-1);  -- clears monitor error counters
+    -- Global external control for all client slices.
+    aperture : in std_logic;  -- measurement window
+    stat_rst : in std_logic;  -- clears statistics
+    err_rst  : in std_logic;  -- clears monitor error counters
 
     -- Shared global time reference (feeds the monitor latency statistics)
     global_time : in unsigned(GC_MON_TIME_WIDTH-1 downto 0);
@@ -338,8 +337,8 @@ begin
         aclk    => aclk,
         aresetn => aresetn,
         enable   => enable,
-        aperture => aperture(i),
-        stat_rst => stat_rst(i),
+        aperture => aperture,
+        stat_rst => stat_rst,
         cfg_req_len    => cfg_req_len,
         cfg_len_mode   => cfg_len_mode,
         cfg_max_len    => cfg_max_len,
@@ -371,8 +370,8 @@ begin
         aresetn     => aresetn,
         global_time => global_time,
         enable        => mon_enable,
-        stat_rst      => stat_rst(i),
-        err_rst       => err_rst(i),
+        stat_rst      => stat_rst,
+        err_rst       => err_rst,
         data_check_en => data_check_en,
         pipeline_busy => pipeline_busy(i),
         req_valid => gen_req_valid(i),

@@ -56,10 +56,10 @@ architecture sim of axi_read_tester_tb is
   signal pipeline_busy : std_logic_vector(0 to C_NUM_CLIENTS-1);
   signal led           : std_logic_vector(0 to C_NUM_CLIENTS-1);
 
-  -- External per-client control / shared time reference
-  signal aperture   : std_logic_vector(0 to C_NUM_CLIENTS-1) := (others => '0');
-  signal stat_rst   : std_logic_vector(0 to C_NUM_CLIENTS-1) := (others => '0');
-  signal err_rst    : std_logic_vector(0 to C_NUM_CLIENTS-1) := (others => '0');
+  -- Global external control / shared time reference
+  signal aperture   : std_logic := '0';
+  signal stat_rst   : std_logic := '0';
+  signal err_rst    : std_logic := '0';
   signal global_time : unsigned(47 downto 0) := (others => '0');
 
   -- Native AXI master (to axi_mem_model)
@@ -260,7 +260,7 @@ begin
     -- pace, base address 0x0, 64 KiB range, 1-beat requests.  The aperture
     -- and stat_rst/err_rst are external per-client inputs (drive them
     -- separately).
-    aperture(0) <= '1';
+    aperture <= '1';
     p_axil_write(x"0000", x"00000009");  -- o_data[0]: enable, mon_enable
     p_axil_write(x"0004", x"00000000");  -- o_data[1]: cfg_pace = 0 (line rate)
     p_axil_write(x"0008", x"00000000");  -- o_data[2]: cfg_pace_init = 0

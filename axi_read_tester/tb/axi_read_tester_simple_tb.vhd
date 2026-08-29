@@ -58,12 +58,12 @@ architecture sim of axi_read_tester_simple_tb is
   signal s_axi_rvalid  : std_logic_vector(0 to C_NUM_CLIENTS-1);
   signal s_axi_rready  : std_logic_vector(0 to C_NUM_CLIENTS-1);
 
-  -- Per-client status / external control
+  -- Per-client status / global external control
   signal pipeline_busy : std_logic_vector(0 to C_NUM_CLIENTS-1);
   signal led           : std_logic_vector(0 to C_NUM_CLIENTS-1);
-  signal aperture      : std_logic_vector(0 to C_NUM_CLIENTS-1);
-  signal stat_rst      : std_logic_vector(0 to C_NUM_CLIENTS-1);
-  signal err_rst       : std_logic_vector(0 to C_NUM_CLIENTS-1);
+  signal aperture      : std_logic := '0';
+  signal stat_rst      : std_logic := '0';
+  signal err_rst       : std_logic := '0';
 
   -- Native AXI read master (tester -> memory model); the tester drives
   -- these, so the TB only observes them.
@@ -292,15 +292,15 @@ begin
     s_axi_arprot(0)  <= (others => '0');
     s_axi_arvalid(0) <= '0';
     s_axi_rready(0)  <= '0';
-    aperture(0)      <= '0';
-    stat_rst(0)      <= '0';
-    err_rst(0)       <= '0';
+    aperture         <= '0';
+    stat_rst         <= '0';
+    err_rst          <= '0';
     wait until rising_edge(aclk);
 
     -- 3) USER SMOKE-TEST AREA (write your own stimulus/checks here).
     -- ==================================================================
     --  Example: configure client 0 and open the aperture.
-    --    aperture(0) <= '1';
+    --    aperture <= '1';
     --    p_axil_write(x"0000", x"00000009");  -- o_data[0]: enable, mon_enable
     --    p_axil_write(x"0004", x"00000000");  -- o_data[1]: cfg_pace = 0
     --    p_axil_write(x"0008", x"00000000");  -- o_data[2]: cfg_pace_init = 0
