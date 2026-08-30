@@ -28,6 +28,8 @@
 #   (3) This file is an integration template. Apply it from the top-level
 #       Vivado project after clocks and the implemented hierarchy exist.
 #   For non-Vivado tools, express the same constraints in SDC.
+#   See VIVADO_GUI_QUICK_START.md for minimal setup and
+#   AXIS_CDC_CONSTRAINTS.md for detailed explanations and a worked example.
 #
 # Author           : Rune Baeverrud
 # Licensing        : Zero-Clause BSD (0BSD)

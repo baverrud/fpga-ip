@@ -4,9 +4,11 @@ AXI4-Stream clock-domain converter (CDC) using a Gray-pointer asynchronous
 FIFO core.
 
 Transfers an AXI4-Stream from the source clock domain (`s_axis_aclk`) to
-the destination clock domain (`m_axis_aclk`) with **line-rate throughput**
-(one word per clock on each side) regardless of the clock relationship
-between the domains. The internal buffer is small and configurable.
+the destination clock domain (`m_axis_aclk`). With sufficient FIFO depth it
+sustains the slower side's **line-rate throughput** for unrelated, equal,
+faster-source, or faster-destination clocks. Small legal depths remain safe
+but can insert bubbles because synchronized pointers reduce immediately
+usable capacity.
 
 ## Overview
 
@@ -16,7 +18,8 @@ destination clock. Only the **Gray-coded pointers** cross the boundary,
 each re-timed through a 2..4 flip-flop synchronizer chain. Because the
 pointers are the only cross-domain signals and they are safe by
 construction (Gray code changes one bit per increment), the data plane is
-fully decoupled and runs at line rate in both domains.
+fully decoupled. The default depth is sized for line-rate operation in the
+committed clock-ratio and synchronizer-stage regressions.
 
 The FIFO depth is a power-of-two generic (`GC_CDC_DEPTH`, default 8).
 Pick the smallest depth that covers your throughput and burst needs. The
@@ -27,7 +30,8 @@ LUTs; keep it small.
 ### When to use this
 
 - You need to cross a data stream between unrelated clocks at high rate.
-- The source or destination runs at line rate (valid/ready, no bubbles).
+- The source or destination must run at line rate and the FIFO can be sized
+  for the clock ratio and synchronizer latency.
 - The clocks may have any relationship: faster source, faster
   destination, equal, or fully asynchronous.
 
@@ -59,7 +63,7 @@ chain. Data crosses through the dual-port RAM itself.
 | Generic          | Range          | Default | Description |
 |------------------|----------------|---------|-------------|
 | `GC_TDATA_WIDTH` | `positive`     | 32      | Width of the AXI-Stream payload word. |
-| `GC_CDC_DEPTH`   | `2 to 1024`    | 8       | FIFO depth (must be a power of two). The FWFT combinational read always infers distributed RAM, so keep it small. |
+| `GC_CDC_DEPTH`   | `2 to 1024`    | 8       | FIFO depth (must be a power of two). Depths 2 and 4 are safe but can insert throughput bubbles. The FWFT combinational read always infers distributed RAM, so keep it small. |
 | `GC_SYNC_STAGES` | `2 to 4`       | 2       | Flip-flops per pointer synchronizer chain. More stages raise MTBF at the cost of a few cycles of fill/drain latency. |
 
 ## Ports
@@ -110,7 +114,7 @@ mechanisms:
      assert early after a remote read, but the source never writes beyond
      the FIFO capacity.
    - `m_axis_tvalid` is the **not-empty** check against the synchronized
-     write pointer. Because that pointer lags, empty asserts late - the
+     write pointer. Because that pointer lags, empty deasserts late - the
      sink waits a few cycles while words are already in flight, so
      underflow is impossible.
 
@@ -169,9 +173,23 @@ between the unrelated clocks while still bounding the routed bus delay.
 not included in the standalone `vhdl.f` synthesis manifest because that flow
 does not know the real top-level clock objects or final hierarchy.
 
-1. Add the CDC RTL and the XDC to the integrating Vivado project. In a
-   project flow, add the XDC to the active `constrs_1` constraint set. In a
-   non-project flow, read it from the top-level Tcl script after synthesis:
+The constraints folder also contains a complete reusable integration example:
+
+- `constraints/axis_cdc_multi_instance_example.xdc`
+- `constraints/axis_cdc_impl_hook_example.tcl`
+- `constraints/axis_cdc_find_hierarchy.tcl`
+- `constraints/AXIS_CDC_CONSTRAINTS.md`
+- `constraints/VIVADO_GUI_QUICK_START.md`
+
+Start with `VIVADO_GUI_QUICK_START.md`. Use `AXIS_CDC_CONSTRAINTS.md` when
+adapting clocks, hierarchy, instance count, or FIFO depth.
+
+1. Add the CDC RTL to the integrating Vivado project. Copy and adapt either
+  the single-instance XDC template or the worked multi-instance example. A
+  hierarchical XDC must be read after `link_design`, when the clock objects
+  and synthesized cells exist. In a GUI project, use the `opt_design` pre-
+  hook procedure documented in the quick start. In a non-project flow, read
+  the XDC after synthesis and design linking:
 
    ```tcl
    synth_design -top my_top -part <part>
@@ -299,8 +317,8 @@ the tool:
    flip-flop; only the chain output is used.
 2. **Single fan-out of the asynchronous input.** Only stage 0 samples the
    Gray pointer bits from the other domain.
-3. **`ASYNC_REG` is set in RTL** and the XDC false-paths keep the tool
-   from re-timing or merging the chain.
+3. **`ASYNC_REG` is set in RTL** to preserve and cluster synchronizer
+  stages. The XDC max-delay constraints separately bound Gray-bus routing.
 4. **Release the shared reset.** With both domains out of reset the link is
   fully functional; the flags are conservative and cannot corrupt data.
 
@@ -311,7 +329,7 @@ the tool:
 - **No overflow:** the write side accepts the final free slot, then
   deasserts ready while the synchronized read pointer catches up.
 - **No underflow:** the read side only asserts valid when the pointers
-  differ (empty asserts late against a lagging write pointer).
+  differ (empty deasserts late against a lagging write pointer).
 - **No deadlock under backpressure:** a stalled consumer back-pressures
   through `s_axis_tready`; nothing is dropped.
 - **Recovery after reset:** the shared reset returns both pointers to a
@@ -320,13 +338,13 @@ the tool:
 
 ## Latency and Throughput
 
-- **Throughput:** one word per clock on each side (line rate), sustained,
-  for any clock ratio. This is the defining feature of the async FIFO
-  CDC.
+- **Throughput ceiling:** one word per clock on each side. The sustained
+  rate cannot exceed the slower side and reaches that ceiling only when FIFO
+  depth is sufficient for the clock ratio and synchronizer round-trip delay.
 - **Latency:** fill latency is roughly `GC_SYNC_STAGES + 2` destination
-  clocks (empty flag release) plus the FWFT read. Steady-state throughput
-  is unaffected as long as `GC_CDC_DEPTH` is at least a few entries
-  (depth >= 4 recommended).
+  clocks (empty flag release) plus the FWFT read. Depths 2 and 4 are useful
+  for area-limited, intermittent traffic but showed bubbles in the committed
+  line-rate scenario. Depth 8 is the tested throughput default.
 
 ### Clock ratio, sustained rate and FIFO depth
 
@@ -360,8 +378,11 @@ ratio**; the practical limits are rate and depth:
   domain can leave reset between clock edges.
 - The RAM itself needs no reset; its contents are only read when the pointers
   say data is valid.
-- Reset always flushes in-flight data. The upstream source must hold
-  `s_axis_tvalid` low until reset is released.
+- Reset always flushes in-flight data. Transfers are disabled while reset is
+  active; upstream logic must not rely on data presented during reset.
+- `s_axis_tready` and `m_axis_tvalid` clear asynchronously when `aresetn`
+  asserts. The regression checks this while data is queued and the output is
+  stalled.
 
 ## Instantiation
 
@@ -475,22 +496,33 @@ run axis_cdc vhdl modelsim --tb rev    # reverse direction (destination faster)
 run axis_cdc vhdl modelsim --tb wide   # wide payload (512 bits)
 run axis_cdc vhdl modelsim --tb all    # every configured testbench, one run each
 run axis_cdc vhdl vivado               # Vivado synthesis
+run axis_cdc sv vivado                  # mixed-language SV-wrapper synthesis
 run axis_cdc vhdl xsim                 # XSim simulation (default TB)
 ```
 
 The single testbench file (`tb/axis_cdc_tb.vhd`) is parameterized by generics
-for the DUT (`GC_TDATA_WIDTH`, `GC_CDC_DEPTH`, `GC_SYNC_STAGES`) and the
-clock periods (`GC_TS`, `GC_TM`). The manifest runs several configurations of
-the same file:
+for payload width, FIFO depth, synchronizer stages, clock periods, and whether
+the selected configuration is expected to sustain line rate. `scripts/vhdl.f`
+runs these committed configurations:
 
-- `[tb:default]` (16-bit, source faster) proves **destination line rate**.
-- `[tb:rev]` (destination faster) proves **source line rate** - the source
-  must accept one word per source clock with no backpressure. The `[tb:rev]`
-  section overrides the clock periods via the manifest `generics` metadata,
-  which `run.py` passes to `vsim` as `-gGC_TS=13ns -gGC_TM=10ns` (and to
-  XSim's `xelab` as `-generic_top`).
-- `[tb:wide]` runs the same regression with a 512-bit payload
-  (`-gGC_TDATA_WIDTH=512`); all four phases are verified at the wide width.
+| Test | Width | Depth | Sync stages | Source / destination period | Line-rate assertion |
+|---|---:|---:|---:|---|---|
+| `default` | 16 | 8 | 2 | 10 ns / 13 ns | Destination |
+| `rev` | 16 | 8 | 2 | 13 ns / 10 ns | Source |
+| `wide` | 512 | 8 | 2 | 10 ns / 13 ns | Destination |
+| `narrow` | 1 | 8 | 2 | 10 ns / 13 ns | Destination |
+| `depth2` | 16 | 2 | 2 | 10 ns / 13 ns | Disabled; integrity only |
+| `depth4` | 16 | 4 | 2 | 10 ns / 13 ns | Disabled; integrity only |
+| `depth16` | 16 | 16 | 2 | 10 ns / 13 ns | Destination |
+| `sync3` | 16 | 8 | 3 | 10 ns / 13 ns | Destination |
+| `sync4` | 16 | 8 | 4 | 10 ns / 13 ns | Destination |
+| `equal` | 16 | 8 | 2 | 10 ns / 10 ns | Destination |
+| `fast_source` | 16 | 8 | 2 | 2 ns / 20 ns | Destination |
+| `fast_destination` | 16 | 8 | 2 | 20 ns / 2 ns | Source |
+| `stress` | 512 | 8 | 4 | 2 ns / 20 ns | Destination |
+
+The runner passes manifest `generics` metadata to `vsim` as `-g` overrides
+and to XSim as `-generic_top` overrides.
 
 The testbench (all phases, all configurations):
 
@@ -498,19 +530,49 @@ The testbench (all phases, all configurations):
   asynchronous clock relationship.
 - **Phase A proves line rate** on the bottleneck side: the destination when
   the source is faster, the source when the destination is faster.
-- **Phase B** verifies order and integrity of a longer sequence under
-  destination backpressure (ready 3 of 4 cycles).
-- **Phase C** pulses the shared reset and verifies the flushed link
-  re-establishes cleanly.
+- **Phase B** holds the destination stalled until the FIFO backpressures the
+  source, then uses a ready 3-of-4 cycle pattern. It proves the full boundary
+  is reached and checks that `m_axis_tvalid` and `m_axis_tdata` remain stable
+  throughout every stall.
+- **Phase C** queues data with `m_axis_tvalid = '1'`, holds the output stalled,
+  keeps source traffic active, then asserts reset. It checks asynchronous
+  clearing of ready/valid, queued-data flushing, and clean restart from word
+  zero.
 - **Phase D** injects source-side `tvalid` gaps (1 cycle in 4) and verifies
   no word is lost or reordered.
 - Has a watchdog so a deadlock fails instead of hanging the batch run.
+- Generates data across every payload bit, including legal one-bit payloads.
+- Sends enough words to wrap the pointers repeatedly at every tested depth.
 
-Other depths and `GC_SYNC_STAGES` 3..4 are verified functionally but are not
-part of the committed regression.
+The shared `util_pkg` regression separately exhausts binary/Gray round trips
+for pointer widths 2 through 5 and checks full/empty predicates at FIFO depths
+2, 4, and 8.
+
+RTL simulation cannot inject analog metastability or prove routed Gray-bus
+delay. Hardware CDC signoff therefore also requires the XDC setup and
+post-implementation verification in `constraints/AXIS_CDC_CONSTRAINTS.md`.
+
+`scripts/sv.f` synthesizes `rtl/axis_cdc_top.sv` with the VHDL core in Vivado,
+checking mixed-language parameter and port binding.
 
 On success the transcript ends with:
 
 ```text
 ALL CDC CHECKS PASSED
 ```
+
+### UVVM VVC testbench
+
+`tb/axis_cdc_uvvm_th.vhd` and `tb/axis_cdc_uvvm_tb.vhd` provide an
+independent, protocol-level testbench built on the UVVM AXI-Stream VVCs.
+It covers ordered multi-wrap, full backpressure with stalled-output
+stability, randomized valid/ready gaps, and queued-data reset flushing.
+The eight UVVM configurations in `scripts/uvvm.f` are run with:
+
+```text
+run axis_cdc uvvm modelsim --tb all
+```
+
+See `doc/UVVM_TESTBENCH.md` for the full description, including the UVVM
+VIP width limit (256-bit maximum payload) and how it relates to the
+direct testbench's 512-bit configurations.

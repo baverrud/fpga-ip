@@ -1,7 +1,7 @@
 -----------------------------------------------------------------------
 --Filename         : axis_cdc_top.vhd
 --Description      : Synthesis wrapper for axis_cdc.
---                 : Passes the data-width and synchronizer-stage generics
+--                 : Passes data width, FIFO depth, and synchronizer stages
 --                 : through to the core.
 --Author           : Rune Baeverrud
 --Current Revision : 1.00

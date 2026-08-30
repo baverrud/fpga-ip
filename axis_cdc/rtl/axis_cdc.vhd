@@ -4,11 +4,11 @@
 --                 : Gray-pointer asynchronous FIFO core.
 --                 :
 --                 : KEY PROPERTIES
---                 :  - HIGH THROUGHPUT: sustains one word per clock on
---                 :    each side (line rate) regardless of the clock
---                 :    relationship between the domains. The source may
---                 :    be faster, slower, equal to, or fully unrelated
---                 :    to the destination clock.
+--                 :  - HIGH THROUGHPUT: with sufficient FIFO depth,
+--                 :    sustains the slower side's line rate regardless of
+--                 :    the clock relationship. Small legal depths remain
+--                 :    safe but can insert bubbles because synchronized
+--                 :    pointers reduce immediately usable capacity.
 --                 :  - SMALL, CONFIGURABLE STORAGE: the internal buffer
 --                 :    is a power-of-two dual-port RAM whose depth is
 --                 :    set by GC_CDC_DEPTH (default 8). Pick the
@@ -28,10 +28,10 @@
 --                 :  - First-Word Fall-Through (FWFT): the output is a
 --                 :    combinational read of the RAM, giving minimum
 --                 :    read latency and full line rate on the read side.
---                 :  - Full/empty flags are conservative (full asserts
---                 :    early, empty asserts late by the synchronizer
---                 :    latency), which is what makes overflow/underflow
---                 :    impossible.
+--                 :  - Full/empty flags are conservative: full can remain
+--                 :    asserted after a remote read, and empty can remain
+--                 :    asserted after a remote write. This prevents
+--                 :    overflow and underflow.
 --                 :  - One shared reset with asynchronous assertion and
 --                 :    synchronous de-assertion in each clock domain.
 --Author           : Rune Baeverrud
@@ -48,9 +48,9 @@ entity axis_cdc is
     -- Width of the AXI-Stream payload word being crossed.
     GC_TDATA_WIDTH : positive := 32;
     -- Internal FIFO depth. Must be a power of two (checked at
-    -- elaboration). Keep it as small as your throughput needs allow;
-    -- the FWFT combinational read always infers distributed RAM, so a
-    -- large depth is expensive in LUTs.
+    -- elaboration). Depths 2 and 4 are safe but may not sustain line rate.
+    -- The FWFT combinational read always infers distributed RAM, so a large
+    -- depth is expensive in LUTs.
     GC_CDC_DEPTH : positive range 2 to 1024 := 8;
     -- Flip-flops per pointer synchronizer chain (2..4). 2 is the
     -- minimum for safe re-timing; 3..4 increases MTBF at the cost of
@@ -110,18 +110,18 @@ architecture rtl of axis_cdc is
   --
   --   Flags (conservative by design):
   --     * FULL is computed against the synchronized READ pointer, which
-  --       lags reality by the synchronizer latency. Full therefore
-  --       asserts EARLY - the FIFO may report full a few entries before
-  --       it truly is. This can never overflow: the source simply stops
-  --       writing while there is still headroom.
+  --       lags reality by the synchronizer latency. Full can therefore
+  --       remain asserted after the destination has freed entries. This
+  --       can never overflow: the source simply stops writing while there
+  --       is still headroom.
   --     * EMPTY is computed against the synchronized WRITE pointer,
-  --       which also lags. Empty therefore asserts LATE - the FIFO may
-  --       still look empty for a few cycles after a write. This can
-  --       never underflow: the sink simply waits while words are already
-  --       in flight toward it.
+  --       which also lags. Empty therefore deasserts late - the FIFO may
+  --       still look empty for a few cycles after a write. This can never
+  --       underflow: the sink simply waits while words are already in
+  --       flight toward it.
   --   The cost of these conservative flags is a few cycles of fill/drain
-  --   latency; steady-state throughput is unaffected as long as the
-  --   depth is at least a few entries (GC_CDC_DEPTH >= 4 recommended).
+  --   latency. Bubble-free throughput depends on FIFO depth, clock ratio,
+  --   and synchronizer latency; depth 8 is the tested default.
   ---------------------------------------------------------------------
 
   -- Static elaboration check: the depth must be a power of two for the
@@ -354,9 +354,9 @@ begin
 
   -- Read-side combinational logic.
   --  - m_axis_tvalid is the NOT-EMPTY check against the CURRENT read
-  --    pointer and the synchronized write pointer. Empty asserts late
-  --    (conservative), so an underflow is impossible: the consumer is
-  --    only told data is valid once the write side has made it visible.
+  --    pointer and the synchronized write pointer. Empty deasserts late
+  --    (conservative), so an underflow is impossible: the consumer is only
+  --    told data is valid once the write side has made it visible.
   --  - On an accepted read the pointer advances (binary + Gray).
   p_m_comb : process(r_m, m_axis_tready, wptr_gray_sync, m_resetn_local)
     variable v            : m_rec_t;

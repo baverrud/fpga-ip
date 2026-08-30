@@ -9,11 +9,16 @@
 --                 :    faster): the source must accept one word per source
 --                 :    clock with no backpressure.
 --                 :  - Phase B: order + integrity with destination
---                 :    backpressure (ready 3 of 4 cycles).
---                 :  - Phase C: shared reset-recovery - the link
---                 :    must resume transferring after a mid-stream reset.
+--                 :    backpressure. The destination stalls until the FIFO
+--                 :    fills, then uses a ready 3-of-4 cycle pattern.
+--                 :  - Phase C: queued-data reset recovery. Reset is
+--                 :    asserted while output valid is stalled and source
+--                 :    valid remains high. Queued data must be flushed and
+--                 :    the link must resume cleanly.
 --                 :  - Phase D: source-side valid gaps - a 1-in-4 valid
 --                 :    gap pattern must not lose or reorder words.
+--                 :  - Output data/valid stability is checked throughout
+--                 :    every destination stall.
 --                 :  - Watchdog to catch deadlocks instead of hanging.
 --Author           : Rune Baeverrud
 --Current Revision : 2.00
@@ -27,20 +32,18 @@ use std.textio.all;
 entity axis_cdc_tb is
   generic (
     -- Parameters for the device under test and the two clock domains. The
-    -- manifest runs this one testbench file in several configurations:
-    --   * [tb:default] - source faster than destination (defaults below),
-    --     selected by 'run axis_cdc vhdl modelsim'.
-    --   * [tb:rev]     - destination faster, selected by
-    --     'run axis_cdc vhdl modelsim --tb rev'.
-    --   * [tb:wide]    - wide payload (e.g. 512 bits), selected by
-    --     'run axis_cdc vhdl modelsim --tb wide'.
+    -- The manifest runs this testbench over payload-width, FIFO-depth,
+    -- synchronizer-stage, and clock-ratio boundary configurations.
     -- The [tb:*] sections override these generics via the 'generics'
     -- metadata, which run.py passes to the simulator.
     GC_TDATA_WIDTH : positive := 16;  -- payload width under test
     GC_CDC_DEPTH   : positive := 8;   -- FIFO depth under test (power of two)
     GC_SYNC_STAGES : positive := 2;   -- synchronizer stages under test (2..4)
     GC_TS          : time := 10 ns;   -- source clock period (100 MHz)
-    GC_TM          : time := 13 ns    -- destination clock period (~76.9 MHz)
+    GC_TM          : time := 13 ns;   -- destination clock period (~76.9 MHz)
+    -- Depth 2 and 4 are safe but may insert bubbles because synchronized
+    -- pointers make their usable capacity too small for sustained line rate.
+    GC_EXPECT_LINE_RATE : boolean := true
   );
 end entity;
 
@@ -58,7 +61,8 @@ architecture sim of axis_cdc_tb is
   constant TM            : time := GC_TM;               -- destination clock period
 
   constant C_NUM_WORDS    : natural := 128;  -- phase A (line-rate) count
-  constant C_NUM_WORDS_B  : natural := 64;   -- phase B (backpressure) count
+  constant C_NUM_WORDS_B  : natural := 4*C_CDC_DEPTH + 32;  -- phase B count
+  constant C_RESET_WORD_INDEX : natural := 255;  -- distinct pre-reset marker
   constant C_RESUME_WORDS : natural := 16;   -- phase C (recovery) count
   constant C_GAP_WORDS    : natural := 32;   -- phase D (source gaps) count
 
@@ -79,6 +83,10 @@ architecture sim of axis_cdc_tb is
   signal phase_a_done  : std_logic := '0';  -- phase A received (m domain)
   signal phase_b_done  : std_logic := '0';  -- phase B received (m domain)
   signal phase_b       : std_logic := '0';  -- enables backpressure pattern
+  signal phase_reset_fill  : std_logic := '0';  -- holds destination stalled
+  signal phase_reset_start : std_logic := '0';  -- starts queued-data reset setup
+  signal source_backpressure_seen : std_logic := '0';  -- FIFO reached backpressure
+  signal reset_data_queued : std_logic := '0';  -- source accepted pre-reset data
   signal phase_c_start : std_logic := '0';  -- permission to start phase C
   signal phase_c_done  : std_logic := '0';  -- phase C received (m domain)
   signal phase_d_start : std_logic := '0';  -- permission to start phase D
@@ -86,16 +94,17 @@ architecture sim of axis_cdc_tb is
   -- Completion flag: stops both clocks so batch simulation can end.
   signal test_done : std_logic := '0';
 
-  -- Expected word for index i: a fixed marker byte in the top byte and a
-  -- byte counter in the low byte; all remaining bits are zero. The marker
-  -- and counter make any corruption or reordering distinctive, and the
-  -- all-zeros fill means every other bit is verified too (the checker
-  -- compares the full width). Width-agnostic via C_TDATA_WIDTH.
+  -- Expected word for index i. Every payload bit varies over the sequence,
+  -- and widths down to one bit are legal. For widths of at least eight bits,
+  -- each byte contains the counter or its complement.
   function f_word(i : natural) return std_logic_vector is
     variable v : std_logic_vector(C_TDATA_WIDTH-1 downto 0) := (others => '0');
   begin
-    v(v'high downto v'high-7) := x"CD";  -- marker byte
-    v(7 downto 0) := std_logic_vector(to_unsigned(i mod 256, 8));  -- counter
+    for bit_index in v'range loop
+      if (((i / (2 ** (bit_index mod 8))) + (bit_index / 8)) mod 2) = 1 then
+        v(bit_index) := '1';
+      end if;
+    end loop;
     return v;
   end function;
 
@@ -165,6 +174,8 @@ begin
   begin
     aresetn       <= '0';
     phase_b       <= '0';
+    phase_reset_fill  <= '0';
+    phase_reset_start <= '0';
     phase_c_start <= '0';
     wait until rising_edge(m_clk);
     wait until rising_edge(m_clk);
@@ -181,11 +192,27 @@ begin
     aresetn <= '1';
 
     wait until phase_a_done = '1';
+    wait until rising_edge(m_clk);
+    assert m_tvalid = '0'
+      report "FAIL: destination valid remained asserted after FIFO drained"
+      severity failure;
     phase_b <= '1';               -- enable backpressure for phase B
 
     wait until phase_b_done = '1';
     phase_b <= '0';
-    aresetn <= '0';               -- pulse shared reset (recovery test)
+    phase_reset_fill <= '1';       -- stall output while queuing reset data
+    wait until rising_edge(m_clk);
+    phase_reset_start <= '1';
+    wait until reset_data_queued = '1';
+    wait until m_tvalid = '1';
+    aresetn <= '0';               -- flush queued and stalled-valid data
+    wait for 1 ps;
+    assert s_tready = '0'
+      report "FAIL: source ready did not clear asynchronously"
+      severity failure;
+    assert m_tvalid = '0'
+      report "FAIL: destination valid did not clear asynchronously"
+      severity failure;
     wait until rising_edge(m_clk);
     wait until rising_edge(m_clk);
     assert s_tready = '0'
@@ -198,6 +225,7 @@ begin
       wait until rising_edge(m_clk);
     end loop;
     aresetn <= '1';
+    phase_reset_fill <= '0';
 
     phase_c_start <= '1';         -- allow phase C
 
@@ -213,6 +241,7 @@ begin
     variable v_sent   : natural := 0;
     variable v_cycles : natural := 0;
     variable v_gap    : natural := 0;
+    variable v_backpressure_seen : boolean := false;
     variable l : line;
   begin
     -- Wait for the shared reset controller to release both domains.
@@ -239,7 +268,7 @@ begin
       if s_tready = '1' then
         v_sent := v_sent + 1;
       end if;
-      if (GC_TM < GC_TS) and (s_tready = '0') then
+      if GC_EXPECT_LINE_RATE and (GC_TM < GC_TS) and (s_tready = '0') then
         report "FAIL: source back-pressured during line-rate phase (reverse direction)"
           severity failure;
       end if;
@@ -263,20 +292,44 @@ begin
     wait until rising_edge(s_clk);
 
     v_sent := C_NUM_WORDS;
+    v_backpressure_seen := false;
+    source_backpressure_seen <= '0';
     s_tvalid <= '1';
     while v_sent < C_NUM_WORDS + C_NUM_WORDS_B loop
       s_tdata <= f_word(v_sent);
       wait until rising_edge(s_clk);
       if s_tready = '1' then
         v_sent := v_sent + 1;
+      else
+        v_backpressure_seen := true;
+        source_backpressure_seen <= '1';
       end if;
     end loop;
     s_tvalid <= '0';
+    assert v_backpressure_seen
+      report "FAIL: source never observed full-FIFO backpressure"
+      severity failure;
     write(l, string'("Stim: phase B sent " & integer'image(v_sent) & " words"));
     writeline(output, l);
 
-    -- Phase C: after the shared reset pulse, restart a small
-    -- sequence and verify the link recovered.
+    -- Queue data while the destination is held stalled. Keep source valid
+    -- asserted with the next word until reset is observed, so reset occurs
+    -- with both queued data and active source traffic.
+    wait until phase_reset_start = '1';
+    s_tvalid <= '1';
+    s_tdata  <= f_word(C_RESET_WORD_INDEX);
+    loop
+      wait until rising_edge(s_clk);
+      if s_tready = '1' then
+        reset_data_queued <= '1';
+        exit;
+      end if;
+    end loop;
+    wait until aresetn = '0';
+    s_tvalid <= '0';
+
+    -- Phase C: after the queued-data reset pulse, restart a small sequence
+    -- from word zero and verify that pre-reset data was flushed.
     wait until phase_c_start = '1';
     wait until rising_edge(s_clk);
 
@@ -325,10 +378,10 @@ begin
   -- ==================================================================
   -- Consumer backpressure generator (m domain)
   -- ==================================================================
-  -- In phases A and C the consumer is always ready (line rate). In
-  -- phase B a deterministic pattern stalls one cycle in four, so the
-  -- destination is frequently back-pressured. Deterministic (not
-  -- random) keeps the test fully reproducible.
+  -- In phases A, C and D the consumer is always ready. Phase B initially
+  -- holds ready low until the source observes full-FIFO backpressure, then
+  -- uses a deterministic 3-of-4 ready pattern. phase_reset_fill holds ready
+  -- low while reset data is queued.
   p_backpressure : process(m_clk)
     variable v_cnt : natural := 0;
   begin
@@ -337,15 +390,21 @@ begin
         v_cnt := 0;
         m_tready <= '0';
       else
-        if phase_b = '1' then
-          if (v_cnt mod 4) = 3 then
+        if phase_reset_fill = '1' then
+          m_tready <= '0';
+          v_cnt := 0;
+        elsif phase_b = '1' then
+          if source_backpressure_seen = '0' then
+            m_tready <= '0';
+          elsif (v_cnt mod 4) = 3 then
             m_tready <= '0';
           else
             m_tready <= '1';
           end if;
           v_cnt := v_cnt + 1;
         else
-          m_tready <= '1';  -- line rate in phases A and C
+          m_tready <= '1';
+          v_cnt := 0;
         end if;
       end if;
     end if;
@@ -358,6 +417,9 @@ begin
     variable v_recv    : natural := 0;
     variable v_meas    : natural := 0;      -- dest cycles since first word
     variable v_meas_on : boolean := false;  -- measuring line rate
+    variable v_was_stalled : boolean := false;
+    variable v_stalled_data : std_logic_vector(C_TDATA_WIDTH-1 downto 0);
+    variable v_phase_b_stall_seen : boolean := false;
     variable l : line;
   begin
     if rising_edge(m_clk) then
@@ -365,7 +427,26 @@ begin
         v_recv    := 0;
         v_meas    := 0;
         v_meas_on := false;
+        v_was_stalled := false;
+        v_phase_b_stall_seen := false;
       else
+        if v_was_stalled then
+          assert m_tvalid = '1'
+            report "FAIL: destination valid dropped while stalled"
+            severity failure;
+          assert m_tdata = v_stalled_data
+            report "FAIL: destination data changed while stalled"
+            severity failure;
+        end if;
+
+        v_was_stalled := (m_tvalid = '1') and (m_tready = '0');
+        if v_was_stalled then
+          v_stalled_data := m_tdata;
+          if phase_b = '1' then
+            v_phase_b_stall_seen := true;
+          end if;
+        end if;
+
         -- Count destination clock cycles while measuring line rate.
         if v_meas_on then
           v_meas := v_meas + 1;
@@ -395,7 +476,7 @@ begin
         -- no bound applies here - the source line-rate proof is in p_stim.
         if (phase_a_done = '0') and (v_recv = C_NUM_WORDS) then
           phase_a_done <= '1';
-          if GC_TM >= GC_TS then
+          if GC_EXPECT_LINE_RATE and (GC_TM >= GC_TS) then
             if v_meas > C_NUM_WORDS + 4 then
               report "FAIL: destination did not sustain line rate (" &
                      integer'image(v_meas) & " m-cycles for " &
@@ -405,14 +486,20 @@ begin
             write(l, string'("Check: phase A received " & integer'image(v_recv) &
                              " words in " & integer'image(v_meas) &
                              " m-cycles (dest line rate)"));
+          elsif GC_EXPECT_LINE_RATE then
+            write(l, string'("Check: phase A received " & integer'image(v_recv) &
+                             " words (source line rate checked)"));
           else
             write(l, string'("Check: phase A received " & integer'image(v_recv) &
-                             " words (source-limited)"));
+                             " words (line-rate assertion disabled)"));
           end if;
           writeline(output, l);
         end if;
 
         if (phase_b_done = '0') and (v_recv = C_NUM_WORDS + C_NUM_WORDS_B) then
+          assert v_phase_b_stall_seen
+            report "FAIL: destination stall stability was not exercised"
+            severity failure;
           phase_b_done <= '1';
           write(l, string'("Check: phase B received " & integer'image(v_recv) & " words"));
           writeline(output, l);

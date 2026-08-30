@@ -1,8 +1,8 @@
 //-----------------------------------------------------------------------
 //Filename         : axis_cdc_top.sv
 //Description      : Synthesis wrapper for axis_cdc (SystemVerilog).
-//                 : Passes the data-width and synchronizer-stage parameters
-//                 : through to the VHDL core via mixed-language binding.
+//                 : Passes data width, FIFO depth, and synchronizer stages
+//                 : to the VHDL core via mixed-language binding.
 //Author           : Rune Baeverrud
 //Current Revision : 1.00
 //Licensing        : Zero-Clause BSD (0BSD)
