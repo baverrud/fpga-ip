@@ -180,6 +180,9 @@ begin
   -- Tester cores.
   ---------------------------------------------------------------------
   gen_tester : for t in 0 to GC_NUM_TESTERS-1 generate
+    constant C_NATIVE_AR_SIZE : std_logic_vector(2 downto 0) :=
+      std_logic_vector(to_unsigned(log2ceil(GC_NATIVE_DATA_BYTES), 3));
+
     -- Per-client AXI4-Lite vectors for this tester's core.
     signal tw_awaddr  : slv_array_t(0 to GC_NUM_CLIENTS-1)(15 downto 0);
     signal tw_awprot  : slv_array_t(0 to GC_NUM_CLIENTS-1)(2 downto 0);
@@ -203,6 +206,8 @@ begin
     signal tw_pipeline : std_logic_vector(0 to GC_NUM_CLIENTS-1);
     signal tw_led      : std_logic_vector(0 to GC_NUM_CLIENTS-1);
   begin
+    ar_size(t) <= C_NATIVE_AR_SIZE;
+
 
     -- Fan out the arrayed AXI4-Lite slave ports to this tester's per-client
     -- arrays and back.
@@ -278,7 +283,6 @@ begin
         ar_id    => ar_id(t),
         ar_addr  => ar_addr(t),
         ar_len   => ar_len(t),
-        ar_size  => ar_size(t),
         ar_valid => ar_valid(t),
         ar_ready => ar_ready(t),
         r_id     => r_id(t),

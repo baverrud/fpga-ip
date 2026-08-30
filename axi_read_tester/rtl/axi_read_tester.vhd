@@ -100,7 +100,6 @@ entity axi_read_tester is
     ar_id    : out std_logic_vector(GC_ID_WIDTH-1 downto 0);
     ar_addr  : out std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
     ar_len   : out std_logic_vector(GC_NATIVE_ARLEN_WIDTH-1 downto 0);
-    ar_size  : out std_logic_vector(2 downto 0);
     ar_valid : out std_logic;
     ar_ready : in  std_logic;
     r_id     : in  std_logic_vector(GC_ID_WIDTH-1 downto 0);
@@ -285,8 +284,8 @@ begin
     cfg_max_len   <= o_data(i)(0)(9 + 2*C_LEN_WIDTH - 1 downto 9 + C_LEN_WIDTH);
     cfg_pace      <= o_data(i)(1);
     cfg_pace_init <= o_data(i)(2);
-    cfg_base_addr <= o_data(i)(3)(GC_ADDR_WIDTH-1 downto 0);
-    cfg_addr_range<= o_data(i)(4)(GC_ADDR_WIDTH-1 downto 0);
+    cfg_base_addr <= o_data(i)(3)(31 downto 0);
+    cfg_addr_range<= o_data(i)(4)(31 downto 0);
 
     -- AXI4-Lite config/status register bridge for this client.
     u_axilite : entity work.axilite_io

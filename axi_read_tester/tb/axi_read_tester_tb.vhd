@@ -66,7 +66,6 @@ architecture sim of axi_read_tester_tb is
   signal ar_id    : std_logic_vector(C_ID_W-1 downto 0);
   signal ar_addr  : std_logic_vector(C_ADDR_W-1 downto 0);
   signal ar_len   : std_logic_vector(7 downto 0);
-  signal ar_size  : std_logic_vector(2 downto 0);
   signal ar_valid : std_logic;
   signal ar_ready : std_logic;
   signal r_id     : std_logic_vector(C_ID_W-1 downto 0);
