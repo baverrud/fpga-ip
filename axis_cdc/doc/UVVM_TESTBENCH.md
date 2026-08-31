@@ -114,6 +114,12 @@ queue the commands and the framework executes them.
 | 3. Randomized valid/ready gaps | `valid_low_probability = 0.35`, `ready_low_probability = 0.40`, up to 5 low cycles, `C_RANDOM_WORDS = 4*GC_CDC_DEPTH + 64` word pairs. No word may be lost or reordered. |
 | 4. Queued-data reset flush and recovery | Fill the FIFO with a distinct pre-reset marker word (`C_RESET_MARKER = 255`) while the destination is stalled, then assert reset with data visible at the output. Check TREADY/TVALID clear asynchronously, no pre-reset data transfers, and after release a distinct post-reset word (`C_POST_RESET_WORD = 0`) arrives - proving old data was flushed, not leaked. |
 
+The queued-data reset check uses no fixed ps/ns settle delay. It records the
+reset assertion time, waits for TREADY/TVALID to clear with a clock-derived
+timeout, and verifies that simulation time did not advance. Delta-cycle
+propagation is therefore allowed while the asynchronous-clear property is
+still proved.
+
 The four phases are run under the same generics; `C_TIMEOUT = 200 us`
 guards every `await_completion` so a deadlock fails instead of hanging the
 batch run.

@@ -8,14 +8,14 @@ chains.
 
 The RTL marks both synchronizer arrays with `ASYNC_REG = TRUE`. This tells
 Vivado to preserve and place synchronizer stages appropriately, but it does
-not bound the routing delay of every bit in a Gray-pointer bus. Each Gray bus
-also needs a `set_max_delay -datapath_only` constraint from its source pointer
-registers to synchronizer stage 0.
+not bound the routing delay or bit-to-bit arrival spread of a Gray-pointer
+bus. Each Gray bus needs both `set_max_delay -datapath_only` and
+`set_bus_skew` from its source pointer registers to synchronizer stage 0.
 
-The delay bound must equal the period of the clock that generates that
-pointer. A Gray pointer can change once per source-clock cycle. Bounding all
-bits to one source period prevents bits from consecutive pointer transitions
-from overlapping at the receiver.
+The committed ZCU102 integration uses the fastest involved clock period,
+4 ns, for every max delay and 2 ns for every bus-skew requirement. The
+max-delay constraint bounds absolute path delay; bus skew bounds the spread
+between the fastest and slowest bits of one logical pointer bus.
 
 ## Included Examples
 
@@ -23,7 +23,7 @@ from overlapping at the receiver.
 |---|---|
 | `axis_cdc.xdc` | Minimal single-instance template. |
 | `axis_cdc_multi_instance_example.xdc` | Worked multi-instance example. Defaults match `zcu102_th_top`. |
-| `axis_cdc_impl_hook_example.tcl` | Implementation hook that validates clocks/endpoints and loads the worked XDC. |
+| `axis_cdc_impl_hook_example.tcl` | Implementation hook that validates clocks/buses, applies per-bus skew, and loads the worked XDC. |
 | `axis_cdc_find_hierarchy.tcl` | Read-only helper that prints synthesized Gray-pointer cell names. |
 | `VIVADO_GUI_QUICK_START.md` | Minimum GUI setup and verification procedure. |
 | `AXIS_CDC_CONSTRAINTS.md` | This detailed integration and adaptation guide. |
@@ -37,6 +37,8 @@ uses these known values:
 - Group B: `gen_tester[*].tester/u_bridge/u_r_cdc`.
 - Four tester instances.
 - `GC_CDC_DEPTH = 8`, giving four Gray-pointer bits.
+- Max delay: 4 ns for every pointer direction.
+- Bus skew: 2 ns per logical pointer bus.
 
 For another design, adapt the example as described below.
 
@@ -75,7 +77,7 @@ A write-pointer constraint has this shape:
 set_max_delay -datapath_only \
   -from [get_cells -hierarchical -regexp {<instance>/r_s_reg\[wptr_gray\]\[[0-9]+\]$}] \
   -to [get_cells -hierarchical -regexp {<instance>/wptr_gray_sync_chain_reg\[0\]\[[0-9]+\]$}] \
-  [get_property PERIOD [get_clocks <source_clock>]]
+  4.000
 ```
 
 - `set_max_delay` imposes an upper delay bound. It does not insert delay.
@@ -83,7 +85,7 @@ set_max_delay -datapath_only \
   synchronous phase relationship between the two clocks.
 - `-from` selects the source-domain Gray-pointer registers.
 - `-to` selects stage 0 of the destination-domain synchronizer.
-- `get_property PERIOD` obtains the source-clock period automatically.
+- `4.000` is the fastest involved clock period in the committed integration.
 - `-hierarchical` searches below the top-level design.
 - `-regexp` uses a regular expression to match generated hierarchy and bits.
 
@@ -93,11 +95,25 @@ The read pointer requires a second constraint:
 set_max_delay -datapath_only \
   -from [get_cells -hierarchical -regexp {<instance>/r_m_reg\[rptr_gray\]\[[0-9]+\]$}] \
   -to [get_cells -hierarchical -regexp {<instance>/rptr_gray_sync_chain_reg\[0\]\[[0-9]+\]$}] \
-  [get_property PERIOD [get_clocks <destination_clock>]]
+  4.000
 ```
 
-The read pointer is generated in the FIFO destination domain, so its source
-clock is the `axis_cdc` `m_axis_aclk` clock.
+The implementation hook applies matching bus-skew constraints for the same
+two paths:
+
+```tcl
+set_bus_skew -from [get_cells <one_pointer_bus_sources>] \
+  -to [get_cells <one_pointer_bus_stage_0>] 2.000
+```
+
+Each `set_bus_skew` command must select exactly one logical pointer bus. Do
+not combine bits from independent `axis_cdc` instances, because Vivado would
+then compare unrelated paths against each other.
+
+The max-delay commands may safely wildcard across tester instances because
+Vivado checks the delay of every selected path independently. Bus skew is
+different: it compares relative arrival times among paths in one collection,
+which is why the hook partitions skew by tester and pointer bus.
 
 ## Regular-Expression Breakdown
 
@@ -134,9 +150,10 @@ After opening a synthesized or implemented design, run **Report Clocks** from
 the GUI. Record the Vivado clock-object names and periods that drive
 `s_axis_aclk` and `m_axis_aclk`.
 
-Replace `clk_pl_0` and `clk_pl_1` in both the XDC and hook. Do not create
-additional clocks if a processing system, clock wizard, or another constraint
-file already defines them.
+Replace `clk_pl_0` and `clk_pl_1` in the hook and update the XDC mapping
+comments. Review the explicit max-delay and bus-skew values against the new
+clock periods. Do not create additional clocks if a processing system, clock
+wizard, or another constraint file already defines them.
 
 ### 2. Determine synthesized hierarchy
 
@@ -287,10 +304,10 @@ llength [get_cells -quiet -hierarchical -regexp \
   {.*gen_tester\[[0-9]+\]\.tester/u_bridge/u_ar_cdc/r_s_reg\[wptr_gray\]\[[0-9]+\]$}]
 ```
 
-The expected count is:
+The expected per-bus count is:
 
 ```text
-matching instances * (log2(GC_CDC_DEPTH) + 1)
+log2(GC_CDC_DEPTH) + 1
 ```
 
 Repeat the query and count for all four endpoint categories before putting
@@ -306,36 +323,36 @@ For each clock-direction group, confirm the full synthesized names of:
 - `r_m_reg[rptr_gray][*]`.
 - `rptr_gray_sync_chain_reg[0][*]`.
 
-Update the regular expressions in both the XDC and hook. The XDC applies the
-constraints; the hook independently checks the same patterns before loading
-it.
+Update the regular expressions in both the XDC and hook. The XDC applies
+aggregate max-delay constraints; the hook validates each logical bus,
+loads the XDC, and then applies per-bus skew.
 
-### 3. Calculate expected endpoint count
+### 3. Calculate expected per-bus endpoint count
 
 For a power-of-two FIFO depth:
 
 ```text
 Gray pointer width = log2(GC_CDC_DEPTH) + 1
-Expected count = matching axis_cdc instances * Gray pointer width
+Expected count per logical pointer bus = Gray pointer width
 ```
 
 Examples:
 
-| Instances | Depth | Pointer width | Expected endpoint count |
+| Instances | Depth | Pointer width | Count checked per bus |
 |---:|---:|---:|---:|
 | 1 | 8 | 4 | 4 |
-| 4 | 8 | 4 | 16 |
-| 2 | 16 | 5 | 10 |
+| 4 | 8 | 4 | 4 (checked separately for each instance) |
+| 2 | 16 | 5 | 5 (checked separately for each instance) |
 
-Set `expected_endpoint_count` in the hook accordingly. If two instance groups
-contain different numbers of instances or different depths, give them
-separate expected counts or separate hook checks.
+Set `expected_tester_count` and `expected_pointer_width` in the hook
+accordingly. If instances use different depths, give them separate checks.
 
 ### 4. Remove unused groups
 
-A single `axis_cdc` instance needs only two constraints: write pointer and
-read pointer. The worked file has four because the two groups use opposite
-clock directions. Delete Group B if the design has no second group.
+A single `axis_cdc` instance needs four constraints: max delay and bus skew
+for both the write and read pointers. The worked XDC has four aggregate
+max-delay groups; its hook generates sixteen per-instance bus-skew
+constraints. Delete Group B patterns if the design has no second group.
 
 ## Why an Implementation Hook Is Used
 
@@ -350,6 +367,7 @@ init_design
 opt_design.tcl.pre
   -> validate clock and endpoint objects
   -> read the axis_cdc XDC
+  -> apply per-bus skew constraints
 opt_design
 place_design
 route_design
@@ -359,9 +377,10 @@ This is robust for hierarchical constraints. A normal project constraint can
 be read before `link_design`, when `get_cells` and generated clock objects do
 not exist. The XDC may appear to load while matching no endpoints.
 
-The hook contains procedural Tcl checks (`foreach`, `if`, and `error`). These
-commands belong in the Tcl hook, not in the XDC parser. The XDC itself contains
-only timing-constraint commands.
+The hook contains procedural Tcl (`foreach`, `if`, and `error`) plus the
+per-instance `set_bus_skew` commands generated by its loop. These commands
+belong in the Tcl hook, not in the XDC parser. The XDC remains declarative
+and contains only the aggregate max-delay commands.
 
 ## Vivado GUI Setup
 
@@ -370,13 +389,15 @@ only timing-constraint commands.
 3. If the XDC is visible in **Constraints**, open **Source File Properties**
    and clear **Used In Synthesis** and **Used In Implementation**. Keep it on
    disk. Alternatively, remove only its project reference.
-4. Open **Design Runs**.
-5. Right-click the implementation run, normally `impl_1`.
-6. Select **Change Run Settings**.
-7. Expand `opt_design`.
-8. Set **Pre Tcl Script** or **tcl.pre** to the hook file.
-9. Apply the setting and save the project.
-10. Reset the implementation run and launch **Run Implementation**.
+4. Add the hook Tcl file to **Utility Sources** so it is project-managed and
+  included in project archives.
+5. Open **Design Runs**.
+6. Right-click the implementation run, normally `impl_1`.
+7. Select **Change Run Settings**.
+8. Expand `opt_design`.
+9. Set **Pre Tcl Script** or **tcl.pre** to the hook file.
+10. Apply the setting and save the project.
+11. Reset the implementation run and launch **Run Implementation**.
 
 No Tcl Console commands are required during normal builds. Vivado runs the
 hook automatically after this one-time GUI setup.
@@ -385,13 +406,16 @@ hook automatically after this one-time GUI setup.
 
 ### Run log
 
-Open the newest implementation log and search for `axis_cdc endpoint`.
-The worked example expects eight lines containing `16 cells`, followed by:
+Open the newest implementation log and search for `axis_cdc bus`.
+The worked example first validates and prints `clk_pl_0: 10.000 ns` and
+`clk_pl_1: 4.000 ns`. It then expects sixteen lines containing
+`source=4 sync=4 cells`, followed by:
 
 ```text
 Applying axis_cdc constraints from ...
 Parsing XDC File [...]
 Finished Parsing XDC File [...]
+Applied 16 axis_cdc bus-skew constraints at 2.000 ns
 ```
 
 These messages prove that:
@@ -406,17 +430,21 @@ unsupported-command messages for the example XDC.
 ### Timing Constraints GUI
 
 After implementation, open **Window -> Timing Constraints** and inspect
-**Exceptions -> Max Delay**. Confirm all intended pointer directions exist,
-the values equal their source-clock periods, and **Datapath Only** is true.
+**Exceptions -> Max Delay** and **Bus Skew**. Confirm all intended pointer
+directions exist, every max delay is 4 ns, every bus skew is 2 ns, and
+**Datapath Only** is true for max delay.
 
 For the worked example, expect:
 
 | Group | Delay |
 |---|---:|
-| Group A write pointer | 10 ns |
+| Group A write pointer | 4 ns |
 | Group A read pointer | 4 ns |
 | Group B write pointer | 4 ns |
-| Group B read pointer | 10 ns |
+| Group B read pointer | 4 ns |
+
+The worked example also has sixteen 2 ns bus-skew constraints: four pointer
+buses for each of four testers.
 
 ### Timing reports
 
@@ -426,8 +454,17 @@ stage-0 destination expression. Confirm:
 - The path starts at a Gray-pointer register.
 - The path ends at synchronizer stage 0.
 - The requirement is max-delay and datapath-only.
-- The requirement equals the source-clock period.
+- The max-delay requirement is 4 ns.
 - Routed slack is non-negative.
+
+Also run:
+
+```tcl
+report_bus_skew -warn_on_violation -file axis_cdc_bus_skew.rpt
+```
+
+Confirm all sixteen logical buses are listed with a 2 ns requirement and
+non-negative slack.
 
 A negative slack means the constraint is active but not met. An empty report
 means the endpoints do not match. An ordinary cross-clock setup/hold report
@@ -454,5 +491,6 @@ Recheck the XDC and hook whenever these change:
 - Number of matching instances.
 - `GC_CDC_DEPTH`.
 
-After a change, reset implementation and repeat the endpoint-count and timing
-verification. A clean XDC parse alone is not proof that a constraint applies.
+After a change, reset implementation and repeat the per-bus endpoint-count,
+max-delay, and bus-skew verification. A clean XDC parse alone is not proof
+that a constraint applies.

@@ -12,9 +12,10 @@ them if desired:
 - `axis_cdc_impl_hook_example.tcl`
 - `axis_cdc_find_hierarchy.tcl` (optional, read-only discovery helper)
 
-The example defaults directly match `zcu102_th_top`. For another design,
-first update the clock names, hierarchy expressions, and expected endpoint
-count as described in the detailed guide.
+The example defaults directly match `zcu102_th_top`: 4 ns max delay and
+2 ns bus skew. For another design, first update the timing values, clock
+names, hierarchy expressions, tester count, and pointer width as described
+in the detailed guide.
 
 ## Find the Hierarchical Names
 
@@ -35,10 +36,11 @@ Skip this section only when using the unmodified example with
 5. Group the printed names by their common parent path ending at each
    `axis_cdc` instance.
 6. Put those stable parent paths into the XDC and hook regular expressions.
-7. Set the hook endpoint count to:
+7. Set the hook tester count and per-bus pointer width to:
 
    ```text
-   matching instances * (log2(GC_CDC_DEPTH) + 1)
+   expected_tester_count = matching tester instances
+   expected_pointer_width = log2(GC_CDC_DEPTH) + 1
    ```
 
 See **Determine synthesized hierarchy** in `AXIS_CDC_CONSTRAINTS.md` for the
@@ -51,13 +53,15 @@ checks.
    If it is already listed, right-click it, open **Source File Properties**,
    and clear **Used In Synthesis** and **Used In Implementation**. Keep the
    file on disk.
-2. Open **Design Runs**.
-3. Right-click `impl_1` and select **Change Run Settings**.
-4. Expand `opt_design`.
-5. Set **Pre Tcl Script** or **tcl.pre** to the copied hook file.
-6. Apply the settings and save the project.
-7. Right-click `impl_1`, select **Reset Run**, and reset implementation only.
-8. Launch **Run Implementation**.
+2. Add the hook Tcl file to **Utility Sources** so Vivado archives and tracks
+   it with the project.
+3. Open **Design Runs**.
+4. Right-click `impl_1` and select **Change Run Settings**.
+5. Expand `opt_design`.
+6. Set **Pre Tcl Script** or **tcl.pre** to the copied hook file.
+7. Apply the settings and save the project.
+8. Right-click `impl_1`, select **Reset Run**, and reset implementation only.
+9. Launch **Run Implementation**.
 
 No Tcl Console commands are required for normal use. Vivado runs the hook
 automatically before `opt_design`, after `link_design` has created the clocks
@@ -65,26 +69,29 @@ and synthesized hierarchy.
 
 ## Verify
 
-Open the newest `impl_1` run log and search for `axis_cdc endpoint`.
-The unmodified example should print eight endpoint lines with `16 cells` each,
-followed by:
+Open the newest `impl_1` run log and search for `axis_cdc bus`.
+The unmodified example first prints `clk_pl_0: 10.000 ns` and
+`clk_pl_1: 4.000 ns`, then sixteen lines with
+`source=4 sync=4 cells`, followed by:
 
 ```text
 Applying axis_cdc constraints from ...
 Parsing XDC File [...]
 Finished Parsing XDC File [...]
+Applied 16 axis_cdc bus-skew constraints at 2.000 ns
 ```
 
 After implementation, open **Window -> Timing Constraints**, then inspect
-**Exceptions -> Max Delay**. Confirm four logical groups:
+**Exceptions -> Max Delay** and **Bus Skew**. Confirm:
 
 | Group | Required delay |
 |---|---:|
-| Group A write pointer | 10 ns |
+| Group A write pointer | 4 ns |
 | Group A read pointer | 4 ns |
 | Group B write pointer | 4 ns |
-| Group B read pointer | 10 ns |
+| Group B read pointer | 4 ns |
 
-All must show datapath-only max-delay constraints. The run log must not report
-`No cells matched`, `No clocks matched`, or unsupported XDC commands for the
-example file.
+All max delays must be datapath-only. The Bus Skew view must contain sixteen
+separate 2 ns constraints (four pointer buses per tester), all with
+non-negative slack. The run log must not report `No cells matched`,
+`No clocks matched`, or unsupported XDC commands for the example file.

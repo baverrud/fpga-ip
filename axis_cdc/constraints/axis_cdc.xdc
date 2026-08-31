@@ -18,9 +18,9 @@
 #
 # PER-INSTANCE TEMPLATE - READ BEFORE USE
 #   Constraint files cannot be used unchanged:
-#   (1) The clock objects 's_axis_aclk' and 'm_axis_aclk' must exist with
-#       those names. If the design names them differently, update the
-#       [get_clocks ...] arguments.
+#   (1) The default 4 ns max delay and 2 ns bus skew match the committed
+#       ZCU102 integration. Update both values if another design needs a
+#       different physical bound.
 #   (2) The cell paths assume the module instance is labelled 'u_core'
 #       and that Vivado kept the RTL register names. After
 #       implementation, verify the paths (get_cells -hier) and adjust
@@ -36,11 +36,9 @@
 # ============================================================================
 
 # ----------------------------------------------------------------------------
-# 1. Gray-pointer bus delay: write pointer into the destination domain.
-#    The limit is the period of the SOURCE clock, because that is the
-#    fastest interval between consecutive Gray-pointer transitions. This
-#    prevents multiple source transitions from being simultaneously in
-#    flight on different bus bits.
+# 1. Gray-pointer bus delay and skew: write pointer into the destination
+#    domain. The max delay is the fastest involved clock period (4 ns in
+#    the committed integration). Bus skew is constrained to 2 ns.
 #
 #    Do NOT add set_clock_groups -asynchronous or set_false_path over
 #    these same paths. Those exceptions take precedence and would disable
@@ -50,23 +48,32 @@
 set_max_delay -datapath_only \
   -from [get_cells -hierarchical -regexp {.*u_core/r_s_reg\[wptr_gray\]\[[0-9]+\]$}] \
   -to [get_cells -hierarchical -regexp {.*u_core/wptr_gray_sync_chain_reg\[0\]\[[0-9]+\]$}] \
-  [get_property PERIOD [get_clocks s_axis_aclk]]
+  4.000
+
+set_bus_skew \
+  -from [get_cells -hierarchical -regexp {.*u_core/r_s_reg\[wptr_gray\]\[[0-9]+\]$}] \
+  -to [get_cells -hierarchical -regexp {.*u_core/wptr_gray_sync_chain_reg\[0\]\[[0-9]+\]$}] \
+  2.000
 
 # ----------------------------------------------------------------------------
-# 2. Gray-pointer bus delay: read pointer into the source domain.
-#    The source clock for this bus is m_axis_aclk. Update the hierarchy
-#    and synthesized names as required.
+# 2. Gray-pointer bus delay and skew: read pointer into the source domain.
+#    Update the hierarchy and synthesized names as required.
 # ----------------------------------------------------------------------------
 set_max_delay -datapath_only \
   -from [get_cells -hierarchical -regexp {.*u_core/r_m_reg\[rptr_gray\]\[[0-9]+\]$}] \
   -to [get_cells -hierarchical -regexp {.*u_core/rptr_gray_sync_chain_reg\[0\]\[[0-9]+\]$}] \
-  [get_property PERIOD [get_clocks m_axis_aclk]]
+  4.000
+
+set_bus_skew \
+  -from [get_cells -hierarchical -regexp {.*u_core/r_m_reg\[rptr_gray\]\[[0-9]+\]$}] \
+  -to [get_cells -hierarchical -regexp {.*u_core/rptr_gray_sync_chain_reg\[0\]\[[0-9]+\]$}] \
+  2.000
 
 # ----------------------------------------------------------------------------
 # 3. Synchronizer implementation requirements.
 #    The first stage is deliberately timed by the max-delay constraints
 #    above. The paths between synchronizer stages remain normally timed;
 #    ASYNC_REG in the RTL keeps those stages physically close together.
-#    Verify both max-delay constraints with report_exceptions and
-#    report_timing in the implemented design.
+#    Verify both max-delay and bus-skew constraints with report_exceptions,
+#    report_timing, and report_bus_skew in the implemented design.
 # ----------------------------------------------------------------------------

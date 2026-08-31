@@ -171,6 +171,7 @@ begin
   --   * After phase B completes, pulses the shared reset to prove
   --     the link recovers, then allows phase C to begin.
   p_reset_ctrl : process
+    variable reset_assert_time : time;
   begin
     aresetn       <= '0';
     phase_b       <= '0';
@@ -205,8 +206,12 @@ begin
     phase_reset_start <= '1';
     wait until reset_data_queued = '1';
     wait until m_tvalid = '1';
+    reset_assert_time := now;
     aresetn <= '0';               -- flush queued and stalled-valid data
-    wait for 1 ps;
+    wait until s_tready = '0' and m_tvalid = '0' for TS + TM;
+    assert now = reset_assert_time
+      report "FAIL: ready/valid did not clear asynchronously"
+      severity failure;
     assert s_tready = '0'
       report "FAIL: source ready did not clear asynchronously"
       severity failure;

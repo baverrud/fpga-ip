@@ -23,7 +23,18 @@
 - All 42 repository Python tests passed.
 - Vivado 2023.2 mixed-language synthesis passed.
 - Formatter, diagnostics, ASCII, manifest, and diff checks passed.
-- XDC endpoint validation previously passed against the ZCU102 optimized checkpoint: eight endpoint categories, 16 cells each; clocks 10 ns and 4 ns.
+- Fixed settle delays were removed from both testbenches. All 13 direct and
+  all eight UVVM ModelSim profiles passed afterward; the asynchronous reset
+  checks now prove ready/valid clear without advancing simulation time.
+- The ZCU102 hook validated sixteen logical buses with four source and four
+  sync cells each. Routed Vivado 2023.2 checks confirmed all max-delay groups
+  at 4 ns and all sixteen logical pointer buses at 2 ns skew. Worst measured
+  bus skew was 0.851 ns, leaving 1.149 ns slack. Worst-path max-delay slacks
+  were 3.334 ns (`ar_wptr`), 3.332 ns (`ar_rptr`), 2.828 ns (`r_wptr`), and
+  2.749 ns (`r_rptr`). `report_exceptions -ignored` found no ignored timing
+  exceptions. The integrating top-level design still has unrelated ordinary
+  timing violations (`WNS = -0.576 ns`); these do not involve the axis_cdc
+  max-delay or bus-skew constraints.
 
 ## UVVM VVC Testbench (Complete)
 
@@ -44,12 +55,13 @@
   `AXIS_CDC UVVM VVC TEST PASSED`.
 - Documented in `doc/UVVM_TESTBENCH.md` and linked from `README.md`.
 
-## Next Steps
+## Residual Limits
 
-1. Remaining limits are documentation-only: simulation cannot prove analog
-   metastability, routed Gray-bus delay, or full implementation/XDC signoff
-   (covered by the XDC guides in `constraints/`).
-2. Run final formatter, diagnostics, regression, and git diff checks.
+RTL simulation cannot prove analog metastability behavior or future routed
+implementations. Every integrating design must retain the `ASYNC_REG`
+attributes, apply its max-delay and per-bus-skew constraints through the
+post-link hook, and rerun post-route timing and bus-skew reports after clock,
+hierarchy, device, or implementation changes.
 
 Do not commit or push unless explicitly requested.
 
@@ -75,13 +87,14 @@ shared `fpga-rules` documentation.
   hook. Disable the XDC's normal **Used In Synthesis** and **Used In
   Implementation** properties so it is not read early, while leaving the
   file on disk for the hook.
-- A hook should fail closed: check required clocks and endpoint counts before
-  reading the XDC. A clean build must not silently become unconstrained after
-  a hierarchy or clock rename.
-- Verify constraints at three levels: hook log marker, non-empty endpoint
-  collections, and `report_exceptions`/`report_timing`. A negative slack is
-  different from a missing constraint: it means the active requirement is not
-  met, not that the XDC failed to load.
+- A hook should fail closed: check required clocks and each logical bus's
+  endpoint counts before reading the XDC. Aggregate counts can hide a missing
+  instance and must not be used for bus-skew validation.
+- Verify constraints at three levels: hook log marker, non-empty per-bus
+  endpoint collections, and `report_exceptions`/`report_timing` plus
+  `report_bus_skew -warn_on_violation`. A negative slack is different from a
+  missing constraint: it means the active requirement is not met, not that
+  the XDC failed to load.
 - The GUI can configure the hook through **Design Runs -> Change Run
   Settings -> opt_design -> Pre Tcl Script**. Tcl Console commands are only
   a fallback for layouts that do not expose the field and for exact checks.

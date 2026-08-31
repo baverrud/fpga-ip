@@ -233,14 +233,13 @@ begin
     begin
       log(ID_SEQUENCER, message_id);
       aresetn <= '0';
-      wait for 100 ps;
-      check_value(dbg_s_axis_tready, '0', ERROR,
-                  "s_axis_tready must clear asynchronously during reset");
-      check_value(dbg_m_axis_tvalid, '0', ERROR,
-                  "m_axis_tvalid must clear asynchronously during reset");
       wait until rising_edge(s_axis_aclk);
+      check_value(dbg_s_axis_tready, '0', ERROR,
+                  "s_axis_tready must remain low during reset");
       wait until rising_edge(s_axis_aclk);
       wait until rising_edge(m_axis_aclk);
+      check_value(dbg_m_axis_tvalid, '0', ERROR,
+                  "m_axis_tvalid must remain low during reset");
       wait until rising_edge(m_axis_aclk);
       aresetn <= '1';
       wait until rising_edge(s_axis_aclk);
@@ -254,6 +253,7 @@ begin
     variable stalled_word : std_logic_vector(GC_TDATA_WIDTH-1 downto 0);
     variable source_count_before_reset : natural;
     variable dest_count_before_reset   : natural;
+    variable reset_assert_time         : time;
   begin
     enable_log_msg(ID_SEQUENCER);
     set_alert_stop_limit(ERROR, 1);
@@ -332,8 +332,12 @@ begin
 
     source_count_before_reset := cov_source_handshakes;
     dest_count_before_reset   := cov_dest_handshakes;
+    reset_assert_time := now;
     aresetn <= '0';
-    wait for 100 ps;
+    wait until dbg_s_axis_tready = '0' and dbg_m_axis_tvalid = '0'
+      for GC_S_CLK_PERIOD + GC_M_CLK_PERIOD;
+    check_value(now = reset_assert_time, true, ERROR,
+                "ready/valid must clear asynchronously without a clock edge");
     check_value(dbg_s_axis_tready, '0', ERROR,
                 "s_axis_tready must clear immediately on queued-data reset");
     check_value(dbg_m_axis_tvalid, '0', ERROR,
