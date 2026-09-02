@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------
-//Filename         : axi_req_gen_inst.sv
+//Filename         : axi_traffic_gen_inst.sv
 //Description      : Instantiation template for axi_req_gen_top.
 //                 : Binds the VHDL core directly; passes the
 //                 : configuration parameters through and exposes the
@@ -11,7 +11,7 @@
 //-----------------------------------------------------------------------
 
 `timescale 1ns/1ps
-module axi_req_gen_inst #(
+module axi_traffic_gen_inst #(
     parameter int unsigned GC_DATA_BYTES = 64,  // bytes per beat
     parameter int unsigned GC_ADDR_WIDTH = 32,  // address width
     parameter int unsigned GC_MAX_BURST  = 32   // max beats per burst

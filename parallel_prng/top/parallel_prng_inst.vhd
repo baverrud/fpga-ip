@@ -1,5 +1,5 @@
 -----------------------------------------------------------------------
---Filename         : prng_inst.vhd
+--Filename         : parallel_prng_inst.vhd
 --Description      : Instantiation template for prng_top.
 --                 : Instantiates xorshift32 and xorshift128.
 --                 : Both run free-running (tie step internally) or
@@ -11,10 +11,10 @@
 library ieee;
 use ieee.std_logic_1164.all;
 
-entity prng_inst is
+entity parallel_prng_inst is
 end entity;
 
-architecture rtl of prng_inst is
+architecture rtl of parallel_prng_inst is
   signal clk : std_logic;
   signal rstn : std_logic;
   signal step32 : std_logic;

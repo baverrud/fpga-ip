@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------
-//Filename         : prng_inst.sv
+//Filename         : parallel_prng_inst.sv
 //Description      : Instantiation template for prng_top.
 //                 : (SystemVerilog).  Instantiates xorshift32 and
 //                 : xorshift128 (VHDL, mixed-language binding).
@@ -11,7 +11,7 @@
 //-----------------------------------------------------------------------
 
 `timescale 1ns/1ps
-module prng_inst ();
+module parallel_prng_inst ();
   logic clk;
   logic rstn;
   logic step32;
