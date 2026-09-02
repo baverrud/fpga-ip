@@ -22,7 +22,7 @@ DEFAULT_TB: default
 axis_upsizer/rtl/axis_upsizer.vhd
 
 [top]
-axis_upsizer/rtl/axis_upsizer_top.vhd
+axis_upsizer/top/axis_upsizer_top.vhd
 
 [tb:default]
 top = axis_upsizer_tb

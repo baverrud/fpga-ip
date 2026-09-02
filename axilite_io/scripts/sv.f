@@ -22,7 +22,7 @@ DEFAULT_LIB: work
 axilite_io/rtl/axilite_io.sv
 
 [top]
-axilite_io/rtl/axilite_io_top.sv
+axilite_io/top/axilite_io_top.sv
 top = axilite_io_top
 
 [tb:default]

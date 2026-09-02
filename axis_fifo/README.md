@@ -201,6 +201,7 @@ axis_fifo/
 │   ├── axis_fifo_pkg.vhd           # Shared utility package (log2ceil)
 │   ├── axis_fifo.vhd               # Production VHDL core (VHDL-2008)
 │   ├── axis_fifo.sv                # Production SystemVerilog core
+├── top/
 │   ├── axis_fifo_top.vhd           # Synthesis top wrapper (VHDL)
 │   └── axis_fifo_top.sv            # Synthesis top wrapper (SystemVerilog)
 ├── tb/
@@ -350,8 +351,8 @@ Ready-made synthesis tops are provided in both languages, so `axis_fifo`
 can be used as a standalone netlist top without writing an instance by
 hand:
 
-- [rtl/axis_fifo_top.vhd](rtl/axis_fifo_top.vhd) - VHDL wrapper.
-- [rtl/axis_fifo_top.sv](rtl/axis_fifo_top.sv) - SystemVerilog wrapper
+- [top/axis_fifo_top.vhd](top/axis_fifo_top.vhd) - VHDL wrapper.
+- [top/axis_fifo_top.sv](top/axis_fifo_top.sv) - SystemVerilog wrapper
   (binds the SystemVerilog core directly).
 
 ### VHDL

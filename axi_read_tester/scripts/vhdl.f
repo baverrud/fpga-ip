@@ -45,7 +45,7 @@ axi_read_bridge/rtl/axi_read_bridge.vhd
 axi_read_tester/rtl/axi_read_tester.vhd
 
 [top]
-axi_read_tester/rtl/axi_read_tester_top.vhd
+axi_read_tester/top/axi_read_tester_top.vhd
 
 [tb:default]
 top = axi_read_tester_tb

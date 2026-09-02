@@ -22,7 +22,7 @@ DEFAULT_TB: default
 axis_downsizer/rtl/axis_downsizer.vhd
 
 [top]
-axis_downsizer/rtl/axis_downsizer_top.vhd
+axis_downsizer/top/axis_downsizer_top.vhd
 
 [tb:default]
 top = axis_downsizer_tb

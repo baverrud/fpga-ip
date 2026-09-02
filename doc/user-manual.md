@@ -305,6 +305,7 @@ Notes:
    ```text
    my_ip/
    |-- rtl/           # Synthesizable source files
+  |-- top/           # Synthesis-only wrapper tops
    |-- tb/            # Testbench files (simple and optional UVVM)
    |-- scripts/       # .f manifests and optional wave.do
    `-- README.md      # IP documentation

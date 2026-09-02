@@ -82,10 +82,10 @@ from `parallel_prng` (address and length PRNGs).
 
 ## Synthesis wrapper (`axi_req_gen_top`)
 
-`rtl/axi_req_gen_top.vhd` is the synthesis top wrapper; it instantiates
+`top/axi_req_gen_top.vhd` is the synthesis top wrapper; it instantiates
 `axi_req_gen` directly (all generics passed through) and is the `[top]`
 in `scripts/vhdl.f` for the vivado/xsim flows.  A SystemVerilog
-mixed-language wrapper (`rtl/axi_req_gen_top.sv`) is also provided.
+mixed-language wrapper (`top/axi_req_gen_top.sv`) is also provided.
 
 The integration testbenches include `axi_read_bridge`, which contains
 `axis_cdc` instances. When implementing that integration in Vivado, apply and

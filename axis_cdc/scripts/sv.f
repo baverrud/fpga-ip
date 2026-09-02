@@ -16,4 +16,4 @@ axis_cdc/rtl/axis_cdc.vhd
 
 [top]
 top = axis_cdc_top
-axis_cdc/rtl/axis_cdc_top.sv
+axis_cdc/top/axis_cdc_top.sv

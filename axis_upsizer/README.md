@@ -296,7 +296,7 @@ axis_upsizer #(
 );
 ```
 
-`rtl/axis_upsizer_top.vhd` / `rtl/axis_upsizer_top.sv` expose the same
+`top/axis_upsizer_top.vhd` / `top/axis_upsizer_top.sv` expose the same
 ports with the 128 -> 512 defaults, for use as a standalone synthesis top.
 Both wrappers are updated in lockstep with the core (including the
 `GC_ID_WIDTH` generic and the `rresp`/`rid` ports).
@@ -309,7 +309,7 @@ run axis_upsizer vhdl vivado       # Vivado synthesis + 250 MHz timing check
 run axis_upsizer vhdl xsim         # XSim simulation
 ```
 
-The Vivado flow synthesizes `rtl/axis_upsizer_top.vhd` and applies
+The Vivado flow synthesizes `top/axis_upsizer_top.vhd` and applies
 the configured clock (250 MHz), reporting WNS in
 `.runs/vivado/timing.rpt` as a performance self-check. That constraint is
 for the standalone flow only - integration designs supply their own clocks

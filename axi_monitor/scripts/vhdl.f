@@ -31,7 +31,7 @@ axi_monitor/rtl/axi_monitor_rsp.vhd
 axi_monitor/rtl/axi_monitor.vhd
 
 [top]
-axi_monitor/rtl/axi_monitor_top.vhd
+axi_monitor/top/axi_monitor_top.vhd
 
 [tb:monitor]
 top = axi_monitor_tb

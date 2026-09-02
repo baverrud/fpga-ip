@@ -26,7 +26,7 @@ parallel_prng/rtl/xorshift32.vhd
 axi_traffic_gen/rtl/axi_req_gen.vhd
 
 [top]
-axi_traffic_gen/rtl/axi_req_gen_top.vhd
+axi_traffic_gen/top/axi_req_gen_top.vhd
 
 [tb:reqgen]
 top = axi_req_gen_tb

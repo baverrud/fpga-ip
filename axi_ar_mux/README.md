@@ -359,7 +359,7 @@ axi_ar_mux #(
 );
 ```
 
-`rtl/axi_ar_mux_top.vhd` / `rtl/axi_ar_mux_top.sv` provide a standalone
+`top/axi_ar_mux_top.vhd` / `top/axi_ar_mux_top.sv` provide a standalone
 synthesis wrapper with the 4-client, 32-bit-address, 4-bit-ID, depth-32
 defaults. The wrapper converts client-domain `ARLEN` to native `ARLEN` and
 adds the fixed AXI-facing `ar_size` and `ar_burst` outputs. The SV wrapper
@@ -375,7 +375,7 @@ run axi_ar_mux vhdl vivado     # Vivado synthesis
 run axi_ar_mux vhdl xsim       # XSim simulation
 ```
 
-The Vivado flow synthesizes `rtl/axi_ar_mux_top.vhd`. Integration designs
+The Vivado flow synthesizes `top/axi_ar_mux_top.vhd`. Integration designs
 must supply the clock and timing constraints for their target device.
 
 The testbench (`tb/axi_ar_mux_tb.vhd`, 143 MHz clock, generic

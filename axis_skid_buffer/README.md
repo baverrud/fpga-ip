@@ -134,6 +134,7 @@ axis_skid_buffer/
 ├── rtl/
 │   ├── axis_skid_buffer.sv       # Main RTL (SystemVerilog)
 │   ├── axis_skid_buffer.vhd      # Main RTL (VHDL)
+├── top/
 │   ├── axis_skid_buffer_top.vhd  # Synthesis top wrapper (VHDL)
 │   └── axis_skid_buffer_top.sv   # Synthesis top wrapper (SystemVerilog)
 ├── scripts/
@@ -184,9 +185,9 @@ Signal names match the ports; the data width is set via the
 
 Ready-made synthesis tops are provided in both languages:
 
-- [rtl/axis_skid_buffer_top.vhd](rtl/axis_skid_buffer_top.vhd) - VHDL
+- [top/axis_skid_buffer_top.vhd](top/axis_skid_buffer_top.vhd) - VHDL
   wrapper.
-- [rtl/axis_skid_buffer_top.sv](rtl/axis_skid_buffer_top.sv) -
+- [top/axis_skid_buffer_top.sv](top/axis_skid_buffer_top.sv) -
   SystemVerilog wrapper (binds the SystemVerilog core directly).
 
 ### VHDL

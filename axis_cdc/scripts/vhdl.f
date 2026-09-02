@@ -35,7 +35,7 @@ common/rtl/util_pkg.vhd
 axis_cdc/rtl/axis_cdc.vhd
 
 [top]
-axis_cdc/rtl/axis_cdc_top.vhd
+axis_cdc/top/axis_cdc_top.vhd
 
 [tb:default]
 top = axis_cdc_tb

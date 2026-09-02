@@ -20,7 +20,7 @@ DEFAULT_LIB: work
 pulse_extender/rtl/pulse_extender.vhd
 
 [top]
-pulse_extender/rtl/pulse_extender_top.vhd
+pulse_extender/top/pulse_extender_top.vhd
 
 [tb:default]
 top = pulse_extender_tb

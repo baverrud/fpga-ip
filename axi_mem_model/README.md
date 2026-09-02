@@ -257,8 +257,8 @@ Ready-made synthesis tops are provided in both languages, so
 `axi_mem_model` can be used as a standalone netlist top without writing
 an instance by hand:
 
-- [rtl/axi_mem_model_top.vhd](rtl/axi_mem_model_top.vhd) - VHDL wrapper.
-- [rtl/axi_mem_model_top.sv](rtl/axi_mem_model_top.sv) - SystemVerilog
+- [top/axi_mem_model_top.vhd](top/axi_mem_model_top.vhd) - VHDL wrapper.
+- [top/axi_mem_model_top.sv](top/axi_mem_model_top.sv) - SystemVerilog
   wrapper (binds the VHDL core directly).
 
 ### VHDL

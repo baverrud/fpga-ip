@@ -7,7 +7,7 @@ common/rtl/util_pkg.vhd
 axis_fifo/rtl/axis_fifo.vhd    std=2008
 
 [top]
-axis_fifo/rtl/axis_fifo_top.vhd
+axis_fifo/top/axis_fifo_top.vhd
 
 [tb:default]
 top = axis_fifo_tb

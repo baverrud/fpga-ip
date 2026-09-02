@@ -17,7 +17,7 @@ DEFAULT_LIB: work
 axis_skid_buffer/rtl/axis_skid_buffer.sv
 
 [top]
-axis_skid_buffer/rtl/axis_skid_buffer_top.vhd
+axis_skid_buffer/top/axis_skid_buffer_top.vhd
 
 [tb:default]
 top = axis_skid_buffer_tb

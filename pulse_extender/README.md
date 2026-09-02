@@ -64,6 +64,7 @@ pulse_extender/
 ├── README.md
 ├── rtl/
 │   ├── pulse_extender.vhd
+├── top/
 │   ├── pulse_extender_top.vhd
 │   └── pulse_extender_top.sv
 ├── scripts/
@@ -102,10 +103,10 @@ The VHDL wrapper is used by the standard `vhdl.f` synthesis flow; the
 SystemVerilog wrapper is supplemental mixed-language support and is verified
 by compiling it together with the VHDL core.
 
-- [rtl/pulse_extender_top.vhd](rtl/pulse_extender_top.vhd) - VHDL wrapper:
+- [top/pulse_extender_top.vhd](top/pulse_extender_top.vhd) - VHDL wrapper:
   `entity pulse_extender_top` instantiates the core with a direct
   `entity work.pulse_extender` binding.
-- [rtl/pulse_extender_top.sv](rtl/pulse_extender_top.sv) - SystemVerilog
+- [top/pulse_extender_top.sv](top/pulse_extender_top.sv) - SystemVerilog
   wrapper: `module pulse_extender_top` instantiates the VHDL core directly
   via mixed-language binding (no extra glue), passing `GC_PULSE_LEN`
   through.

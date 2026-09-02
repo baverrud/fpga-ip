@@ -485,7 +485,7 @@ endmodule
 
 ### Synthesis wrappers
 
-`rtl/axis_cdc_top.vhd` and `rtl/axis_cdc_top.sv`
+`top/axis_cdc_top.vhd` and `top/axis_cdc_top.sv`
 expose the same ports and pass the generics through, for use as a
 standalone netlist top in mixed-language flows.
 
@@ -553,7 +553,7 @@ RTL simulation cannot inject analog metastability or prove routed Gray-bus
 delay. Hardware CDC signoff therefore also requires the XDC setup and
 post-implementation verification in `constr/AXIS_CDC_CONSTRAINTS.md`.
 
-`scripts/sv.f` synthesizes `rtl/axis_cdc_top.sv` with the VHDL core in Vivado,
+`scripts/sv.f` synthesizes `top/axis_cdc_top.sv` with the VHDL core in Vivado,
 checking mixed-language parameter and port binding.
 
 On success the transcript ends with:

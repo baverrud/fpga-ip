@@ -276,7 +276,7 @@ axis_downsizer #(
 );
 ```
 
-`rtl/axis_downsizer_top.vhd` / `rtl/axis_downsizer_top.sv` expose the same
+`top/axis_downsizer_top.vhd` / `top/axis_downsizer_top.sv` expose the same
 ports with the 512 -> 128 defaults, for use as a standalone synthesis top.
 Both wrappers are updated in lockstep with the core (including the
 `GC_ID_WIDTH` generic and the `rresp`/`rid` ports).
@@ -289,7 +289,7 @@ run axis_downsizer vhdl vivado     # Vivado synthesis + 250 MHz timing check
 run axis_downsizer vhdl xsim       # XSim simulation
 ```
 
-The Vivado flow synthesizes `rtl/axis_downsizer_top.vhd` and applies
+The Vivado flow synthesizes `top/axis_downsizer_top.vhd` and applies
 the configured clock (250 MHz), reporting WNS in
 `.runs/vivado/timing.rpt` as a performance self-check. That constraint is
 for the standalone flow only - integration designs supply their own clocks

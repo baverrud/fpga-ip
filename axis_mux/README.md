@@ -123,6 +123,7 @@ axis_mux/
 ├── README.md
 ├── rtl/
 │   ├── axis_mux.vhd
+├── top/
 │   └── axis_mux_top.vhd
 ├── scripts/
 │   ├── vhdl.f
@@ -185,7 +186,7 @@ end architecture example;
 
 ### Synthesis Wrapper
 
-Use [rtl/axis_mux_top.vhd](rtl/axis_mux_top.vhd) as the synthesis and
+Use [top/axis_mux_top.vhd](top/axis_mux_top.vhd) as the synthesis and
 packaging wrapper. The core implementation is
 [rtl/axis_mux.vhd](rtl/axis_mux.vhd).
 

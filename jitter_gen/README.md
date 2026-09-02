@@ -99,6 +99,7 @@ jitter_gen/
 ├── README.md
 ├── rtl/
 │   ├── jitter_gen.vhd        — Core CDF jitter generator
+├── top/
 │   ├── jitter_gen_top.vhd    — Synthesis wrapper (VHDL)
 │   └── jitter_gen_top.sv     — Synthesis wrapper (SystemVerilog)
 ├── scripts/
@@ -126,8 +127,8 @@ constants (names prefixed `C_`).
 
 Ready-made synthesis tops are provided in both languages:
 
-- [rtl/jitter_gen_top.vhd](rtl/jitter_gen_top.vhd) - VHDL wrapper.
-- [rtl/jitter_gen_top.sv](rtl/jitter_gen_top.sv) - SystemVerilog wrapper
+- [top/jitter_gen_top.vhd](top/jitter_gen_top.vhd) - VHDL wrapper.
+- [top/jitter_gen_top.sv](top/jitter_gen_top.sv) - SystemVerilog wrapper
   (binds the VHDL core via mixed language).
 
 ### VHDL

@@ -51,6 +51,7 @@ fpga-ip/
 ├── common/rtl/                # Shared RTL and AXI-Stream BFM packages
 └── <ip_block>/                # One self-contained IP core per directory
     ├── rtl/                   # Production synthesizable RTL source files
+    ├── top/                   # Synthesis-only wrapper tops
     ├── tb/                    # Simple and advanced testbenches (incl. UVVM)
     ├── scripts/               # .f manifests and wave.do (tracked sources)
     ├── .runs/                 # Latest per-tool artifacts (gitignored)

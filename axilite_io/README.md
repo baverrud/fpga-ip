@@ -320,8 +320,8 @@ Ready-made synthesis tops are provided in both languages, so `axilite_io`
 can be used as a standalone netlist top without writing an instance by
 hand:
 
-- [rtl/axilite_io_top.vhd](rtl/axilite_io_top.vhd) - VHDL wrapper.
-- [rtl/axilite_io_top.sv](rtl/axilite_io_top.sv) - SystemVerilog wrapper
+- [top/axilite_io_top.vhd](top/axilite_io_top.vhd) - VHDL wrapper.
+- [top/axilite_io_top.sv](top/axilite_io_top.sv) - SystemVerilog wrapper
   (binds the SystemVerilog core directly).
 
 ### VHDL

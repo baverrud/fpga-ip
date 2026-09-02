@@ -289,7 +289,7 @@ common/rtl/util_pkg.vhd
 axis_fifo/rtl/axis_fifo.vhd    std=2008
 
 [top]
-axis_fifo/rtl/axis_fifo_top.vhd
+axis_fifo/top/axis_fifo_top.vhd
 
 [tb:default]
 top = axis_fifo_tb
@@ -351,7 +351,7 @@ my_ip/rtl/my_ip.vhd std=2008
 
 [top]
 top = my_ip
-my_ip/rtl/my_ip_top.vhd
+my_ip/top/my_ip_top.vhd
 
 [tb:default]
 top = my_ip_tb

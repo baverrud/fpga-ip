@@ -29,7 +29,7 @@ axi_mem_model/rtl/axi_mem_model_core.vhd
 axi_mem_model/rtl/axi_mem_model.vhd
 
 [top]
-axi_mem_model/rtl/axi_mem_model_top.vhd
+axi_mem_model/top/axi_mem_model_top.vhd
 
 [tb:default]
 top = axi_mem_model_tb

@@ -21,7 +21,7 @@ parallel_prng/rtl/xorshift32.vhd
 parallel_prng/rtl/xorshift128.vhd
 
 [top]
-parallel_prng/rtl/prng_top.vhd
+parallel_prng/top/prng_top.vhd
 
 [tb:default]
 top = parallel_prng_tb

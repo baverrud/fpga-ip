@@ -119,6 +119,7 @@ parallel_prng/
 ├── rtl/
 │   ├── xorshift32.vhd       # Marsaglia xorshift32 (2003), 32-bit
 │   ├── xorshift128.vhd      # xoroshiro128+ (Blackman/Vigna), 64-bit
+├── top/
 │   ├── prng_top.vhd         # Synthesis top (VHDL) — instantiates both
 │   └── prng_top.sv          # Synthesis top (SystemVerilog) — instantiates both
 ├── scripts/
@@ -160,8 +161,8 @@ names match the ports; the cores are seeded with their defaults.
 
 Ready-made synthesis tops are provided in both languages:
 
-- [rtl/prng_top.vhd](rtl/prng_top.vhd) - VHDL wrapper.
-- [rtl/prng_top.sv](rtl/prng_top.sv) - SystemVerilog wrapper (binds the
+- [top/prng_top.vhd](top/prng_top.vhd) - VHDL wrapper.
+- [top/prng_top.sv](top/prng_top.sv) - SystemVerilog wrapper (binds the
   VHDL cores via mixed language).
 
 ### VHDL

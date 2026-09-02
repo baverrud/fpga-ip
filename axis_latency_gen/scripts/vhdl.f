@@ -26,7 +26,7 @@ jitter_gen/rtl/jitter_gen.vhd
 axis_latency_gen/rtl/axis_latency_gen.vhd
 
 [top]
-axis_latency_gen/rtl/axis_latency_gen_top.vhd
+axis_latency_gen/top/axis_latency_gen_top.vhd
 
 [tb:default]
 top = axis_latency_gen_tb

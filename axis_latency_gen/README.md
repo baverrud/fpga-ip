@@ -210,6 +210,7 @@ axis_latency_gen/
 ├── README.md
 ├── rtl/
 │   ├── axis_latency_gen.vhd     — Main RTL
+├── top/
 │   ├── axis_latency_gen_top.vhd — Synthesis wrapper (VHDL)
 │   └── axis_latency_gen_top.sv  — Synthesis wrapper (SystemVerilog)
 ├── scripts/
@@ -243,9 +244,9 @@ constants (names prefixed `C_`).
 
 Ready-made synthesis tops are provided in both languages:
 
-- [rtl/axis_latency_gen_top.vhd](rtl/axis_latency_gen_top.vhd) - VHDL
+- [top/axis_latency_gen_top.vhd](top/axis_latency_gen_top.vhd) - VHDL
   wrapper.
-- [rtl/axis_latency_gen_top.sv](rtl/axis_latency_gen_top.sv) -
+- [top/axis_latency_gen_top.sv](top/axis_latency_gen_top.sv) -
   SystemVerilog wrapper (binds the VHDL core via mixed language).
 
 ### VHDL

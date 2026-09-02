@@ -27,7 +27,7 @@ axis_fifo/rtl/axis_fifo.vhd
 axi_r_demux/rtl/axi_r_demux.vhd
 
 [top]
-axi_r_demux/rtl/axi_r_demux_top.vhd
+axi_r_demux/top/axi_r_demux_top.vhd
 
 [tb:default]
 top = axi_r_demux_tb

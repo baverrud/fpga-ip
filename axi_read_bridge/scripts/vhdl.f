@@ -25,7 +25,7 @@ axi_mem_model/rtl/axi_mem_model.vhd
 axi_read_bridge/rtl/axi_read_bridge.vhd
 
 [top]
-axi_read_bridge/rtl/axi_read_bridge_top.vhd
+axi_read_bridge/top/axi_read_bridge_top.vhd
 
 [tb:default]
 top = axi_read_bridge_tb

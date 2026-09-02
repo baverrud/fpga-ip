@@ -275,7 +275,7 @@ axi_r_demux #(
 );
 ```
 
-`rtl/axi_r_demux_top.vhd` / `rtl/axi_r_demux_top.sv` expose the same ports
+`top/axi_r_demux_top.vhd` / `top/axi_r_demux_top.sv` expose the same ports
 with the 4-client, 32-bit, 4-bit-ID, depth-32 defaults, for use as a
 standalone synthesis top. The SV wrapper binds the VHDL array ports as
 packed arrays (client index in the outer dimension), matching the
@@ -289,7 +289,7 @@ run axi_r_demux vhdl vivado     # Vivado synthesis + 250 MHz timing check
 run axi_r_demux vhdl xsim       # XSim simulation
 ```
 
-The Vivado flow synthesizes `rtl/axi_r_demux_top.vhd` and applies
+The Vivado flow synthesizes `top/axi_r_demux_top.vhd` and applies
 the configured clock (250 MHz), reporting WNS in
 `.runs/vivado/timing.rpt` as a performance self-check. That constraint is
 for the standalone flow only - integration designs supply their own clocks

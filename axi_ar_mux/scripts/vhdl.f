@@ -25,7 +25,7 @@ common/rtl/util_pkg.vhd
 axi_ar_mux/rtl/axi_ar_mux.vhd
 
 [top]
-axi_ar_mux/rtl/axi_ar_mux_top.vhd
+axi_ar_mux/top/axi_ar_mux_top.vhd
 
 [tb:default]
 top = axi_ar_mux_tb

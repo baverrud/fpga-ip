@@ -9,7 +9,7 @@ axis_fifo/rtl/axis_fifo.vhd
 axis_mux/rtl/axis_mux.vhd
 
 [top]
-axis_mux/rtl/axis_mux_top.vhd
+axis_mux/top/axis_mux_top.vhd
 
 [tb:default]
 top = axis_mux_tb

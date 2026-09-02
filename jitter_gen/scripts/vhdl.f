@@ -22,7 +22,7 @@ parallel_prng/rtl/xorshift32.vhd
 jitter_gen/rtl/jitter_gen.vhd
 
 [top]
-jitter_gen/rtl/jitter_gen_top.vhd
+jitter_gen/top/jitter_gen_top.vhd
 
 [tb:default]
 top = jitter_gen_tb
