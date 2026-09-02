@@ -61,6 +61,19 @@ class RunnerTests(unittest.TestCase):
                     if isinstance(entry, runner.FileEntry):
                         self.assertTrue(entry.path.is_file(), entry.path)
 
+    def test_synthesis_only_manifest_is_skipped_for_simulation_sweeps(self):
+        manifest = runner.parse_manifest(
+            (REPO_ROOT / "axis_cdc" / "scripts" / "sv.f").resolve()
+        )
+        caps = runner.Capabilities.load(REPO_ROOT / "tool_capabilities.ini")
+        self.assertIn(
+            "no testbench section",
+            runner._skip_reason(caps, manifest, "modelsim", caps.default_features),
+        )
+        self.assertIsNone(
+            runner._skip_reason(caps, manifest, "vivado", caps.default_features)
+        )
+
     def test_probe_identity_selects_version_and_edition_profile(self):
         result = SimpleNamespace(
             stdout="Questa Altera Starter FPGA Edition-64 vsim 2025.3",

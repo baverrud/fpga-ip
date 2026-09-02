@@ -2147,6 +2147,9 @@ def _skip_reason(caps: Capabilities, manifest: Manifest, tool: str,
     # Vivado synthesis needs a [top] section.
     if tool == "vivado" and "top" not in manifest.sections:
         return "no [top] section; synthesis requires a top wrapper"
+    if tool != "vivado" and not any(
+            name.startswith("tb:") for name in manifest.section_order):
+        return "no testbench section; simulation requires a testbench"
     return None
 
 
