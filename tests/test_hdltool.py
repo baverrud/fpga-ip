@@ -11,6 +11,22 @@ import hdltool
 
 
 class HdlToolTests(unittest.TestCase):
+    def test_vhdl_integer_generics_preserve_tokens(self):
+        source = (
+            "entity demo is\n"
+            "  generic (\n"
+            "    GC_VALUE : integer := 7\n"
+            "  );\n"
+            "end entity;\n"
+        )
+        formatted = hdltool.prettify_text(
+            source, False, lang="vhdl", style="moderate", indent_width=2
+        )
+        self.assertIn("GC_VALUE : integer := 7", formatted)
+        self.assertTrue(
+            hdltool._check_invariant(source.splitlines(), formatted.splitlines())
+        )
+
     def test_hdltool_preserves_vhdl_blank_lines_and_tokens(self):
         source = (
             "entity demo is\n"

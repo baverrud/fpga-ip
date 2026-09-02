@@ -8,7 +8,8 @@ Guarantee:
     non-whitespace characters is unchanged.
 
 Targets:
-    - *_top.vhd / *_top.sv synthesis wrappers
+        - *_top.vhd / *_top.sv synthesis wrappers and *_inst.vhd / *_inst.sv
+            instantiation templates
     - VHDL / SystemVerilog code blocks inside README.md files
       (only fenced blocks tagged vhdl / systemverilog are touched)
     - raw code blocks piped on stdin when no file path is supplied
@@ -85,7 +86,7 @@ _VHD_GEN_RE = re.compile(
 _VHD_DECL_RE = re.compile(
     r"^(?P<ind>\s*)(?:(?P<kind>signal|constant)\s+)?"
     r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*:\s*"
-    r"(?P<dir>inout|in|out)?\s*"
+    r"(?P<dir>(?:inout|in|out)\b)?\s*"
     r"(?P<type>[^,;]+?)(?P<tail>[,;]?)\s*$",
     re.IGNORECASE,
 )

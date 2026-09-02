@@ -25,39 +25,39 @@ module axi_read_bridge_top #(
   parameter int unsigned GC_CDC_DEPTH          = 8,
   parameter int unsigned GC_SYNC_STAGES        = 2
 ) (
-    // Clock / reset
-    input logic aclk,
-    input logic mem_aclk,
-    input logic aresetn,   // synchronous, active low
+  // Clock / reset
+  input logic aclk,
+  input logic mem_aclk,
+  input logic aresetn,   // synchronous, active low
 
-    // Client request interfaces. req_len counts client-domain beats minus 1.
-    input  logic [GC_NUM_CLIENTS-1:0][GC_ADDR_WIDTH-1:0]                                                               req_addr,
-    input  logic [GC_NUM_CLIENTS-1:0][GC_NATIVE_ARLEN_WIDTH - $clog2(GC_CLIENT_DATA_BYTES / GC_NATIVE_DATA_BYTES)-1:0] req_len,
-    input  logic [GC_NUM_CLIENTS-1:0]                                                                                  req_valid,
-    output logic [GC_NUM_CLIENTS-1:0]                                                                                  req_ready,
+  // Client request interfaces. req_len counts client-domain beats minus 1.
+  input  logic [GC_NUM_CLIENTS-1:0][GC_ADDR_WIDTH-1:0]                                                               req_addr,
+  input  logic [GC_NUM_CLIENTS-1:0][GC_NATIVE_ARLEN_WIDTH - $clog2(GC_CLIENT_DATA_BYTES / GC_NATIVE_DATA_BYTES)-1:0] req_len,
+  input  logic [GC_NUM_CLIENTS-1:0]                                                                                  req_valid,
+  output logic [GC_NUM_CLIENTS-1:0]                                                                                  req_ready,
 
-    // Client response interfaces. One beat is GC_CLIENT_DATA_BYTES wide.
-    output logic [GC_NUM_CLIENTS-1:0][8*GC_CLIENT_DATA_BYTES-1:0] rsp_data,
-    output logic [GC_NUM_CLIENTS-1:0][1:0]                        rsp_resp,
-    output logic [GC_NUM_CLIENTS-1:0]                             rsp_last,
-    output logic [GC_NUM_CLIENTS-1:0]                             rsp_valid,
-    input  logic [GC_NUM_CLIENTS-1:0]                             rsp_ready,
+  // Client response interfaces. One beat is GC_CLIENT_DATA_BYTES wide.
+  output logic [GC_NUM_CLIENTS-1:0][8*GC_CLIENT_DATA_BYTES-1:0] rsp_data,
+  output logic [GC_NUM_CLIENTS-1:0][1:0]                        rsp_resp,
+  output logic [GC_NUM_CLIENTS-1:0]                             rsp_last,
+  output logic [GC_NUM_CLIENTS-1:0]                             rsp_valid,
+  input  logic [GC_NUM_CLIENTS-1:0]                             rsp_ready,
 
-    // Native AXI read-address channel
-    output logic [GC_ID_WIDTH-1:0]           ar_id,
-    output logic [GC_ADDR_WIDTH-1:0]         ar_addr,
-    output logic [GC_NATIVE_ARLEN_WIDTH-1:0] ar_len,
-    output logic [2:0]                       ar_size,
-    output logic                             ar_valid,
-    input  logic                             ar_ready,
+  // Native AXI read-address channel
+  output logic [GC_ID_WIDTH-1:0]           ar_id,
+  output logic [GC_ADDR_WIDTH-1:0]         ar_addr,
+  output logic [GC_NATIVE_ARLEN_WIDTH-1:0] ar_len,
+  output logic [2:0]                       ar_size,
+  output logic                             ar_valid,
+  input  logic                             ar_ready,
 
-    // Native AXI read-data channel
-    input  logic [GC_ID_WIDTH-1:0]            r_id,
-    input  logic [8*GC_NATIVE_DATA_BYTES-1:0] r_data,
-    input  logic [1:0]                        r_resp,
-    input  logic                              r_last,
-    input  logic                              r_valid,
-    output logic                              r_ready
+  // Native AXI read-data channel
+  input  logic [GC_ID_WIDTH-1:0]            r_id,
+  input  logic [8*GC_NATIVE_DATA_BYTES-1:0] r_data,
+  input  logic [1:0]                        r_resp,
+  input  logic                              r_last,
+  input  logic                              r_valid,
+  output logic                              r_ready
 );
 
     localparam int unsigned C_CLIENT_ARLEN_WIDTH = GC_NATIVE_ARLEN_WIDTH -

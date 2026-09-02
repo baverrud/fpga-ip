@@ -17,35 +17,35 @@ module axi_req_gen_top #(
   parameter int unsigned GC_ADDR_WIDTH = 32,  // address width
   parameter int unsigned GC_MAX_BURST  = 32   // max beats per burst
 ) (
-    // Clock and reset
-    input logic aclk,     // clock
-    input logic aresetn,  // active-low synchronous reset
+  // Clock and reset
+  input logic aclk,     // clock
+  input logic aresetn,  // active-low synchronous reset
 
-    // Control
-    input logic enable,    // per-instance enable
-    input logic aperture,  // measurement window
-    input logic stat_rst,  // clears statistic counters
+  // Control
+  input logic enable,    // per-instance enable
+  input logic aperture,  // measurement window
+  input logic stat_rst,  // clears statistic counters
 
-    // Runtime configuration
-    input logic [$clog2(GC_MAX_BURST)-1:0] cfg_req_len,     // fixed request length (beats-1)
-    input logic                            cfg_len_mode,    // 0 = fixed, 1 = random length
-    input logic [$clog2(GC_MAX_BURST)-1:0] cfg_max_len,     // random length upper bound (beats-1)
-    input logic [31:0]                     cfg_pace,        // idle cycles between reqs
-    input logic [31:0]                     cfg_pace_init,   // delay before first burst
-    input logic [GC_ADDR_WIDTH-1:0]        cfg_base_addr,   // window start
-    input logic [GC_ADDR_WIDTH-1:0]        cfg_addr_range,  // window size
-    input logic                            cfg_addr_mode,   // 0 = linear, 1 = random
+  // Runtime configuration
+  input logic [$clog2(GC_MAX_BURST)-1:0] cfg_req_len,     // fixed request length (beats-1)
+  input logic                            cfg_len_mode,    // 0 = fixed, 1 = random length
+  input logic [$clog2(GC_MAX_BURST)-1:0] cfg_max_len,     // random length upper bound (beats-1)
+  input logic [31:0]                     cfg_pace,        // idle cycles between reqs
+  input logic [31:0]                     cfg_pace_init,   // delay before first burst
+  input logic [GC_ADDR_WIDTH-1:0]        cfg_base_addr,   // window start
+  input logic [GC_ADDR_WIDTH-1:0]        cfg_addr_range,  // window size
+  input logic                            cfg_addr_mode,   // 0 = linear, 1 = random
 
-    // Client request channel (master -> consumer)
-    output logic                            req_valid,  // request valid
-    input  logic                            req_ready,  // request ready
-    output logic [GC_ADDR_WIDTH-1:0]        req_addr,   // request address
-    output logic [$clog2(GC_MAX_BURST)-1:0] req_len,    // request length (beats-1)
+  // Client request channel (master -> consumer)
+  output logic                            req_valid,  // request valid
+  input  logic                            req_ready,  // request ready
+  output logic [GC_ADDR_WIDTH-1:0]        req_addr,   // request address
+  output logic [$clog2(GC_MAX_BURST)-1:0] req_len,    // request length (beats-1)
 
-    // Statistics
-    output logic [31:0] stat_req_stall,   // req stall events
-    output logic [31:0] stat_req_issued,  // reqs issued
-    output logic [31:0] stat_cfg_errors   // config error count
+  // Statistics
+  output logic [31:0] stat_req_stall,   // req stall events
+  output logic [31:0] stat_req_issued,  // reqs issued
+  output logic [31:0] stat_cfg_errors   // config error count
 );
 
   axi_req_gen #(

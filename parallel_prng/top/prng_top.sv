@@ -13,17 +13,17 @@
 `timescale 1ns/1ps
 
 module prng_top (
-    // Clock and reset
-    input logic clk,   // clock
-    input logic rstn,  // active-low synchronous reset
+  // Clock and reset
+  input logic clk,   // clock
+  input logic rstn,  // active-low synchronous reset
 
-    // xorshift32 control and output
-    input  logic        step32,
-    output logic [31:0] data32,
+  // xorshift32 control and output
+  input  logic        step32,
+  output logic [31:0] data32,
 
-    // xorshift128 control and output
-    input  logic        step128,
-    output logic [63:0] data128
+  // xorshift128 control and output
+  input  logic        step128,
+  output logic [63:0] data128
 );
 
   xorshift32 #(

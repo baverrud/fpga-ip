@@ -30,27 +30,27 @@ module axis_latency_gen_top #(
   parameter int          GC_JG_TH_1         = 192,
   parameter int          GC_JG_TH_2         = 240
 ) (
-    // Clock and reset
-    input logic aclk,     // clock
-    input logic aresetn,  // active-low synchronous reset
+  // Clock and reset
+  input logic aclk,     // clock
+  input logic aresetn,  // active-low synchronous reset
 
-    // Slave AXI4-Stream interface
-    input  logic [GC_DATA_WIDTH-1:0] s_axis_tdata,
-    input  logic                     s_axis_tvalid,
-    output logic                     s_axis_tready,
+  // Slave AXI4-Stream interface
+  input  logic [GC_DATA_WIDTH-1:0] s_axis_tdata,
+  input  logic                     s_axis_tvalid,
+  output logic                     s_axis_tready,
 
       // Master AXI4-Stream interface
-    output logic [GC_DATA_WIDTH-1:0] m_axis_tdata,
-    output logic                     m_axis_tvalid,
-    input  logic                     m_axis_tready,
+  output logic [GC_DATA_WIDTH-1:0] m_axis_tdata,
+  output logic                     m_axis_tvalid,
+  input  logic                     m_axis_tready,
 
       // Delay and jitter controls
-    input logic [GC_TIMER_WIDTH-1:0] base_delay,
-    input logic                      enable_base_delay,
-    input logic                      enable_jitter,
+  input logic [GC_TIMER_WIDTH-1:0] base_delay,
+  input logic                      enable_base_delay,
+  input logic                      enable_jitter,
 
       // FIFO occupancy
-    output logic [$clog2(GC_FIFO_DEPTH):0] fifo_count
+  output logic [$clog2(GC_FIFO_DEPTH):0] fifo_count
 );
 
   axis_latency_gen #(

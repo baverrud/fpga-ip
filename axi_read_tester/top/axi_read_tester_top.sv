@@ -35,49 +35,49 @@ module axi_read_tester_top #(
   parameter int unsigned GC_MON_TIME_WIDTH    = 48,
   parameter int unsigned GC_PULSE_LEN         = 1024
 ) (
-    input  logic             aclk,
-    input  logic             mem_aclk,
-    input  logic             aresetn,
+  input  logic             aclk,
+  input  logic             mem_aclk,
+  input  logic             aresetn,
 
-    // Arrayed AXI4-Lite slaves: index 0..N_T*N_C-1 = client axilite_io
-    // (tester t, client c -> t*N_C+c), index N_T*N_C = local axilite_io.
-    input  logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0][15:0] s_axi_awaddr,
-    input  logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0][2:0]  s_axi_awprot,
-    input  logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0]       s_axi_awvalid,
-    output logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0]       s_axi_awready,
-    input  logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0][31:0] s_axi_wdata,
-    input  logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0][3:0]  s_axi_wstrb,
-    input  logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0]       s_axi_wvalid,
-    output logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0]       s_axi_wready,
-    output logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0][1:0]  s_axi_bresp,
-    output logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0]       s_axi_bvalid,
-    input  logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0]       s_axi_bready,
-    input  logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0][15:0] s_axi_araddr,
-    input  logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0][2:0]  s_axi_arprot,
-    input  logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0]       s_axi_arvalid,
-    output logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0]       s_axi_arready,
-    output logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0][31:0] s_axi_rdata,
-    output logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0][1:0]  s_axi_rresp,
-    output logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0]       s_axi_rvalid,
-    input  logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0]       s_axi_rready,
+  // Arrayed AXI4-Lite slaves: index 0..N_T*N_C-1 = client axilite_io
+  // (tester t, client c -> t*N_C+c), index N_T*N_C = local axilite_io.
+  input  logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0][15:0] s_axi_awaddr,
+  input  logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0][2:0]  s_axi_awprot,
+  input  logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0]       s_axi_awvalid,
+  output logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0]       s_axi_awready,
+  input  logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0][31:0] s_axi_wdata,
+  input  logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0][3:0]  s_axi_wstrb,
+  input  logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0]       s_axi_wvalid,
+  output logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0]       s_axi_wready,
+  output logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0][1:0]  s_axi_bresp,
+  output logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0]       s_axi_bvalid,
+  input  logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0]       s_axi_bready,
+  input  logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0][15:0] s_axi_araddr,
+  input  logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0][2:0]  s_axi_arprot,
+  input  logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0]       s_axi_arvalid,
+  output logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0]       s_axi_arready,
+  output logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0][31:0] s_axi_rdata,
+  output logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0][1:0]  s_axi_rresp,
+  output logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0]       s_axi_rvalid,
+  input  logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0]       s_axi_rready,
 
-    // Combined LEDs: index 0..N_TESTERS*N_CLIENTS-1 = per-client LEDs,
-    // highest index = local axilite LED.
-    output logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0] led,
+  // Combined LEDs: index 0..N_TESTERS*N_CLIENTS-1 = per-client LEDs,
+  // highest index = local axilite LED.
+  output logic [GC_NUM_TESTERS*GC_NUM_CLIENTS:0] led,
 
-    // Native AXI read masters, one per tester
-    output logic [GC_NUM_TESTERS-1:0][GC_ID_WIDTH-1:0]            ar_id,
-    output logic [GC_NUM_TESTERS-1:0][GC_ADDR_WIDTH-1:0]          ar_addr,
-    output logic [GC_NUM_TESTERS-1:0][GC_NATIVE_ARLEN_WIDTH-1:0]  ar_len,
-    output logic [GC_NUM_TESTERS-1:0][2:0]                        ar_size,
-    output logic [GC_NUM_TESTERS-1:0]                             ar_valid,
-    input  logic [GC_NUM_TESTERS-1:0]                             ar_ready,
-    input  logic [GC_NUM_TESTERS-1:0][GC_ID_WIDTH-1:0]            r_id,
-    input  logic [GC_NUM_TESTERS-1:0][8*GC_NATIVE_DATA_BYTES-1:0] r_data,
-    input  logic [GC_NUM_TESTERS-1:0][1:0]                        r_resp,
-    input  logic [GC_NUM_TESTERS-1:0]                             r_last,
-    input  logic [GC_NUM_TESTERS-1:0]                             r_valid,
-    output logic [GC_NUM_TESTERS-1:0]                             r_ready
+  // Native AXI read masters, one per tester
+  output logic [GC_NUM_TESTERS-1:0][GC_ID_WIDTH-1:0]            ar_id,
+  output logic [GC_NUM_TESTERS-1:0][GC_ADDR_WIDTH-1:0]          ar_addr,
+  output logic [GC_NUM_TESTERS-1:0][GC_NATIVE_ARLEN_WIDTH-1:0]  ar_len,
+  output logic [GC_NUM_TESTERS-1:0][2:0]                        ar_size,
+  output logic [GC_NUM_TESTERS-1:0]                             ar_valid,
+  input  logic [GC_NUM_TESTERS-1:0]                             ar_ready,
+  input  logic [GC_NUM_TESTERS-1:0][GC_ID_WIDTH-1:0]            r_id,
+  input  logic [GC_NUM_TESTERS-1:0][8*GC_NATIVE_DATA_BYTES-1:0] r_data,
+  input  logic [GC_NUM_TESTERS-1:0][1:0]                        r_resp,
+  input  logic [GC_NUM_TESTERS-1:0]                             r_last,
+  input  logic [GC_NUM_TESTERS-1:0]                             r_valid,
+  output logic [GC_NUM_TESTERS-1:0]                             r_ready
 );
 
     localparam int unsigned C_LAST   = GC_NUM_TESTERS * GC_NUM_CLIENTS;     // 16

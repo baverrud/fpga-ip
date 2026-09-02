@@ -26,14 +26,14 @@ module jitter_gen_top #(
   parameter int          GC_TH_1            = 192,
   parameter int          GC_TH_2            = 240
 ) (
-    // Clock, reset, and controls
-    input logic clk,     // clock
-    input logic rstn,    // active-low synchronous reset
-    input logic step,    // advance the PRNG one step
-    input logic enable,  // enable the generator
+  // Clock, reset, and controls
+  input logic clk,     // clock
+  input logic rstn,    // active-low synchronous reset
+  input logic step,    // advance the PRNG one step
+  input logic enable,  // enable the generator
 
-    // Generated jitter value
-    output logic [GC_JITTER_WIDTH-1:0] jitter  // generated jitter value
+  // Generated jitter value
+  output logic [GC_JITTER_WIDTH-1:0] jitter  // generated jitter value
 );
 
   jitter_gen #(

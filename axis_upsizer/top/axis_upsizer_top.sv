@@ -14,25 +14,25 @@ module axis_upsizer_top #(
   parameter int unsigned GC_RATIO         = 4,    // upsize ratio
   parameter int unsigned GC_ID_WIDTH      = 4     // AXI R ID width
 ) (
-    // Clock / reset
-    input logic aclk,
-    input logic aresetn,
+  // Clock / reset
+  input logic aclk,
+  input logic aresetn,
 
-    // Slave interface (narrow input, AXI R channel)
-    input  logic [GC_S_TDATA_WIDTH-1:0] s_axis_tdata,
-    input  logic                        s_axis_tlast,
-    input  logic [1:0]                  s_axis_rresp,
-    input  logic [GC_ID_WIDTH-1:0]      s_axis_rid,
-    input  logic                        s_axis_tvalid,
-    output logic                        s_axis_tready,
+  // Slave interface (narrow input, AXI R channel)
+  input  logic [GC_S_TDATA_WIDTH-1:0] s_axis_tdata,
+  input  logic                        s_axis_tlast,
+  input  logic [1:0]                  s_axis_rresp,
+  input  logic [GC_ID_WIDTH-1:0]      s_axis_rid,
+  input  logic                        s_axis_tvalid,
+  output logic                        s_axis_tready,
 
-    // Master interface (wide output, AXI R channel)
-    output logic [GC_S_TDATA_WIDTH*GC_RATIO-1:0] m_axis_tdata,
-    output logic                                 m_axis_tlast,
-    output logic [1:0]                           m_axis_rresp,
-    output logic [GC_ID_WIDTH-1:0]               m_axis_rid,
-    output logic                                 m_axis_tvalid,
-    input  logic                                 m_axis_tready
+  // Master interface (wide output, AXI R channel)
+  output logic [GC_S_TDATA_WIDTH*GC_RATIO-1:0] m_axis_tdata,
+  output logic                                 m_axis_tlast,
+  output logic [1:0]                           m_axis_rresp,
+  output logic [GC_ID_WIDTH-1:0]               m_axis_rid,
+  output logic                                 m_axis_tvalid,
+  input  logic                                 m_axis_tready
 );
 
   axis_upsizer #(

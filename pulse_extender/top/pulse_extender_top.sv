@@ -13,13 +13,13 @@ module pulse_extender_top #(
   // Pulse configuration
   parameter int unsigned GC_PULSE_LEN = 4  // output pulse length in clock cycles
 ) (
-    // Clock, reset, and trigger
-    input logic clk,      // clock
-    input logic rstn,     // active-low synchronous reset
-    input logic trigger,  // trigger input, sampled only while idle
+  // Clock, reset, and trigger
+  input logic clk,      // clock
+  input logic rstn,     // active-low synchronous reset
+  input logic trigger,  // trigger input, sampled only while idle
 
-    // Extended output pulse
-    output logic pulse_out  // extended output pulse
+  // Extended output pulse
+  output logic pulse_out  // extended output pulse
 );
 
   // Instantiate the VHDL core (mixed-language binding).

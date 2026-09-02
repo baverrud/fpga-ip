@@ -23,27 +23,27 @@ module axi_ar_mux_top #(
   parameter int unsigned GC_R_BEATS_PER_POP    = 1,
   parameter logic [1:0]  GC_BURST_TYPE          = 2'b01
 ) (
-    // Clock / reset
-    input logic aclk,
-    input logic aresetn,
+  // Clock / reset
+  input logic aclk,
+  input logic aresetn,
 
-    // Client request interfaces. req_len counts client-domain beats minus 1.
-    input  logic [GC_NUM_CLIENTS-1:0][GC_ADDR_WIDTH-1:0] req_addr,
-    input logic [GC_NUM_CLIENTS-1:0][GC_CLIENT_ARLEN_WIDTH-1:0] req_len,
-    input  logic [GC_NUM_CLIENTS-1:0]                    req_valid,
-    output logic [GC_NUM_CLIENTS-1:0]                    req_ready,
+  // Client request interfaces. req_len counts client-domain beats minus 1.
+  input  logic [GC_NUM_CLIENTS-1:0][GC_ADDR_WIDTH-1:0] req_addr,
+  input logic [GC_NUM_CLIENTS-1:0][GC_CLIENT_ARLEN_WIDTH-1:0] req_len,
+  input  logic [GC_NUM_CLIENTS-1:0]                    req_valid,
+  output logic [GC_NUM_CLIENTS-1:0]                    req_ready,
 
-    // Credit returns
-    input logic [GC_NUM_CLIENTS-1:0] r_pop,
+  // Credit returns
+  input logic [GC_NUM_CLIENTS-1:0] r_pop,
 
-    // AXI Read-Address Channel
-    output logic [GC_ID_WIDTH-1:0]   ar_id,
-    output logic [GC_ADDR_WIDTH-1:0] ar_addr,
-    output logic [GC_NATIVE_ARLEN_WIDTH-1:0] ar_len,
-    output logic [2:0]               ar_size,
-    output logic [1:0]               ar_burst,
-    output logic                     ar_valid,
-    input  logic                     ar_ready
+  // AXI Read-Address Channel
+  output logic [GC_ID_WIDTH-1:0]   ar_id,
+  output logic [GC_ADDR_WIDTH-1:0] ar_addr,
+  output logic [GC_NATIVE_ARLEN_WIDTH-1:0] ar_len,
+  output logic [2:0]               ar_size,
+  output logic [1:0]               ar_burst,
+  output logic                     ar_valid,
+  input  logic                     ar_ready
 );
 
     localparam int unsigned C_RATIO = GC_CLIENT_DATA_WIDTH / GC_NATIVE_DATA_WIDTH;

@@ -19,56 +19,56 @@ module axi_monitor_top #(
   parameter int unsigned GC_STAT_WIDTH    = 48,
   parameter int unsigned GC_SB_FIFO_DEPTH = 256
 ) (
-    // Clock, reset, and timebase
-    input logic                     aclk,         // clock
-    input logic                     aresetn,      // active-low synchronous reset
-    input logic [GC_TIME_WIDTH-1:0] global_time,
+  // Clock, reset, and timebase
+  input logic                     aclk,         // clock
+  input logic                     aresetn,      // active-low synchronous reset
+  input logic [GC_TIME_WIDTH-1:0] global_time,
 
-    // Control
-    input logic enable,
-    input logic stat_rst,
-    input logic err_rst,
-    input logic data_check_en,
+  // Control
+  input logic enable,
+  input logic stat_rst,
+  input logic err_rst,
+  input logic data_check_en,
 
-    // req channel taps (inputs -- passive monitor)
-    input logic                     req_valid,
-    input logic                     req_ready,
-    input logic [GC_ADDR_WIDTH-1:0] req_addr,
-    input logic [7:0]               req_len,
+  // req channel taps (inputs -- passive monitor)
+  input logic                     req_valid,
+  input logic                     req_ready,
+  input logic [GC_ADDR_WIDTH-1:0] req_addr,
+  input logic [7:0]               req_len,
 
-    // rsp channel taps (inputs -- passive monitor)
-    input logic                       rsp_valid,
-    input logic                       rsp_ready,
-    input logic [8*GC_DATA_BYTES-1:0] rsp_data,
-    input logic [1:0]                 rsp_resp,
-    input logic                       rsp_last,
+  // rsp channel taps (inputs -- passive monitor)
+  input logic                       rsp_valid,
+  input logic                       rsp_ready,
+  input logic [8*GC_DATA_BYTES-1:0] rsp_data,
+  input logic [1:0]                 rsp_resp,
+  input logic                       rsp_last,
 
-    // Statistics and status
-    output logic [31:0]              stat_req_seen,
-    output logic [31:0]              stat_req_stall,
-    output logic [31:0]              stat_sb_backpressure,
-    output logic [31:0]              stat_xactions,
-    output logic [31:0]              stat_beats,
-    output logic [GC_STAT_WIDTH-1:0] stat_latency_sum,
-    output logic [31:0]              stat_latency_min,
-    output logic [31:0]              stat_latency_max,
-    output logic [GC_STAT_WIDTH-1:0] stat_first_latency_sum,
-    output logic [31:0]              stat_first_latency_min,
-    output logic [31:0]              stat_first_latency_max,
-    output logic [GC_STAT_WIDTH-1:0] stat_interbeat_gap_sum,
-    output logic [31:0]              stat_interbeat_gap_min,
-    output logic [31:0]              stat_interbeat_gap_max,
-    output logic [GC_STAT_WIDTH-1:0] stat_burst_len_sum,
-    output logic [31:0]              stat_burst_len_min,
-    output logic [31:0]              stat_burst_len_max,
-    output logic [31:0]              stat_elapsed_cycles,
-    output logic [31:0]              stat_rsp_stall,
-    output logic                     pipeline_busy,
-    output logic [31:0]              stat_max_outstanding,
-    output logic [31:0]              stat_data_errors,
-    output logic [31:0]              stat_rlast_errors,
-    output logic [31:0]              stat_resp_errors,
-    output logic [31:0]              stat_sb_underflow_errors
+  // Statistics and status
+  output logic [31:0]              stat_req_seen,
+  output logic [31:0]              stat_req_stall,
+  output logic [31:0]              stat_sb_backpressure,
+  output logic [31:0]              stat_xactions,
+  output logic [31:0]              stat_beats,
+  output logic [GC_STAT_WIDTH-1:0] stat_latency_sum,
+  output logic [31:0]              stat_latency_min,
+  output logic [31:0]              stat_latency_max,
+  output logic [GC_STAT_WIDTH-1:0] stat_first_latency_sum,
+  output logic [31:0]              stat_first_latency_min,
+  output logic [31:0]              stat_first_latency_max,
+  output logic [GC_STAT_WIDTH-1:0] stat_interbeat_gap_sum,
+  output logic [31:0]              stat_interbeat_gap_min,
+  output logic [31:0]              stat_interbeat_gap_max,
+  output logic [GC_STAT_WIDTH-1:0] stat_burst_len_sum,
+  output logic [31:0]              stat_burst_len_min,
+  output logic [31:0]              stat_burst_len_max,
+  output logic [31:0]              stat_elapsed_cycles,
+  output logic [31:0]              stat_rsp_stall,
+  output logic                     pipeline_busy,
+  output logic [31:0]              stat_max_outstanding,
+  output logic [31:0]              stat_data_errors,
+  output logic [31:0]              stat_rlast_errors,
+  output logic [31:0]              stat_resp_errors,
+  output logic [31:0]              stat_sb_underflow_errors
 );
 
   axi_monitor #(

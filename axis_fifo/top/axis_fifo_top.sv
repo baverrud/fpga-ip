@@ -15,22 +15,22 @@ module axis_fifo_top #(
   parameter int unsigned GC_TDATA_WIDTH = 8,  // data path width (bits)
   parameter int unsigned GC_FIFO_DEPTH  = 64  // FIFO depth (entries)
 ) (
-    // Clock and reset
-    input logic aclk,     // clock
-    input logic aresetn,  // active-low synchronous reset
+  // Clock and reset
+  input logic aclk,     // clock
+  input logic aresetn,  // active-low synchronous reset
 
-    // Slave AXI4-Stream interface
-    input  logic [GC_TDATA_WIDTH-1:0] s_axis_tdata,   // input data
-    input  logic                      s_axis_tvalid,  // input valid
-    output logic                      s_axis_tready,  // input ready
+  // Slave AXI4-Stream interface
+  input  logic [GC_TDATA_WIDTH-1:0] s_axis_tdata,   // input data
+  input  logic                      s_axis_tvalid,  // input valid
+  output logic                      s_axis_tready,  // input ready
 
-    // Master AXI4-Stream interface
-    output logic [GC_TDATA_WIDTH-1:0] m_axis_tdata,   // output data
-    output logic                      m_axis_tvalid,  // output valid
-    input  logic                      m_axis_tready,  // output ready
+  // Master AXI4-Stream interface
+  output logic [GC_TDATA_WIDTH-1:0] m_axis_tdata,   // output data
+  output logic                      m_axis_tvalid,  // output valid
+  input  logic                      m_axis_tready,  // output ready
 
-    // FIFO occupancy
-    output logic [$clog2(GC_FIFO_DEPTH):0] fifo_count  // occupancy count
+  // FIFO occupancy
+  output logic [$clog2(GC_FIFO_DEPTH):0] fifo_count  // occupancy count
 );
 
   axis_fifo #(

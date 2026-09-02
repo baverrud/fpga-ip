@@ -15,18 +15,18 @@ module axis_cdc_top #(
   parameter int unsigned GC_CDC_DEPTH   = 8,   // FIFO depth (power of two)
   parameter int unsigned GC_SYNC_STAGES = 2    // synchronizer stages (2..4)
 ) (
-    // Source domain
-    input  logic                      s_axis_aclk,    // source clock
-    input  logic                      aresetn,        // shared reset (active low)
-    input  logic [GC_TDATA_WIDTH-1:0] s_axis_tdata,   // payload to cross
-    input  logic                      s_axis_tvalid,  // upstream valid
-    output logic                      s_axis_tready,  // ready to accept
+  // Source domain
+  input  logic                      s_axis_aclk,    // source clock
+  input  logic                      aresetn,        // shared reset (active low)
+  input  logic [GC_TDATA_WIDTH-1:0] s_axis_tdata,   // payload to cross
+  input  logic                      s_axis_tvalid,  // upstream valid
+  output logic                      s_axis_tready,  // ready to accept
 
-    // Destination domain
-    input  logic                      m_axis_aclk,    // destination clock
-    output logic [GC_TDATA_WIDTH-1:0] m_axis_tdata,   // crossed payload
-    output logic                      m_axis_tvalid,  // valid crossed word
-    input  logic                      m_axis_tready   // consumer ready
+  // Destination domain
+  input  logic                      m_axis_aclk,    // destination clock
+  output logic [GC_TDATA_WIDTH-1:0] m_axis_tdata,   // crossed payload
+  output logic                      m_axis_tvalid,  // valid crossed word
+  input  logic                      m_axis_tready   // consumer ready
 );
 
   // Instantiate the VHDL core (mixed-language binding).

@@ -17,27 +17,27 @@ module axi_r_demux_top #(
   parameter int unsigned GC_ID_WIDTH    = 4,  // R ID width
   parameter int unsigned GC_FIFO_DEPTH  = 32  // per-client FIFO depth
 ) (
-    // Clock / reset
-    input logic aclk,
-    input logic aresetn,
+  // Clock / reset
+  input logic aclk,
+  input logic aresetn,
 
-    // AXI Read Data Channel
-    input  logic [GC_ID_WIDTH-1:0]     r_id,
-    input  logic [8*GC_DATA_BYTES-1:0] r_data,
-    input  logic [1:0]                 r_resp,
-    input  logic                       r_last,
-    input  logic                       r_valid,
-    output logic                       r_ready,
+  // AXI Read Data Channel
+  input  logic [GC_ID_WIDTH-1:0]     r_id,
+  input  logic [8*GC_DATA_BYTES-1:0] r_data,
+  input  logic [1:0]                 r_resp,
+  input  logic                       r_last,
+  input  logic                       r_valid,
+  output logic                       r_ready,
 
-    // Demuxed client response interfaces
-    output logic [GC_NUM_CLIENTS-1:0][8*GC_DATA_BYTES-1:0] rsp_data,
-    output logic [GC_NUM_CLIENTS-1:0][1:0]                 rsp_resp,
-    output logic [GC_NUM_CLIENTS-1:0]                      rsp_last,
-    output logic [GC_NUM_CLIENTS-1:0]                      rsp_valid,
-    input  logic [GC_NUM_CLIENTS-1:0]                      rsp_ready,
+  // Demuxed client response interfaces
+  output logic [GC_NUM_CLIENTS-1:0][8*GC_DATA_BYTES-1:0] rsp_data,
+  output logic [GC_NUM_CLIENTS-1:0][1:0]                 rsp_resp,
+  output logic [GC_NUM_CLIENTS-1:0]                      rsp_last,
+  output logic [GC_NUM_CLIENTS-1:0]                      rsp_valid,
+  input  logic [GC_NUM_CLIENTS-1:0]                      rsp_ready,
 
-    // Credit return pulses
-    output logic [GC_NUM_CLIENTS-1:0] r_pop
+  // Credit return pulses
+  output logic [GC_NUM_CLIENTS-1:0] r_pop
 );
 
   axi_r_demux #(
