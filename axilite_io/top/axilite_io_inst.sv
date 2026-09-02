@@ -10,10 +10,10 @@
 
 `timescale 1ns/1ps
 module axilite_io_inst #(
-    parameter int unsigned NUM_ODATA   = 2,  // output register count
-    parameter int unsigned NUM_IDATA   = 2,  // input port count
-    parameter int unsigned NUM_OSTREAM = 2,  // AXI-Stream master count
-    parameter int unsigned NUM_ISTREAM = 2   // AXI-Stream slave count
+  parameter int unsigned NUM_ODATA   = 2,  // output register count
+  parameter int unsigned NUM_IDATA   = 2,  // input port count
+  parameter int unsigned NUM_OSTREAM = 2,  // AXI-Stream master count
+  parameter int unsigned NUM_ISTREAM = 2   // AXI-Stream slave count
 ) ();
   logic aclk;
   logic aresetn;
@@ -45,55 +45,55 @@ module axilite_io_inst #(
 
 
   axilite_io #(
-      .NUM_ODATA   (NUM_ODATA),
-      .NUM_IDATA   (NUM_IDATA),
-      .NUM_OSTREAM (NUM_OSTREAM),
-      .NUM_ISTREAM (NUM_ISTREAM)
+    .NUM_ODATA   (NUM_ODATA),
+    .NUM_IDATA   (NUM_IDATA),
+    .NUM_OSTREAM (NUM_OSTREAM),
+    .NUM_ISTREAM (NUM_ISTREAM)
   ) u_axilite_io (
-      // Clock and reset
-      .aclk    (aclk),
-      .aresetn (aresetn),
+  // Clock and reset
+    .aclk    (aclk),
+    .aresetn (aresetn),
 
-      // AXI4-Lite slave write address channel
-      .s_axi_awaddr  (s_axi_awaddr),
-      .s_axi_awprot  (s_axi_awprot),
-      .s_axi_awvalid (s_axi_awvalid),
-      .s_axi_awready (s_axi_awready),
+  // AXI4-Lite slave write address channel
+    .s_axi_awaddr  (s_axi_awaddr),
+    .s_axi_awprot  (s_axi_awprot),
+    .s_axi_awvalid (s_axi_awvalid),
+    .s_axi_awready (s_axi_awready),
 
-      // AXI4-Lite slave write data channel
-      .s_axi_wdata  (s_axi_wdata),
-      .s_axi_wstrb  (s_axi_wstrb),
-      .s_axi_wvalid (s_axi_wvalid),
-      .s_axi_wready (s_axi_wready),
+  // AXI4-Lite slave write data channel
+    .s_axi_wdata  (s_axi_wdata),
+    .s_axi_wstrb  (s_axi_wstrb),
+    .s_axi_wvalid (s_axi_wvalid),
+    .s_axi_wready (s_axi_wready),
 
-      // AXI4-Lite slave write response channel
-      .s_axi_bresp  (s_axi_bresp),
-      .s_axi_bvalid (s_axi_bvalid),
-      .s_axi_bready (s_axi_bready),
+  // AXI4-Lite slave write response channel
+    .s_axi_bresp  (s_axi_bresp),
+    .s_axi_bvalid (s_axi_bvalid),
+    .s_axi_bready (s_axi_bready),
 
-      // AXI4-Lite slave read address channel
-      .s_axi_araddr  (s_axi_araddr),
-      .s_axi_arprot  (s_axi_arprot),
-      .s_axi_arvalid (s_axi_arvalid),
-      .s_axi_arready (s_axi_arready),
+  // AXI4-Lite slave read address channel
+    .s_axi_araddr  (s_axi_araddr),
+    .s_axi_arprot  (s_axi_arprot),
+    .s_axi_arvalid (s_axi_arvalid),
+    .s_axi_arready (s_axi_arready),
 
-      // AXI4-Lite slave read data channel
-      .s_axi_rdata  (s_axi_rdata),
-      .s_axi_rresp  (s_axi_rresp),
-      .s_axi_rvalid (s_axi_rvalid),
-      .s_axi_rready (s_axi_rready),
+  // AXI4-Lite slave read data channel
+    .s_axi_rdata  (s_axi_rdata),
+    .s_axi_rresp  (s_axi_rresp),
+    .s_axi_rvalid (s_axi_rvalid),
+    .s_axi_rready (s_axi_rready),
 
-      // o_data registered outputs and i_data unregistered inputs
-      .o_data (o_data),
-      .i_data (i_data),
+  // o_data registered outputs and i_data unregistered inputs
+    .o_data (o_data),
+    .i_data (i_data),
 
-      // AXI-Stream outputs
-      .m_axis_tdata  (m_axis_tdata),
-      .m_axis_tvalid (m_axis_tvalid),
+  // AXI-Stream outputs
+    .m_axis_tdata  (m_axis_tdata),
+    .m_axis_tvalid (m_axis_tvalid),
 
-      // AXI-Stream inputs
-      .s_axis_tdata  (s_axis_tdata),
-      .s_axis_tready (s_axis_tready)
+  // AXI-Stream inputs
+    .s_axis_tdata  (s_axis_tdata),
+    .s_axis_tready (s_axis_tready)
   );
 
 endmodule

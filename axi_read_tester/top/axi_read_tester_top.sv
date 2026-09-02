@@ -20,20 +20,20 @@
 `timescale 1ns/1ps
 
 module axi_read_tester_top #(
-    parameter int unsigned GC_NUM_TESTERS       = 4,
-    parameter int unsigned GC_NUM_CLIENTS       = 4,
-    parameter int unsigned GC_ADDR_WIDTH        = 32,
-    parameter int unsigned GC_ID_WIDTH          = 4,
-    parameter int unsigned GC_CLIENT_DATA_BYTES = 64,
-    parameter int unsigned GC_NATIVE_DATA_BYTES = 16,
-    parameter int unsigned GC_NATIVE_ARLEN_WIDTH = 8,
-    parameter int unsigned GC_MAX_BURST         = 32,
-    parameter int unsigned GC_CLIENT_FIFO_DEPTH = 32,
-    parameter int unsigned GC_CDC_DEPTH         = 8,
-    parameter int unsigned GC_SYNC_STAGES       = 2,
-    parameter int unsigned GC_MON_SB_DEPTH      = 256,
-    parameter int unsigned GC_MON_TIME_WIDTH    = 48,
-    parameter int unsigned GC_PULSE_LEN         = 1024
+  parameter int unsigned GC_NUM_TESTERS       = 4,
+  parameter int unsigned GC_NUM_CLIENTS       = 4,
+  parameter int unsigned GC_ADDR_WIDTH        = 32,
+  parameter int unsigned GC_ID_WIDTH          = 4,
+  parameter int unsigned GC_CLIENT_DATA_BYTES = 64,
+  parameter int unsigned GC_NATIVE_DATA_BYTES = 16,
+  parameter int unsigned GC_NATIVE_ARLEN_WIDTH = 8,
+  parameter int unsigned GC_MAX_BURST         = 32,
+  parameter int unsigned GC_CLIENT_FIFO_DEPTH = 32,
+  parameter int unsigned GC_CDC_DEPTH         = 8,
+  parameter int unsigned GC_SYNC_STAGES       = 2,
+  parameter int unsigned GC_MON_SB_DEPTH      = 256,
+  parameter int unsigned GC_MON_TIME_WIDTH    = 48,
+  parameter int unsigned GC_PULSE_LEN         = 1024
 ) (
     input  logic             aclk,
     input  logic             mem_aclk,

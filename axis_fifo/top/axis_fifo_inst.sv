@@ -10,9 +10,9 @@
 
 `timescale 1ns/1ps
 module axis_fifo_inst #(
-    // Data path and storage
-    parameter int unsigned GC_TDATA_WIDTH = 8,  // data path width (bits)
-    parameter int unsigned GC_FIFO_DEPTH  = 64  // FIFO depth (entries)
+  // Data path and storage
+  parameter int unsigned GC_TDATA_WIDTH = 8,  // data path width (bits)
+  parameter int unsigned GC_FIFO_DEPTH  = 64  // FIFO depth (entries)
 ) ();
   logic aclk;
   logic aresetn;
@@ -26,25 +26,25 @@ module axis_fifo_inst #(
 
 
   axis_fifo #(
-      .GC_TDATA_WIDTH (GC_TDATA_WIDTH),
-      .GC_FIFO_DEPTH  (GC_FIFO_DEPTH)
+    .GC_TDATA_WIDTH (GC_TDATA_WIDTH),
+    .GC_FIFO_DEPTH  (GC_FIFO_DEPTH)
   ) u_axis_fifo (
-      // Clock and reset
-      .aclk    (aclk),
-      .aresetn (aresetn),
+  // Clock and reset
+    .aclk    (aclk),
+    .aresetn (aresetn),
 
-      // Slave AXI4-Stream interface
-      .s_axis_tdata  (s_axis_tdata),
-      .s_axis_tvalid (s_axis_tvalid),
-      .s_axis_tready (s_axis_tready),
+  // Slave AXI4-Stream interface
+    .s_axis_tdata  (s_axis_tdata),
+    .s_axis_tvalid (s_axis_tvalid),
+    .s_axis_tready (s_axis_tready),
 
-    // Master AXI4-Stream interface
-      .m_axis_tdata  (m_axis_tdata),
-      .m_axis_tvalid (m_axis_tvalid),
-      .m_axis_tready (m_axis_tready),
+  // Master AXI4-Stream interface
+    .m_axis_tdata  (m_axis_tdata),
+    .m_axis_tvalid (m_axis_tvalid),
+    .m_axis_tready (m_axis_tready),
 
-    // FIFO occupancy
-      .fifo_count (fifo_count)
+  // FIFO occupancy
+    .fifo_count (fifo_count)
   );
 
 endmodule

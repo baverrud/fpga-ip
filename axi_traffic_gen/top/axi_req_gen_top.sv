@@ -13,9 +13,9 @@
 `timescale 1ns/1ps
 
 module axi_req_gen_top #(
-    parameter int unsigned GC_DATA_BYTES = 64,  // bytes per beat
-    parameter int unsigned GC_ADDR_WIDTH = 32,  // address width
-    parameter int unsigned GC_MAX_BURST  = 32   // max beats per burst
+  parameter int unsigned GC_DATA_BYTES = 64,  // bytes per beat
+  parameter int unsigned GC_ADDR_WIDTH = 32,  // address width
+  parameter int unsigned GC_MAX_BURST  = 32   // max beats per burst
 ) (
     // Clock and reset
     input logic aclk,     // clock
@@ -49,39 +49,39 @@ module axi_req_gen_top #(
 );
 
   axi_req_gen #(
-      .GC_DATA_BYTES (GC_DATA_BYTES),
-      .GC_ADDR_WIDTH (GC_ADDR_WIDTH),
-      .GC_MAX_BURST  (GC_MAX_BURST)
+    .GC_DATA_BYTES (GC_DATA_BYTES),
+    .GC_ADDR_WIDTH (GC_ADDR_WIDTH),
+    .GC_MAX_BURST  (GC_MAX_BURST)
   ) u_axi_req_gen (
-      // Clock and reset
-      .aclk    (aclk),
-      .aresetn (aresetn),
+    // Clock and reset
+    .aclk    (aclk),
+    .aresetn (aresetn),
 
-      // Control
-      .enable   (enable),
-      .aperture (aperture),
-      .stat_rst (stat_rst),
+    // Control
+    .enable   (enable),
+    .aperture (aperture),
+    .stat_rst (stat_rst),
 
-      // Runtime configuration
-      .cfg_req_len    (cfg_req_len),
-      .cfg_len_mode   (cfg_len_mode),
-      .cfg_max_len    (cfg_max_len),
-      .cfg_pace       (cfg_pace),
-      .cfg_pace_init  (cfg_pace_init),
-      .cfg_base_addr  (cfg_base_addr),
-      .cfg_addr_range (cfg_addr_range),
-      .cfg_addr_mode  (cfg_addr_mode),
+    // Runtime configuration
+    .cfg_req_len    (cfg_req_len),
+    .cfg_len_mode   (cfg_len_mode),
+    .cfg_max_len    (cfg_max_len),
+    .cfg_pace       (cfg_pace),
+    .cfg_pace_init  (cfg_pace_init),
+    .cfg_base_addr  (cfg_base_addr),
+    .cfg_addr_range (cfg_addr_range),
+    .cfg_addr_mode  (cfg_addr_mode),
 
-      // Client request channel
-      .req_valid (req_valid),
-      .req_ready (req_ready),
-      .req_addr  (req_addr),
-      .req_len   (req_len),
+    // Client request channel
+    .req_valid (req_valid),
+    .req_ready (req_ready),
+    .req_addr  (req_addr),
+    .req_len   (req_len),
 
-      // Statistics
-      .stat_req_stall  (stat_req_stall),
-      .stat_req_issued (stat_req_issued),
-      .stat_cfg_errors (stat_cfg_errors)
+    // Statistics
+    .stat_req_stall  (stat_req_stall),
+    .stat_req_issued (stat_req_issued),
+    .stat_cfg_errors (stat_cfg_errors)
   );
 
 endmodule

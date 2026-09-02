@@ -21,24 +21,24 @@ module prng_inst ();
 
 
   xorshift32 #(
-      .GC_SEED (32'hDEADBEEF)
+    .GC_SEED (32'hDEADBEEF)
   ) u_xorshift32 (
-      // Clock, reset, and xorshift32 control
+    // Clock, reset, and xorshift32 control
     .clk  (clk),
     .rstn (rstn),
     .step (step32),
-      .data (data32)
+    .data (data32)
   );
 
   xorshift128 #(
-      .GC_SEED0 (64'hDEADBEEFCAFEBABE),
-      .GC_SEED1 (64'h0123456789ABCDEF)
+    .GC_SEED0 (64'hDEADBEEFCAFEBABE),
+    .GC_SEED1 (64'h0123456789ABCDEF)
   ) u_xorshift128 (
-      // Clock, reset, and xorshift128 control
+    // Clock, reset, and xorshift128 control
     .clk  (clk),
     .rstn (rstn),
     .step (step128),
-      .data (data128)
+    .data (data128)
   );
 
 endmodule

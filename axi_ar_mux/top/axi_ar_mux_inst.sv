@@ -11,16 +11,16 @@
 
 `timescale 1ns/1ps
 module axi_ar_mux_inst #(
-    parameter int unsigned GC_NUM_CLIENTS        = 4,
-    parameter int unsigned GC_ADDR_WIDTH         = 32,
-    parameter int unsigned GC_ID_WIDTH           = 4,
-    parameter int unsigned GC_CLIENT_DATA_WIDTH  = 512,
-    parameter int unsigned GC_NATIVE_DATA_WIDTH  = 128,
-    parameter int unsigned GC_CLIENT_ARLEN_WIDTH = 6,
-    parameter int unsigned GC_NATIVE_ARLEN_WIDTH = 8,
-    parameter int unsigned GC_FIFO_DEPTH         = 32,
-    parameter int unsigned GC_R_BEATS_PER_POP    = 1,
-    parameter logic [1:0]  GC_BURST_TYPE          = 2'b01
+  parameter int unsigned GC_NUM_CLIENTS        = 4,
+  parameter int unsigned GC_ADDR_WIDTH         = 32,
+  parameter int unsigned GC_ID_WIDTH           = 4,
+  parameter int unsigned GC_CLIENT_DATA_WIDTH  = 512,
+  parameter int unsigned GC_NATIVE_DATA_WIDTH  = 128,
+  parameter int unsigned GC_CLIENT_ARLEN_WIDTH = 6,
+  parameter int unsigned GC_NATIVE_ARLEN_WIDTH = 8,
+  parameter int unsigned GC_FIFO_DEPTH         = 32,
+  parameter int unsigned GC_R_BEATS_PER_POP    = 1,
+  parameter logic [1:0]  GC_BURST_TYPE          = 2'b01
 ) ();
   logic aclk;
   logic aresetn;
@@ -61,24 +61,24 @@ module axi_ar_mux_inst #(
     endgenerate
 
     axi_ar_mux #(
-      .GC_NUM_CLIENTS     (GC_NUM_CLIENTS),
-      .GC_ADDR_WIDTH      (GC_ADDR_WIDTH),
-      .GC_ID_WIDTH        (GC_ID_WIDTH),
-      .GC_FIFO_DEPTH      (GC_FIFO_DEPTH),
-      .GC_R_BEATS_PER_POP (GC_R_BEATS_PER_POP)
+    .GC_NUM_CLIENTS     (GC_NUM_CLIENTS),
+    .GC_ADDR_WIDTH      (GC_ADDR_WIDTH),
+    .GC_ID_WIDTH        (GC_ID_WIDTH),
+    .GC_FIFO_DEPTH      (GC_FIFO_DEPTH),
+    .GC_R_BEATS_PER_POP (GC_R_BEATS_PER_POP)
   ) u_core (
-      .aclk      (aclk),
-      .aresetn   (aresetn),
-      .req_addr  (req_addr_vhdl),
-      .req_len   (req_len_vhdl),
-      .req_valid (req_valid_vhdl),
-      .req_ready (req_ready_vhdl),
-      .r_pop     (r_pop_vhdl),
-      .ar_id     (ar_id),
-      .ar_addr   (ar_addr),
-      .ar_len    (core_ar_len),
-      .ar_valid  (ar_valid),
-      .ar_ready  (ar_ready)
+    .aclk      (aclk),
+    .aresetn   (aresetn),
+    .req_addr  (req_addr_vhdl),
+    .req_len   (req_len_vhdl),
+    .req_valid (req_valid_vhdl),
+    .req_ready (req_ready_vhdl),
+    .r_pop     (r_pop_vhdl),
+    .ar_id     (ar_id),
+    .ar_addr   (ar_addr),
+    .ar_len    (core_ar_len),
+    .ar_valid  (ar_valid),
+    .ar_ready  (ar_ready)
   );
 
     assign ar_len = ((core_ar_len + 8'd1) * C_RATIO) - 1;

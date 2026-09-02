@@ -12,10 +12,10 @@
 `timescale 1ns/1ps
 
 module axi_r_demux_top #(
-    parameter int unsigned GC_NUM_CLIENTS = 4,  // number of clients
-    parameter int unsigned GC_DATA_BYTES  = 4,  // data width in bytes
-    parameter int unsigned GC_ID_WIDTH    = 4,  // R ID width
-    parameter int unsigned GC_FIFO_DEPTH  = 32  // per-client FIFO depth
+  parameter int unsigned GC_NUM_CLIENTS = 4,  // number of clients
+  parameter int unsigned GC_DATA_BYTES  = 4,  // data width in bytes
+  parameter int unsigned GC_ID_WIDTH    = 4,  // R ID width
+  parameter int unsigned GC_FIFO_DEPTH  = 32  // per-client FIFO depth
 ) (
     // Clock / reset
     input logic aclk,
@@ -41,25 +41,25 @@ module axi_r_demux_top #(
 );
 
   axi_r_demux #(
-      .GC_NUM_CLIENTS (GC_NUM_CLIENTS),
-      .GC_DATA_BYTES  (GC_DATA_BYTES),
-      .GC_ID_WIDTH    (GC_ID_WIDTH),
-      .GC_FIFO_DEPTH  (GC_FIFO_DEPTH)
+    .GC_NUM_CLIENTS (GC_NUM_CLIENTS),
+    .GC_DATA_BYTES  (GC_DATA_BYTES),
+    .GC_ID_WIDTH    (GC_ID_WIDTH),
+    .GC_FIFO_DEPTH  (GC_FIFO_DEPTH)
   ) u_core (
-      .aclk      (aclk),
-      .aresetn   (aresetn),
-      .r_id      (r_id),
-      .r_data    (r_data),
-      .r_resp    (r_resp),
-      .r_last    (r_last),
-      .r_valid   (r_valid),
-      .r_ready   (r_ready),
-      .rsp_data  (rsp_data),
-      .rsp_resp  (rsp_resp),
-      .rsp_last  (rsp_last),
-      .rsp_valid (rsp_valid),
-      .rsp_ready (rsp_ready),
-      .r_pop     (r_pop)
+    .aclk      (aclk),
+    .aresetn   (aresetn),
+    .r_id      (r_id),
+    .r_data    (r_data),
+    .r_resp    (r_resp),
+    .r_last    (r_last),
+    .r_valid   (r_valid),
+    .r_ready   (r_ready),
+    .rsp_data  (rsp_data),
+    .rsp_resp  (rsp_resp),
+    .rsp_last  (rsp_last),
+    .rsp_valid (rsp_valid),
+    .rsp_ready (rsp_ready),
+    .r_pop     (r_pop)
   );
 
 endmodule

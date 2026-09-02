@@ -19,20 +19,20 @@
 
 `timescale 1ns/1ps
 module axi_read_tester_inst #(
-    parameter int unsigned GC_NUM_TESTERS       = 4,
-    parameter int unsigned GC_NUM_CLIENTS       = 4,
-    parameter int unsigned GC_ADDR_WIDTH        = 32,
-    parameter int unsigned GC_ID_WIDTH          = 4,
-    parameter int unsigned GC_CLIENT_DATA_BYTES = 64,
-    parameter int unsigned GC_NATIVE_DATA_BYTES = 16,
-    parameter int unsigned GC_NATIVE_ARLEN_WIDTH = 8,
-    parameter int unsigned GC_MAX_BURST         = 32,
-    parameter int unsigned GC_CLIENT_FIFO_DEPTH = 32,
-    parameter int unsigned GC_CDC_DEPTH         = 8,
-    parameter int unsigned GC_SYNC_STAGES       = 2,
-    parameter int unsigned GC_MON_SB_DEPTH      = 256,
-    parameter int unsigned GC_MON_TIME_WIDTH    = 48,
-    parameter int unsigned GC_PULSE_LEN         = 1024
+  parameter int unsigned GC_NUM_TESTERS       = 4,
+  parameter int unsigned GC_NUM_CLIENTS       = 4,
+  parameter int unsigned GC_ADDR_WIDTH        = 32,
+  parameter int unsigned GC_ID_WIDTH          = 4,
+  parameter int unsigned GC_CLIENT_DATA_BYTES = 64,
+  parameter int unsigned GC_NATIVE_DATA_BYTES = 16,
+  parameter int unsigned GC_NATIVE_ARLEN_WIDTH = 8,
+  parameter int unsigned GC_MAX_BURST         = 32,
+  parameter int unsigned GC_CLIENT_FIFO_DEPTH = 32,
+  parameter int unsigned GC_CDC_DEPTH         = 8,
+  parameter int unsigned GC_SYNC_STAGES       = 2,
+  parameter int unsigned GC_MON_SB_DEPTH      = 256,
+  parameter int unsigned GC_MON_TIME_WIDTH    = 48,
+  parameter int unsigned GC_PULSE_LEN         = 1024
 ) ();
   logic aclk;
   logic mem_aclk;
@@ -74,7 +74,7 @@ module axi_read_tester_inst #(
     localparam int unsigned C_LAST   = GC_NUM_TESTERS * GC_NUM_CLIENTS;     // 16
     localparam int unsigned C_AXIL_W = GC_NUM_TESTERS * GC_NUM_CLIENTS + 1; // 17
 
-    // Reversed internal vectors feeding the VHDL integration top.
+  // Reversed internal vectors feeding the VHDL integration top.
     logic [C_AXIL_W-1:0][15:0] s_axi_awaddr_v;
     logic [C_AXIL_W-1:0][2:0]  s_axi_awprot_v;
     logic [C_AXIL_W-1:0]       s_axi_awvalid_v;
@@ -151,7 +151,7 @@ module axi_read_tester_inst #(
         end
     endgenerate
 
-    // Instantiates the VHDL axi_read_tester_top integration core.
+  // Instantiates the VHDL axi_read_tester_top integration core.
     axi_read_tester_top #(
         .GC_NUM_TESTERS       (GC_NUM_TESTERS),
         .GC_NUM_CLIENTS       (GC_NUM_CLIENTS),

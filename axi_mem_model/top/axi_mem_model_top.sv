@@ -13,12 +13,12 @@
 `timescale 1ns/1ps
 
 module axi_mem_model_top #(
-    parameter int unsigned GC_DATA_BYTES    = 64,  // bus width in bytes
-    parameter int unsigned GC_ADDR_WIDTH    = 49,  // address width
-    parameter int unsigned GC_ID_WIDTH      = 6,   // ID width
-    parameter int unsigned GC_TIMER_WIDTH   = 16,  // latency/gap timer width
-    parameter int unsigned GC_AR_FIFO_DEPTH = 8,   // AR-side latency FIFO depth
-    parameter int unsigned GC_R_FIFO_DEPTH  = 8    // R-side beat-gap FIFO depth
+  parameter int unsigned GC_DATA_BYTES    = 64,  // bus width in bytes
+  parameter int unsigned GC_ADDR_WIDTH    = 49,  // address width
+  parameter int unsigned GC_ID_WIDTH      = 6,   // ID width
+  parameter int unsigned GC_TIMER_WIDTH   = 16,  // latency/gap timer width
+  parameter int unsigned GC_AR_FIFO_DEPTH = 8,   // AR-side latency FIFO depth
+  parameter int unsigned GC_R_FIFO_DEPTH  = 8    // R-side beat-gap FIFO depth
 ) (
     // Clock and reset
     input logic aclk,     // clock
@@ -49,39 +49,39 @@ module axi_mem_model_top #(
 );
 
   axi_mem_model #(
-      .GC_DATA_BYTES    (GC_DATA_BYTES),
-      .GC_ADDR_WIDTH    (GC_ADDR_WIDTH),
-      .GC_ID_WIDTH      (GC_ID_WIDTH),
-      .GC_TIMER_WIDTH   (GC_TIMER_WIDTH),
-      .GC_AR_FIFO_DEPTH (GC_AR_FIFO_DEPTH),
-      .GC_R_FIFO_DEPTH  (GC_R_FIFO_DEPTH)
+    .GC_DATA_BYTES    (GC_DATA_BYTES),
+    .GC_ADDR_WIDTH    (GC_ADDR_WIDTH),
+    .GC_ID_WIDTH      (GC_ID_WIDTH),
+    .GC_TIMER_WIDTH   (GC_TIMER_WIDTH),
+    .GC_AR_FIFO_DEPTH (GC_AR_FIFO_DEPTH),
+    .GC_R_FIFO_DEPTH  (GC_R_FIFO_DEPTH)
   ) u_axi_mem_model (
-      // Clock and reset
-      .aclk    (aclk),
-      .aresetn (aresetn),
+    // Clock and reset
+    .aclk    (aclk),
+    .aresetn (aresetn),
 
-      // Control
-      .ar_base_enable   (ar_base_enable),
-      .ar_jitter_enable (ar_jitter_enable),
-      .r_base_enable    (r_base_enable),
-      .r_jitter_enable  (r_jitter_enable),
-      .base_latency     (base_latency),
-      .base_beat_gap    (base_beat_gap),
+    // Control
+    .ar_base_enable   (ar_base_enable),
+    .ar_jitter_enable (ar_jitter_enable),
+    .r_base_enable    (r_base_enable),
+    .r_jitter_enable  (r_jitter_enable),
+    .base_latency     (base_latency),
+    .base_beat_gap    (base_beat_gap),
 
-      // AXI4 AR channel
-      .ar_id    (ar_id),
-      .ar_addr  (ar_addr),
-      .ar_len   (ar_len),
-      .ar_valid (ar_valid),
-      .ar_ready (ar_ready),
+    // AXI4 AR channel
+    .ar_id    (ar_id),
+    .ar_addr  (ar_addr),
+    .ar_len   (ar_len),
+    .ar_valid (ar_valid),
+    .ar_ready (ar_ready),
 
-      // AXI4 R channel
-      .r_id    (r_id),
-      .r_data  (r_data),
-      .r_resp  (r_resp),
-      .r_last  (r_last),
-      .r_valid (r_valid),
-      .r_ready (r_ready)
+    // AXI4 R channel
+    .r_id    (r_id),
+    .r_data  (r_data),
+    .r_resp  (r_resp),
+    .r_last  (r_last),
+    .r_valid (r_valid),
+    .r_ready (r_ready)
   );
 
 endmodule

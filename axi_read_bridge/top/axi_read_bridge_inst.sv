@@ -14,15 +14,15 @@
 
 `timescale 1ns/1ps
 module axi_read_bridge_inst #(
-    parameter int unsigned GC_NUM_CLIENTS        = 4,
-    parameter int unsigned GC_ADDR_WIDTH         = 32,
-    parameter int unsigned GC_ID_WIDTH           = 4,
-    parameter int unsigned GC_CLIENT_DATA_BYTES  = 64,
-    parameter int unsigned GC_NATIVE_DATA_BYTES  = 16,
-    parameter int unsigned GC_NATIVE_ARLEN_WIDTH = 8,
-    parameter int unsigned GC_CLIENT_FIFO_DEPTH  = 32,
-    parameter int unsigned GC_CDC_DEPTH          = 8,
-    parameter int unsigned GC_SYNC_STAGES        = 2
+  parameter int unsigned GC_NUM_CLIENTS        = 4,
+  parameter int unsigned GC_ADDR_WIDTH         = 32,
+  parameter int unsigned GC_ID_WIDTH           = 4,
+  parameter int unsigned GC_CLIENT_DATA_BYTES  = 64,
+  parameter int unsigned GC_NATIVE_DATA_BYTES  = 16,
+  parameter int unsigned GC_NATIVE_ARLEN_WIDTH = 8,
+  parameter int unsigned GC_CLIENT_FIFO_DEPTH  = 32,
+  parameter int unsigned GC_CDC_DEPTH          = 8,
+  parameter int unsigned GC_SYNC_STAGES        = 2
 ) ();
   logic aclk;
   logic mem_aclk;
@@ -53,7 +53,7 @@ module axi_read_bridge_inst #(
     localparam int unsigned C_CLIENT_ARLEN_WIDTH = GC_NATIVE_ARLEN_WIDTH -
         $clog2(GC_CLIENT_DATA_BYTES / GC_NATIVE_DATA_BYTES);
 
-    // Reversed internal vectors feeding the VHDL top (SV index j -> VHDL index j).
+  // Reversed internal vectors feeding the VHDL top (SV index j -> VHDL index j).
     logic [GC_NUM_CLIENTS-1:0][GC_ADDR_WIDTH-1:0]          req_addr_v;
     logic [GC_NUM_CLIENTS-1:0][C_CLIENT_ARLEN_WIDTH-1:0]   req_len_v;
     logic [GC_NUM_CLIENTS-1:0]                             req_valid_v;
@@ -79,7 +79,7 @@ module axi_read_bridge_inst #(
         end
     endgenerate
 
-    // Instantiates the VHDL axi_read_bridge_top (mixed-language binding).
+  // Instantiates the VHDL axi_read_bridge_top (mixed-language binding).
     axi_read_bridge_top #(
         .GC_NUM_CLIENTS        (GC_NUM_CLIENTS),
         .GC_ADDR_WIDTH         (GC_ADDR_WIDTH),

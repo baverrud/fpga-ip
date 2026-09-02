@@ -10,8 +10,8 @@
 `timescale 1ns/1ps
 
 module axis_skid_buffer_top #(
-    // Data path
-    parameter int unsigned GC_TDATA_WIDTH = 8  // data path width (bits)
+  // Data path
+  parameter int unsigned GC_TDATA_WIDTH = 8  // data path width (bits)
 ) (
     // Clock and reset
     input logic aclk,     // clock
@@ -29,21 +29,21 @@ module axis_skid_buffer_top #(
 );
 
   axis_skid_buffer #(
-      .GC_TDATA_WIDTH (GC_TDATA_WIDTH)
+    .GC_TDATA_WIDTH (GC_TDATA_WIDTH)
   ) u_axis_skid_buffer (
-      // Clock and reset
-      .aclk    (aclk),
-      .aresetn (aresetn),
+    // Clock and reset
+    .aclk    (aclk),
+    .aresetn (aresetn),
 
-      // Slave AXI4-Stream interface
-      .s_axis_tdata  (s_axis_tdata),
-      .s_axis_tvalid (s_axis_tvalid),
-      .s_axis_tready (s_axis_tready),
+    // Slave AXI4-Stream interface
+    .s_axis_tdata  (s_axis_tdata),
+    .s_axis_tvalid (s_axis_tvalid),
+    .s_axis_tready (s_axis_tready),
 
     // Master AXI4-Stream interface
-      .m_axis_tdata  (m_axis_tdata),
-      .m_axis_tvalid (m_axis_tvalid),
-      .m_axis_tready (m_axis_tready)
+    .m_axis_tdata  (m_axis_tdata),
+    .m_axis_tvalid (m_axis_tvalid),
+    .m_axis_tready (m_axis_tready)
   );
 
 endmodule
