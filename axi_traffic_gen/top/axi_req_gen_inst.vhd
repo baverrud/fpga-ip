@@ -1,5 +1,5 @@
 -----------------------------------------------------------------------
---Filename         : axi_traffic_gen_inst.vhd
+--Filename         : axi_req_gen_inst.vhd
 --Description      : Instantiation template for axi_req_gen_top.
 --                 : axi_req_gen.  Passes the configuration generics
 --                 : through and exposes the req channel plus runtime
@@ -13,7 +13,7 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 use work.util_pkg.all;
 
-entity axi_traffic_gen_inst is
+entity axi_req_gen_inst is
   generic (
     GC_DATA_BYTES : positive := 64;
     GC_ADDR_WIDTH : positive := 32;
@@ -21,7 +21,7 @@ entity axi_traffic_gen_inst is
   );
 end entity;
 
-architecture rtl of axi_traffic_gen_inst is
+architecture rtl of axi_req_gen_inst is
   signal aclk : std_logic;
   signal aresetn : std_logic;
   signal enable : std_logic;
