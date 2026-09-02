@@ -53,13 +53,13 @@ fpga-ip/
     ├── rtl/                   # Production synthesizable RTL source files
     ├── tb/                    # Simple and advanced testbenches (incl. UVVM)
     ├── scripts/               # .f manifests and wave.do (tracked sources)
-    ├── .runs/                 # Disposable build artifacts (gitignored)
+    ├── .runs/                 # Latest per-tool artifacts (gitignored)
     └── README.md              # IP-specific documentation
 ```
 
 Each IP is self-contained in its own subdirectory. Generated scripts and tool
-artifacts are written into `<ip>/.runs/<tool>/` (gitignored, regenerated on
-every run, removed by `run clean <ip>`).
+artifacts are written into `<ip>/.runs/<tool>/` (gitignored) and replaced on
+the next run for that tool. Use `run clean <ip>` for a thorough cleanup.
 
 ---
 

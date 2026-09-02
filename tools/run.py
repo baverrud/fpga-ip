@@ -99,7 +99,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]      # fpga-ip repo root
 INI_PATH = REPO_ROOT / "tool_capabilities.ini"        # tool capability profiles
-RUNS_DIRNAME = ".runs"                                # disposable per-tool build dirs
+RUNS_DIRNAME = ".runs"                                # per-tool build dirs
 TOOLCHAINS_ENV = "FPGA_IP_TOOLCHAINS"                 # optional local config path
 DIAGNOSTICS_ENV = "FPGA_IP_DIAGNOSTICS"               # hidden diagnostic capture
 
@@ -116,11 +116,12 @@ VALID_FILE_ATTRS = {"std", "lib", "tool"}
 
 
 def _auto_run_dir(ip: str, tool: str) -> Path:
-    """Return the disposable per-IP, per-tool run directory.
+    """Return the stable per-IP, per-tool run directory.
 
     ModelSim and Questa share one folder (both drive 'vsim'), so they map
     to the same 'modelsim' subdirectory under <ip>/.runs/. Other tools use
-    their own name. The directory is recreated fresh before every run.
+    their own name. Each invocation replaces the previous generated script
+    and tool artifacts in that directory.
     """
     tool_dir = "modelsim" if tool in ("modelsim", "questa") else tool
     return REPO_ROOT / ip / RUNS_DIRNAME / tool_dir
@@ -158,12 +159,11 @@ def _diagnostics_enabled() -> bool:
 
 
 def _prepare_auto_run_dir(path: Path) -> None:
-    """Delete and recreate one disposable tool-run directory.
+    """Recreate one clean automated tool-run directory.
 
-    Every automated run starts from a clean directory so stale libraries,
-    transcripts, and snapshots from a previous run cannot leak into the
-    current one. The caller guarantees the path is under <ip>/.runs/ (see
-    _auto_run_dir), so this never touches tracked sources.
+    The caller supplies a stable path under <ip>/.runs/ (see _auto_run_dir),
+    so each run replaces stale libraries, transcripts, snapshots, and the
+    generated script from the previous run without touching tracked sources.
     """
     cleanup_errors: list[str] = []
 
@@ -936,7 +936,7 @@ STD_TO_VCOM = {"1993": "-93", "2002": "-2002", "2008": "-2008", "2019": "-2019"}
 # Tools that use the ModelSim/Questa (vsim) non-project backend. vsim is
 # expected to be on the PATH; no machine-specific launchers are referenced
 # from this script so it stays portable to any machine. The two names share
-# the same backend and the same .runs/modelsim/ folder (see _auto_run_dir).
+# the same backend and the same .runs/modelsim/ tool family (see _auto_run_dir).
 MSIM_TOOLS = ("modelsim", "questa")
 
 
@@ -1482,32 +1482,37 @@ def _tee_tool(proc: subprocess.Popen, log_file) -> int:
 
 def _run_cmd(cmd: str, cwd: Path | None = None, env: dict | None = None,
              log_path: Path | None = None) -> int:
-    """Run one EDA command through a CMD shell and return its exit code.
+    """Run one EDA command through the platform shell and return its exit code.
 
-    All EDA tools on this platform are launched via `cmd.exe /c <cmd>`; the
-    shell is required because the tools are .bat wrappers that replace the
-    calling process when invoked directly (see the batch-script gotchas in
-    memory/env_tools.md). This helper centralizes the console redirect and
-    the optional working directory/environment so each backend does not
-    repeat the same subprocess plumbing.
+    Windows uses `cmd.exe /c <cmd>` because the EDA tools are .bat wrappers
+    that replace the calling process when invoked directly. POSIX uses
+    `sh -c <cmd>`. This helper centralizes console redirection and the
+    optional working directory/environment for each backend.
 
     cwd, when given, is the process working directory (used by XSim and
     Vivado, which keep their artifacts in a build dir). env, when given,
     overrides the child environment (used by ModelSim project mode to clear
     %MODELSIM%).
     """
-    if not _QUIET:
-        cwd_note = f" (cwd: {cwd})" if cwd is not None else ""
-        print(f"cmd : cmd.exe /c \"{cmd}\"{cwd_note}")
     # Windows: isolate the child in its own process group so a Ctrl-C abort
     # can terminate the whole tree (cmd.exe + .bat wrapper + tool) instead
     # of the tool swallowing the keystroke.
     creationflags = 0
     if os.name == "nt":
+        command = ["cmd.exe", "/c", cmd]
+        command_label = f"cmd.exe /c \"{cmd}\""
+    else:
+        command = ["sh", "-c", cmd]
+        command_label = f"sh -c \"{cmd}\""
+    if os.name == "nt":
         creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 
+    if not _QUIET:
+        cwd_note = f" (cwd: {cwd})" if cwd is not None else ""
+        print(f"cmd : {command_label}{cwd_note}")
+
     def _launch(stdout, stderr) -> subprocess.Popen:
-        return subprocess.Popen(["cmd.exe", "/c", cmd], cwd=cwd, env=env,
+        return subprocess.Popen(command, cwd=cwd, env=env,
                                 stdout=stdout, stderr=stderr,
                                 creationflags=creationflags)
 

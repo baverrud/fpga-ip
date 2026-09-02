@@ -17,6 +17,26 @@ spec.loader.exec_module(runner)
 
 
 class RunnerTests(unittest.TestCase):
+    def test_auto_run_dirs_are_stable_and_grouped_by_tool(self):
+        modelsim_run = runner._auto_run_dir("axis_fifo", "modelsim")
+        repeated_modelsim_run = runner._auto_run_dir("axis_fifo", "modelsim")
+        questa_run = runner._auto_run_dir("axis_fifo", "questa")
+        vivado_run = runner._auto_run_dir("axis_fifo", "vivado")
+
+        self.assertEqual(modelsim_run, repeated_modelsim_run)
+        self.assertEqual(modelsim_run, questa_run)
+        self.assertNotEqual(modelsim_run, vivado_run)
+        self.assertEqual(modelsim_run.name, "modelsim")
+        self.assertEqual(vivado_run.name, "vivado")
+
+    def test_run_cmd_uses_posix_shell_on_posix(self):
+        process = object()
+        with patch.object(runner.os, "name", "posix"), \
+                patch.object(runner.subprocess, "Popen", return_value=process) as launch, \
+                patch.object(runner, "_wait_tool", return_value=0):
+            self.assertEqual(runner._run_cmd("printf test"), 0)
+        self.assertEqual(launch.call_args.args[0], ["sh", "-c", "printf test"])
+
     def manifest(self, text: str):
         handle = tempfile.NamedTemporaryFile(
             mode="w", suffix=".f", delete=False, encoding="utf-8"

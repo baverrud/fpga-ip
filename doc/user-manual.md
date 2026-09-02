@@ -247,9 +247,11 @@ the tool exited 0.
 
 ## Generated Scripts
 
-Generated scripts are build artifacts written into the run directory, with a
-header showing the exact `run` command that re-creates them. They can also be
-run directly from their directory on a machine with the tool on `PATH`:
+Generated scripts are build artifacts written into the per-tool run directory,
+with a header showing the exact `run` command that re-creates them. A new run
+replaces the previous script and its tool state; `run clean <ip>` removes the
+remaining build artifacts. Scripts can also be run directly from their
+directory on a machine with the tool on `PATH`:
 
 | Tool | Script pattern | Direct invocation |
 |------|----------------|-------------------|
