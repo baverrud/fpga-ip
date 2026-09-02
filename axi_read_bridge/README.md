@@ -78,6 +78,13 @@ The RTL instantiates `axi_ar_mux`, two `axis_cdc` instances, `axis_upsizer`,
 and `axi_r_demux`. The integration testbench also instantiates
 `axi_mem_model` as a 128-bit native memory controller at 250 MHz.
 
+## CDC constraints
+
+This IP contains two `axis_cdc` instances. For Vivado implementation, apply
+and adapt the constraints in `axis_cdc/constr/` for the actual clocks and
+synthesized hierarchy. The templates are not valid unchanged for every
+integration.
+
 ## Monitoring note
 
 The native side of this bridge supports **ID reordering**: requests from

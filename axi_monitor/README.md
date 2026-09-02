@@ -51,6 +51,11 @@ reordering), so a single FIFO scoreboard per monitored client is
 sufficient.  To monitor all clients of a multi-client bridge, instantiate
 one `axi_monitor` per client interface.
 
+The integration testbench includes `axi_read_bridge`, which contains
+`axis_cdc` instances. When implementing that integration in Vivado, apply and
+adapt the constraints in `axis_cdc/constr/` for the actual clocks and
+synthesized hierarchy.
+
 ## Statistics
 
 - req side: `stat_req_seen`, `stat_req_stall`, `stat_sb_backpressure`

@@ -87,6 +87,11 @@ from `parallel_prng` (address and length PRNGs).
 in `scripts/vhdl.f` for the vivado/xsim flows.  A SystemVerilog
 mixed-language wrapper (`rtl/axi_req_gen_top.sv`) is also provided.
 
+The integration testbenches include `axi_read_bridge`, which contains
+`axis_cdc` instances. When implementing that integration in Vivado, apply and
+adapt the constraints in `axis_cdc/constr/` for the actual clocks and
+synthesized hierarchy.
+
 ## Instantiation
 
 The examples below use the default **64-byte, 32-bit-address,

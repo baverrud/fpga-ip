@@ -129,7 +129,7 @@ critical path is the registered skid-payload load control (3 logic levels).
 The skid target is stored as a **registered one-hot vector**, so the FIFO
 write path has no binary-to-one-hot decoder. The 250 MHz figure is verified by the
 standalone Vivado flow, which applies the clock from
-`constraints/axi_r_demux.xdc` (`create_clock -period 4.000` on `aclk`) and
+the configured clock and
 reports `report_timing` / `report_utilization` into `.runs/vivado/timing.rpt`
 and `.runs/vivado/utilization.rpt`. Re-run with `run clean axi_r_demux`
 first to force a fresh build.
@@ -290,7 +290,7 @@ run axi_r_demux vhdl xsim       # XSim simulation
 ```
 
 The Vivado flow synthesizes `rtl/axi_r_demux_top.vhd` and applies
-`constraints/axi_r_demux.xdc` (250 MHz clock), reporting WNS in
+the configured clock (250 MHz), reporting WNS in
 `.runs/vivado/timing.rpt` as a performance self-check. That constraint is
 for the standalone flow only - integration designs supply their own clocks
 and should not include the file.

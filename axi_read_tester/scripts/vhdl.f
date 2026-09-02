@@ -47,9 +47,6 @@ axi_read_tester/rtl/axi_read_tester.vhd
 [top]
 axi_read_tester/rtl/axi_read_tester_top.vhd
 
-[constraints:vivado]
-axi_read_tester/constraints/axi_read_tester.xdc
-
 [tb:default]
 top = axi_read_tester_tb
 axi_mem_model/rtl/axi_mem_model_core.vhd

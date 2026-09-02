@@ -24,9 +24,6 @@ axis_downsizer/rtl/axis_downsizer.vhd
 [top]
 axis_downsizer/rtl/axis_downsizer_top.vhd
 
-[constraints:vivado]
-axis_downsizer/constraints/axis_downsizer.xdc
-
 [tb:default]
 top = axis_downsizer_tb
 axis_downsizer/tb/axis_downsizer_tb.vhd

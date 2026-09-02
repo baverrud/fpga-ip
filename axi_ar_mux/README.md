@@ -188,8 +188,8 @@ xc7a35tftg256-1**, Vivado 2023.2, default 4-client config:
 | Block RAM / DSP | 0 |
 | WNS @ 143 MHz | **+0.109 ns** (post place & route, all endpoints met) |
 
-The clock is applied from `constraints/axi_ar_mux.xdc`
-(`create_clock -period 7.000` on `aclk`).
+Timing is integration-dependent; the integrating design must provide its own
+clock constraints for the target device.
 
 **Frequency note:** the critical path is the exact-credit arbitration loop
 (credit check, round-robin scan and grant selection in one cycle). It does
@@ -371,15 +371,12 @@ index 0 maps to VHDL client index 0.
 
 ```text
 run axi_ar_mux vhdl modelsim   # ModelSim batch (default target)
-run axi_ar_mux vhdl vivado     # Vivado synthesis + 143 MHz timing check
+run axi_ar_mux vhdl vivado     # Vivado synthesis
 run axi_ar_mux vhdl xsim       # XSim simulation
 ```
 
-The Vivado flow synthesizes `rtl/axi_ar_mux_top.vhd` and applies
-`constraints/axi_ar_mux.xdc` (143 MHz clock), reporting WNS in
-`.runs/vivado/timing.rpt` as a performance self-check. That constraint is
-for the standalone flow only - integration designs supply their own clocks
-and should not include the file.
+The Vivado flow synthesizes `rtl/axi_ar_mux_top.vhd`. Integration designs
+must supply the clock and timing constraints for their target device.
 
 The testbench (`tb/axi_ar_mux_tb.vhd`, 143 MHz clock, generic
 clients/address/ID/credit) verifies:

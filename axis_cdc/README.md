@@ -167,17 +167,17 @@ between the unrelated clocks while still bounding the routed bus delay.
 
 ### Using the XDC in Vivado
 
-`constraints/axis_cdc.xdc` is a per-instance integration template. It is
+`constr/axis_cdc.xdc` is a per-instance integration template. It is
 not included in the standalone `vhdl.f` synthesis manifest because that flow
 does not know the real top-level clock objects or final hierarchy.
 
 The constraints folder also contains a complete reusable integration example:
 
-- `constraints/axis_cdc_multi_instance_example.xdc`
-- `constraints/axis_cdc_impl_hook_example.tcl`
-- `constraints/axis_cdc_find_hierarchy.tcl`
-- `constraints/AXIS_CDC_CONSTRAINTS.md`
-- `constraints/VIVADO_GUI_QUICK_START.md`
+- `constr/axis_cdc_multi_instance_example.xdc`
+- `constr/axis_cdc_impl_hook_example.tcl`
+- `constr/axis_cdc_find_hierarchy.tcl`
+- `constr/AXIS_CDC_CONSTRAINTS.md`
+- `constr/VIVADO_GUI_QUICK_START.md`
 
 Start with `VIVADO_GUI_QUICK_START.md`. Use `AXIS_CDC_CONSTRAINTS.md` when
 adapting clocks, hierarchy, instance count, or FIFO depth.
@@ -193,7 +193,7 @@ adapting clocks, hierarchy, instance count, or FIFO depth.
    synth_design -top my_top -part <part>
    create_clock -name s_axis_aclk -period 10.000 [get_ports s_axis_aclk]
   create_clock -name m_axis_aclk -period 4.000 [get_ports m_axis_aclk]
-   read_xdc path/to/axis_cdc/constraints/axis_cdc.xdc
+  read_xdc path/to/axis_cdc/constr/axis_cdc.xdc
    ```
 
    If the clocks already come from a clocking wizard, PS, or another top-level
@@ -551,7 +551,7 @@ for pointer widths 2 through 5 and checks full/empty predicates at FIFO depths
 
 RTL simulation cannot inject analog metastability or prove routed Gray-bus
 delay. Hardware CDC signoff therefore also requires the XDC setup and
-post-implementation verification in `constraints/AXIS_CDC_CONSTRAINTS.md`.
+post-implementation verification in `constr/AXIS_CDC_CONSTRAINTS.md`.
 
 `scripts/sv.f` synthesizes `rtl/axis_cdc_top.sv` with the VHDL core in Vivado,
 checking mixed-language parameter and port binding.

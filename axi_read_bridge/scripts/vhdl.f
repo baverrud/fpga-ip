@@ -27,9 +27,6 @@ axi_read_bridge/rtl/axi_read_bridge.vhd
 [top]
 axi_read_bridge/rtl/axi_read_bridge_top.vhd
 
-[constraints:vivado]
-axi_read_bridge/constraints/axi_read_bridge.xdc
-
 [tb:default]
 top = axi_read_bridge_tb
 axi_read_bridge/tb/axi_read_bridge_tb.vhd

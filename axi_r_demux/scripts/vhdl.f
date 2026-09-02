@@ -29,9 +29,6 @@ axi_r_demux/rtl/axi_r_demux.vhd
 [top]
 axi_r_demux/rtl/axi_r_demux_top.vhd
 
-[constraints:vivado]
-axi_r_demux/constraints/axi_r_demux.xdc
-
 [tb:default]
 top = axi_r_demux_tb
 axi_r_demux/tb/axi_r_demux_tb.vhd

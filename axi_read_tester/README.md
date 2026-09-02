@@ -421,6 +421,10 @@ Resolved by `scripts/vhdl.f` (inline closure, per repo convention):
 `axilite_io`, `common/util_pkg`. `axi_mem_model` is only needed by the
 testbench.
 
+Because this tester integrates `axi_read_bridge`, its Vivado implementation
+contains `axis_cdc` instances. Apply and adapt the constraints in
+`axis_cdc/constr/` for the actual clocks and synthesized hierarchy.
+
 ## Running
 
 ```text
@@ -429,9 +433,8 @@ run axi_read_tester vhdl xsim       # XSim simulation
 run axi_read_tester vhdl vivado     # Vivado synthesis + timing check
 ```
 
-`constraints/axi_read_tester.xdc` applies a 100 MHz clock to the client
-domain (`aclk`) and a 250 MHz clock to the memory domain (`mem_aclk`) for
-the standalone flow (integration designs supply their own clocks).
+The integrating design must provide the client and memory clocks and their
+timing constraints.
 
 ## Status
 

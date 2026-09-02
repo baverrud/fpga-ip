@@ -189,4 +189,4 @@ The UVVM testbench, like the direct testbench, cannot prove analog
 metastability tolerance, physical synchronizer placement, Gray-bus routing
 skew, or implementation timing. Those are covered by the `ASYNC_REG`
 attributes in the RTL and the XDC constraints documented in
-`constraints/AXIS_CDC_CONSTRAINTS.md`.
+`constr/AXIS_CDC_CONSTRAINTS.md`.

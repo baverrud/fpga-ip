@@ -161,7 +161,7 @@ Artix-7 part with ~0.7 ns of margin. Scaling to a larger part (for example
 a ZCU104-class device) or a faster speed grade increases the margin.
 
 The 250 MHz figure is verified by the standalone Vivado flow, which
-applies the clock from `constraints/axis_upsizer.xdc`
+applies the configured clock
 (`create_clock -period 4.000` on `aclk`) and reports
 `report_timing` / `report_utilization` into `.runs/vivado/timing.rpt` and
 `.runs/vivado/utilization.rpt`. Re-run with `run clean axis_upsizer` first
@@ -310,7 +310,7 @@ run axis_upsizer vhdl xsim         # XSim simulation
 ```
 
 The Vivado flow synthesizes `rtl/axis_upsizer_top.vhd` and applies
-`constraints/axis_upsizer.xdc` (250 MHz clock), reporting WNS in
+the configured clock (250 MHz), reporting WNS in
 `.runs/vivado/timing.rpt` as a performance self-check. That constraint is
 for the standalone flow only - integration designs supply their own clocks
 and should not include the file.

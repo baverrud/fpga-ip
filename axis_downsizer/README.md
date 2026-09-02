@@ -141,7 +141,7 @@ margin. Scaling to a larger part (for example a ZCU104-class device) or a
 faster speed grade increases the margin.
 
 The 250 MHz figure is verified by the standalone Vivado flow, which
-applies the clock from `constraints/axis_downsizer.xdc`
+applies the configured clock
 (`create_clock -period 4.000` on `aclk`) and reports
 `report_timing` / `report_utilization` into `.runs/vivado/timing.rpt` and
 `.runs/vivado/utilization.rpt`. Re-run with `run clean axis_downsizer`
@@ -290,7 +290,7 @@ run axis_downsizer vhdl xsim       # XSim simulation
 ```
 
 The Vivado flow synthesizes `rtl/axis_downsizer_top.vhd` and applies
-`constraints/axis_downsizer.xdc` (250 MHz clock), reporting WNS in
+the configured clock (250 MHz), reporting WNS in
 `.runs/vivado/timing.rpt` as a performance self-check. That constraint is
 for the standalone flow only - integration designs supply their own clocks
 and should not include the file.

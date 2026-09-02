@@ -24,9 +24,6 @@ axis_upsizer/rtl/axis_upsizer.vhd
 [top]
 axis_upsizer/rtl/axis_upsizer_top.vhd
 
-[constraints:vivado]
-axis_upsizer/constraints/axis_upsizer.xdc
-
 [tb:default]
 top = axis_upsizer_tb
 axis_upsizer/tb/axis_upsizer_tb.vhd

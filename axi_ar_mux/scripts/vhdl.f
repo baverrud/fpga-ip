@@ -27,9 +27,6 @@ axi_ar_mux/rtl/axi_ar_mux.vhd
 [top]
 axi_ar_mux/rtl/axi_ar_mux_top.vhd
 
-[constraints:vivado]
-axi_ar_mux/constraints/axi_ar_mux.xdc
-
 [tb:default]
 top = axi_ar_mux_tb
 axi_ar_mux/tb/axi_ar_mux_tb.vhd

@@ -371,7 +371,7 @@ my_ip/tb/my_ip_uvvm_tb.vhd
 my_ip/tb/waves.do
 
 [constraints:vivado]
-my_ip/constraints/my_ip.xdc
+my_ip/constr/my_ip.xdc
 ```
 
 The default command selects `[tb:default]`; use `--tb uvvm` for the UVVM
