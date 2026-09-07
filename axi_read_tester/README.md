@@ -117,16 +117,22 @@ Native AXI read channels are arrayed one per tester.
 
 ## Per-client Register Map (via `axilite_io`)
 
-`o_data` registers (`0x0000`..`0x0010`, one per client):
+`o_data` registers (`0x0000`..`0x002C`, one per client):
 
 | Addr | Name | Bits |
 |------|------|------|
-| `0x0000` | `o_data[0]` | `0`=enable, `1`=res, `2`=res, `3`=mon_enable, `4`=res, `5`=res, `6`=data_check_en, `7`=cfg_len_mode, `8`=cfg_addr_mode, `[9+LEN-1:9]`=cfg_req_len, `[9+2LEN-1:9+LEN]`=cfg_max_len (LEN = `log2(GC_MAX_BURST)`). Bits 1,2,4,5 were `aperture`/`stat_rst`/`mon_stat_rst`/`mon_err_rst` - now external ports. |
-| `0x0004` | `o_data[1]` | `cfg_pace[31:0]` |
-| `0x0008` | `o_data[2]` | `cfg_pace_init[31:0]` |
-| `0x000C` | `o_data[3]` | `cfg_base_addr[31:0]` |
-| `0x0010` | `o_data[4]` | `cfg_addr_range[31:0]` |
-| `0x0014` | `o_data[5]` | `0`=LED (one bit per client, combined into the top `led` vector) |
+| `0x0000` | `o_data[0]` | `0`=enable |
+| `0x0004` | `o_data[1]` | `0`=mon_enable |
+| `0x0008` | `o_data[2]` | `0`=data_check_en |
+| `0x000C` | `o_data[3]` | `0`=cfg_len_mode |
+| `0x0010` | `o_data[4]` | `0`=cfg_addr_mode |
+| `0x0014` | `o_data[5]` | `cfg_req_len` in bits `C_LEN_WIDTH-1:0` |
+| `0x0018` | `o_data[6]` | `cfg_max_len` in bits `C_LEN_WIDTH-1:0` |
+| `0x001C` | `o_data[7]` | `cfg_pace[31:0]` |
+| `0x0020` | `o_data[8]` | `cfg_pace_init[31:0]` |
+| `0x0024` | `o_data[9]` | `cfg_base_addr[31:0]` |
+| `0x0028` | `o_data[10]` | `cfg_addr_range[31:0]` |
+| `0x002C` | `o_data[11]` | `0`=LED (one bit per client, combined into the top `led` vector) |
 
 `i_data` registers (read-only, `0x8000` base). All `axi_monitor` statistics
 are mapped; the four 48-bit `*_sum` counters occupy two words each

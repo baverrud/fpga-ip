@@ -260,11 +260,13 @@ begin
     -- and stat_rst/err_rst are external per-client inputs (drive them
     -- separately).
     aperture <= '1';
-    p_axil_write(x"0000", x"00000009");  -- o_data[0]: enable, mon_enable
-    p_axil_write(x"0004", x"00000000");  -- o_data[1]: cfg_pace = 0 (line rate)
-    p_axil_write(x"0008", x"00000000");  -- o_data[2]: cfg_pace_init = 0
-    p_axil_write(x"000C", x"00000000");  -- o_data[3]: cfg_base_addr
-    p_axil_write(x"0010", x"00010000");  -- o_data[4]: cfg_addr_range = 64 KiB
+    p_axil_write(x"0000", x"00000001");  -- o_data[0]: enable
+    p_axil_write(x"0004", x"00000001");  -- o_data[1]: mon_enable
+    p_axil_write(x"0014", x"0000001F");  -- o_data[5]: cfg_req_len = 32 beats
+    p_axil_write(x"001C", x"00000000");  -- o_data[7]: cfg_pace = 0
+    p_axil_write(x"0020", x"00000000");  -- o_data[8]: cfg_pace_init = 0
+    p_axil_write(x"0024", x"00000000");  -- o_data[9]: cfg_base_addr
+    p_axil_write(x"0028", x"00010000");  -- o_data[10]: cfg_addr_range = 64 KiB
 
     -- Smoke check 1: a request must reach the native AR channel.
     v_wait := 0;

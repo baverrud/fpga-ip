@@ -17,14 +17,18 @@
 --                 :    timing signals instead of register bits.
 --                 :
 --                 : Per-client register map (see README for the full table):
---                 :   o_data[0] : enable, mon_enable, data_check_en,
---                 :              cfg_len_mode/cfg_addr_mode, cfg_req_len,
---                 :              cfg_max_len (bits 1,2,4,5 reserved)
---                 :   o_data[1] : cfg_pace
---                 :   o_data[2] : cfg_pace_init
---                 :   o_data[3] : cfg_base_addr
---                 :   o_data[4] : cfg_addr_range
---                 :   o_data[5] : LED control (bit 0 -> led output)
+--                 :   o_data[0] : enable (bit 0)
+--                 :   o_data[1] : mon_enable (bit 0)
+--                 :   o_data[2] : data_check_en (bit 0)
+--                 :   o_data[3] : cfg_len_mode (bit 0)
+--                 :   o_data[4] : cfg_addr_mode (bit 0)
+--                 :   o_data[5] : cfg_req_len
+--                 :   o_data[6] : cfg_max_len
+--                 :   o_data[7] : cfg_pace
+--                 :   o_data[8] : cfg_pace_init
+--                 :   o_data[9] : cfg_base_addr
+--                 :   o_data[10]: cfg_addr_range
+--                 :   o_data[11]: LED control (bit 0 -> led output)
 --                 :   i_data[0..2]  : req_gen stats (issued, stall, cfg_err)
 --                 :   i_data[3..30] : all 24 monitor stats (48-bit sums as
 --                 :                   low+high words)
@@ -65,19 +69,19 @@ entity axi_read_tester is
     s_axi_awprot  : in  slv_array_t(0 to GC_NUM_CLIENTS-1)(2 downto 0);
     s_axi_awvalid : in  std_logic_vector(0 to GC_NUM_CLIENTS-1);
     s_axi_awready : out std_logic_vector(0 to GC_NUM_CLIENTS-1);
-    s_axi_wdata   : in  slv32_array_t(0 to GC_NUM_CLIENTS-1);
+    s_axi_wdata   : in  slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
     s_axi_wstrb   : in  slv_array_t(0 to GC_NUM_CLIENTS-1)(3 downto 0);
     s_axi_wvalid  : in  std_logic_vector(0 to GC_NUM_CLIENTS-1);
     s_axi_wready  : out std_logic_vector(0 to GC_NUM_CLIENTS-1);
-    s_axi_bresp   : out slv2_array_t(0 to GC_NUM_CLIENTS-1);
+    s_axi_bresp   : out slv_array_t(0 to GC_NUM_CLIENTS-1)(1 downto 0);
     s_axi_bvalid  : out std_logic_vector(0 to GC_NUM_CLIENTS-1);
     s_axi_bready  : in  std_logic_vector(0 to GC_NUM_CLIENTS-1);
     s_axi_araddr  : in  slv_array_t(0 to GC_NUM_CLIENTS-1)(15 downto 0);
     s_axi_arprot  : in  slv_array_t(0 to GC_NUM_CLIENTS-1)(2 downto 0);
     s_axi_arvalid : in  std_logic_vector(0 to GC_NUM_CLIENTS-1);
     s_axi_arready : out std_logic_vector(0 to GC_NUM_CLIENTS-1);
-    s_axi_rdata   : out slv32_array_t(0 to GC_NUM_CLIENTS-1);
-    s_axi_rresp   : out slv2_array_t(0 to GC_NUM_CLIENTS-1);
+    s_axi_rdata   : out slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+    s_axi_rresp   : out slv_array_t(0 to GC_NUM_CLIENTS-1)(1 downto 0);
     s_axi_rvalid  : out std_logic_vector(0 to GC_NUM_CLIENTS-1);
     s_axi_rready  : in  std_logic_vector(0 to GC_NUM_CLIENTS-1);
 
@@ -85,7 +89,6 @@ entity axi_read_tester is
     pipeline_busy : out std_logic_vector(0 to GC_NUM_CLIENTS-1);
 
     -- One LED bit per client, controlled by that client's axilite_io
-    -- o_data[5] bit 0.
     led : out std_logic_vector(0 to GC_NUM_CLIENTS-1);
 
     -- Global external control for all client slices.
@@ -119,49 +122,12 @@ architecture rtl of axi_read_tester is
                              log2ceil(GC_CLIENT_DATA_BYTES / GC_NATIVE_DATA_BYTES);
 
   -- Per-client register counts (see header / README register map).
-  constant C_ODATA      : positive := 6;
-  constant C_IDATA      : positive := 31;  -- 3 generator + 28 monitor words
+  constant C_NUM_ODATA  : positive := 12;
+  constant C_NUM_IDATA  : positive := 31;  -- 3 generator + 28 monitor words
 
   -- Monitor statistics width (axi_monitor GC_STAT_WIDTH): the four *_sum
   -- counters are wider than one 32-bit status word and occupy two.
   constant C_MON_STAT_W : positive := 48;
-
-  -- Statistics collected per client.  Fields mirror the source port names
-  -- (axi_req_gen / axi_monitor outputs); two records keep the generator and
-  -- monitor stat_req_stall ports distinct.  The i_data status registers are
-  -- packed from these signals below.
-  type gen_stat_t is record
-    stat_req_stall  : std_logic_vector(31 downto 0);
-    stat_req_issued : std_logic_vector(31 downto 0);
-    stat_cfg_errors : std_logic_vector(31 downto 0);
-  end record;
-
-  type mon_stat_t is record
-    stat_req_seen            : std_logic_vector(31 downto 0);
-    stat_req_stall           : std_logic_vector(31 downto 0);
-    stat_sb_backpressure     : std_logic_vector(31 downto 0);
-    stat_xactions            : std_logic_vector(31 downto 0);
-    stat_beats               : std_logic_vector(31 downto 0);
-    stat_latency_sum         : std_logic_vector(C_MON_STAT_W-1 downto 0);
-    stat_latency_min         : std_logic_vector(31 downto 0);
-    stat_latency_max         : std_logic_vector(31 downto 0);
-    stat_first_latency_sum   : std_logic_vector(C_MON_STAT_W-1 downto 0);
-    stat_first_latency_min   : std_logic_vector(31 downto 0);
-    stat_first_latency_max   : std_logic_vector(31 downto 0);
-    stat_interbeat_gap_sum   : std_logic_vector(C_MON_STAT_W-1 downto 0);
-    stat_interbeat_gap_min   : std_logic_vector(31 downto 0);
-    stat_interbeat_gap_max   : std_logic_vector(31 downto 0);
-    stat_burst_len_sum       : std_logic_vector(C_MON_STAT_W-1 downto 0);
-    stat_burst_len_min       : std_logic_vector(31 downto 0);
-    stat_burst_len_max       : std_logic_vector(31 downto 0);
-    stat_elapsed_cycles      : std_logic_vector(31 downto 0);
-    stat_rsp_stall           : std_logic_vector(31 downto 0);
-    stat_max_outstanding     : std_logic_vector(31 downto 0);
-    stat_data_errors         : std_logic_vector(31 downto 0);
-    stat_rlast_errors        : std_logic_vector(31 downto 0);
-    stat_resp_errors         : std_logic_vector(31 downto 0);
-    stat_sb_underflow_errors : std_logic_vector(31 downto 0);
-  end record;
 
   -- Bridge client-side request bus.
   signal bridge_req_addr  : slv_array_t(0 to GC_NUM_CLIENTS-1)(GC_ADDR_WIDTH-1 downto 0);
@@ -171,7 +137,7 @@ architecture rtl of axi_read_tester is
 
   -- Bridge client-side response bus (consumed only by the monitor taps).
   signal bridge_rsp_data  : slv_array_t(0 to GC_NUM_CLIENTS-1)(8*GC_CLIENT_DATA_BYTES-1 downto 0);
-  signal bridge_rsp_resp  : slv2_array_t(0 to GC_NUM_CLIENTS-1);
+  signal bridge_rsp_resp  : slv_array_t(0 to GC_NUM_CLIENTS-1)(1 downto 0);
   signal bridge_rsp_last  : std_logic_vector(0 to GC_NUM_CLIENTS-1);
   signal bridge_rsp_valid : std_logic_vector(0 to GC_NUM_CLIENTS-1);
   signal bridge_rsp_ready : std_logic_vector(0 to GC_NUM_CLIENTS-1);
@@ -182,11 +148,49 @@ architecture rtl of axi_read_tester is
   signal gen_req_addr  : slv_array_t(0 to GC_NUM_CLIENTS-1)(GC_ADDR_WIDTH-1 downto 0);
   signal gen_req_len   : slv_array_t(0 to GC_NUM_CLIENTS-1)(C_LEN_WIDTH-1 downto 0);
 
-  -- Per-client register planes (axilite_io o_data / i_data).
-  type oplane_t is array (0 to GC_NUM_CLIENTS-1) of slv32_array_t(0 to C_ODATA-1);
-  signal o_data : oplane_t;
-  type iplane_t is array (0 to GC_NUM_CLIENTS-1) of slv32_array_t(0 to C_IDATA-1);
-  signal i_data : iplane_t;
+  -- Control signals are separate per-client nets between o_data registers
+  -- and the request generator or monitor.
+  signal enable         : std_logic_vector(0 to GC_NUM_CLIENTS-1);
+  signal mon_enable     : std_logic_vector(0 to GC_NUM_CLIENTS-1);
+  signal data_check_en  : std_logic_vector(0 to GC_NUM_CLIENTS-1);
+  signal cfg_len_mode   : std_logic_vector(0 to GC_NUM_CLIENTS-1);
+  signal cfg_addr_mode  : std_logic_vector(0 to GC_NUM_CLIENTS-1);
+  signal cfg_req_len    : slv_array_t(0 to GC_NUM_CLIENTS-1)(C_LEN_WIDTH-1 downto 0);
+  signal cfg_max_len    : slv_array_t(0 to GC_NUM_CLIENTS-1)(C_LEN_WIDTH-1 downto 0);
+  signal cfg_pace       : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal cfg_pace_init  : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal cfg_base_addr  : slv_array_t(0 to GC_NUM_CLIENTS-1)(GC_ADDR_WIDTH-1 downto 0);
+  signal cfg_addr_range : slv_array_t(0 to GC_NUM_CLIENTS-1)(GC_ADDR_WIDTH-1 downto 0);
+
+  -- Per-client statistic signals. Separate arrays keep generator and monitor
+  -- stat_req_stall ports distinct without record types.
+  signal gen_stat_req_stall       : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal gen_stat_req_issued      : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal gen_stat_cfg_errors      : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal stat_req_seen            : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal stat_req_stall           : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal stat_sb_backpressure     : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal stat_xactions            : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal stat_beats               : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal stat_latency_sum         : slv_array_t(0 to GC_NUM_CLIENTS-1)(C_MON_STAT_W-1 downto 0);
+  signal stat_latency_min         : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal stat_latency_max         : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal stat_first_latency_sum   : slv_array_t(0 to GC_NUM_CLIENTS-1)(C_MON_STAT_W-1 downto 0);
+  signal stat_first_latency_min   : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal stat_first_latency_max   : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal stat_interbeat_gap_sum   : slv_array_t(0 to GC_NUM_CLIENTS-1)(C_MON_STAT_W-1 downto 0);
+  signal stat_interbeat_gap_min   : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal stat_interbeat_gap_max   : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal stat_burst_len_sum       : slv_array_t(0 to GC_NUM_CLIENTS-1)(C_MON_STAT_W-1 downto 0);
+  signal stat_burst_len_min       : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal stat_burst_len_max       : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal stat_elapsed_cycles      : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal stat_rsp_stall           : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal stat_max_outstanding     : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal stat_data_errors         : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal stat_rlast_errors        : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal stat_resp_errors         : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal stat_sb_underflow_errors : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
 
 begin
 
@@ -245,53 +249,38 @@ begin
   -- Per-client slice: register interface + request generator + monitor.
   ---------------------------------------------------------------------
   gen_clients : for i in 0 to GC_NUM_CLIENTS-1 generate
-    -- Unused axilite_io stream ports are tied off. GC_NUM_OSTREAM/ISTREAM is
-    -- kept at 1 (not 0): XSim cannot elaborate axilite_io with a null stream
-    -- range ("null index range cannot have an index value").
+    -- These are private axilite_io signals. Each o_data array element is an
+    -- individual registered output control word.
+    signal o_data : slv_array_t(0 to C_NUM_ODATA-1)(31 downto 0);
+    signal i_data : slv_array_t(0 to C_NUM_IDATA-1)(31 downto 0);
+
+    -- Unused stream ports are private tie-offs for this axilite_io instance.
     signal m_axis_tdata_nc  : std_logic_vector(31 downto 0);
     signal m_axis_tvalid_nc : std_logic_vector(0 downto 0);
-    signal s_axis_tdata_nc  : slv32_array_t(0 to 0);
+    signal s_axis_tdata_nc  : slv_array_t(0 to 0)(31 downto 0);
     signal s_axis_tready_nc : std_logic_vector(0 downto 0);
-
-    -- Control decoded from the o_data registers (signals mirror the driven
-    -- sub-IP port names so no o_data element is wired directly to a port).
-    signal enable         : std_logic;
-    signal mon_enable     : std_logic;
-    signal data_check_en  : std_logic;
-    signal cfg_len_mode   : std_logic;
-    signal cfg_addr_mode  : std_logic;
-    signal cfg_req_len    : std_logic_vector(C_LEN_WIDTH-1 downto 0);
-    signal cfg_max_len    : std_logic_vector(C_LEN_WIDTH-1 downto 0);
-    signal cfg_pace       : std_logic_vector(31 downto 0);
-    signal cfg_pace_init  : std_logic_vector(31 downto 0);
-    signal cfg_base_addr  : std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
-    signal cfg_addr_range : std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
-
-    -- Statistics collected from the sub-IPs.  Fields mirror the source port
-    -- names; the i_data status registers are packed from these below.  Two
-    -- records keep the generator and monitor stat_req_stall ports distinct.
-    signal gen_stat : gen_stat_t;
-    signal mon_stat : mon_stat_t;
   begin
 
-    -- Decode the register plane into per-port control signals.
-    enable        <= o_data(i)(0)(0);
-    mon_enable    <= o_data(i)(0)(3);
-    data_check_en <= o_data(i)(0)(6);
-    cfg_len_mode  <= o_data(i)(0)(7);
-    cfg_addr_mode <= o_data(i)(0)(8);
-    cfg_req_len   <= o_data(i)(0)(9 + C_LEN_WIDTH - 1 downto 9);
-    cfg_max_len   <= o_data(i)(0)(9 + 2*C_LEN_WIDTH - 1 downto 9 + C_LEN_WIDTH);
-    cfg_pace      <= o_data(i)(1);
-    cfg_pace_init <= o_data(i)(2);
-    cfg_base_addr <= o_data(i)(3)(31 downto 0);
-    cfg_addr_range<= o_data(i)(4)(31 downto 0);
+    -- Decode each separately registered output register into per-client
+    -- control signals before connecting the sub-IP ports.
+    enable(i)        <= o_data(0)(0);
+    mon_enable(i)    <= o_data(1)(0);
+    data_check_en(i) <= o_data(2)(0);
+    cfg_len_mode(i)  <= o_data(3)(0);
+    cfg_addr_mode(i) <= o_data(4)(0);
+    cfg_req_len(i)   <= o_data(5)(C_LEN_WIDTH-1 downto 0);
+    cfg_max_len(i)   <= o_data(6)(C_LEN_WIDTH-1 downto 0);
+    cfg_pace(i)      <= o_data(7);
+    cfg_pace_init(i) <= o_data(8);
+    cfg_base_addr(i) <= o_data(9)(GC_ADDR_WIDTH-1 downto 0);
+    cfg_addr_range(i)<= o_data(10)(GC_ADDR_WIDTH-1 downto 0);
+    led(i)           <= o_data(11)(0);
 
     -- AXI4-Lite config/status register bridge for this client.
     u_axilite : entity work.axilite_io
       generic map (
-        GC_NUM_ODATA   => C_ODATA,
-        GC_NUM_IDATA   => C_IDATA,
+        GC_NUM_ODATA   => C_NUM_ODATA,
+        GC_NUM_IDATA   => C_NUM_IDATA,
         GC_NUM_OSTREAM => 1,
         GC_NUM_ISTREAM => 1
       )
@@ -317,8 +306,8 @@ begin
         s_axi_rresp   => s_axi_rresp(i),
         s_axi_rvalid  => s_axi_rvalid(i),
         s_axi_rready  => s_axi_rready(i),
-        o_data        => o_data(i),
-        i_data        => i_data(i),
+          o_data        => o_data,
+          i_data        => i_data,
         m_axis_tdata  => m_axis_tdata_nc,
         m_axis_tvalid => m_axis_tvalid_nc,
         s_axis_tdata  => s_axis_tdata_nc,
@@ -335,24 +324,24 @@ begin
       port map (
         aclk    => aclk,
         aresetn => aresetn,
-        enable   => enable,
+        enable   => enable(i),
         aperture => aperture,
         stat_rst => stat_rst,
-        cfg_req_len    => cfg_req_len,
-        cfg_len_mode   => cfg_len_mode,
-        cfg_max_len    => cfg_max_len,
-        cfg_pace       => cfg_pace,
-        cfg_pace_init  => cfg_pace_init,
-        cfg_base_addr  => cfg_base_addr,
-        cfg_addr_range => cfg_addr_range,
-        cfg_addr_mode  => cfg_addr_mode,
+        cfg_req_len    => cfg_req_len(i),
+        cfg_len_mode   => cfg_len_mode(i),
+        cfg_max_len    => cfg_max_len(i),
+        cfg_pace       => cfg_pace(i),
+        cfg_pace_init  => cfg_pace_init(i),
+        cfg_base_addr  => cfg_base_addr(i),
+        cfg_addr_range => cfg_addr_range(i),
+        cfg_addr_mode  => cfg_addr_mode(i),
         req_valid => gen_req_valid(i),
         req_ready => gen_req_ready(i),
         req_addr  => gen_req_addr(i),
         req_len   => gen_req_len(i),
-        stat_req_stall  => gen_stat.stat_req_stall,
-        stat_req_issued => gen_stat.stat_req_issued,
-        stat_cfg_errors => gen_stat.stat_cfg_errors
+        stat_req_stall  => gen_stat_req_stall(i),
+        stat_req_issued => gen_stat_req_issued(i),
+        stat_cfg_errors => gen_stat_cfg_errors(i)
       );
 
     -- Request/response monitor for this client (passive taps).
@@ -368,10 +357,10 @@ begin
         aclk        => aclk,
         aresetn     => aresetn,
         global_time => global_time,
-        enable        => mon_enable,
+        enable        => mon_enable(i),
         stat_rst      => stat_rst,
         err_rst       => err_rst,
-        data_check_en => data_check_en,
+        data_check_en => data_check_en(i),
         pipeline_busy => pipeline_busy(i),
         req_valid => gen_req_valid(i),
         req_ready => gen_req_ready(i),
@@ -382,30 +371,30 @@ begin
         rsp_data  => bridge_rsp_data(i),
         rsp_resp  => bridge_rsp_resp(i),
         rsp_last  => bridge_rsp_last(i),
-        stat_req_seen            => mon_stat.stat_req_seen,
-        stat_req_stall           => mon_stat.stat_req_stall,
-        stat_sb_backpressure     => mon_stat.stat_sb_backpressure,
-        stat_xactions            => mon_stat.stat_xactions,
-        stat_beats               => mon_stat.stat_beats,
-        stat_latency_sum         => mon_stat.stat_latency_sum,
-        stat_latency_min         => mon_stat.stat_latency_min,
-        stat_latency_max         => mon_stat.stat_latency_max,
-        stat_first_latency_sum   => mon_stat.stat_first_latency_sum,
-        stat_first_latency_min   => mon_stat.stat_first_latency_min,
-        stat_first_latency_max   => mon_stat.stat_first_latency_max,
-        stat_interbeat_gap_sum   => mon_stat.stat_interbeat_gap_sum,
-        stat_interbeat_gap_min   => mon_stat.stat_interbeat_gap_min,
-        stat_interbeat_gap_max   => mon_stat.stat_interbeat_gap_max,
-        stat_burst_len_sum       => mon_stat.stat_burst_len_sum,
-        stat_burst_len_min       => mon_stat.stat_burst_len_min,
-        stat_burst_len_max       => mon_stat.stat_burst_len_max,
-        stat_elapsed_cycles      => mon_stat.stat_elapsed_cycles,
-        stat_rsp_stall           => mon_stat.stat_rsp_stall,
-        stat_max_outstanding     => mon_stat.stat_max_outstanding,
-        stat_data_errors         => mon_stat.stat_data_errors,
-        stat_rlast_errors        => mon_stat.stat_rlast_errors,
-        stat_resp_errors         => mon_stat.stat_resp_errors,
-        stat_sb_underflow_errors => mon_stat.stat_sb_underflow_errors
+        stat_req_seen            => stat_req_seen(i),
+        stat_req_stall           => stat_req_stall(i),
+        stat_sb_backpressure     => stat_sb_backpressure(i),
+        stat_xactions            => stat_xactions(i),
+        stat_beats               => stat_beats(i),
+        stat_latency_sum         => stat_latency_sum(i),
+        stat_latency_min         => stat_latency_min(i),
+        stat_latency_max         => stat_latency_max(i),
+        stat_first_latency_sum   => stat_first_latency_sum(i),
+        stat_first_latency_min   => stat_first_latency_min(i),
+        stat_first_latency_max   => stat_first_latency_max(i),
+        stat_interbeat_gap_sum   => stat_interbeat_gap_sum(i),
+        stat_interbeat_gap_min   => stat_interbeat_gap_min(i),
+        stat_interbeat_gap_max   => stat_interbeat_gap_max(i),
+        stat_burst_len_sum       => stat_burst_len_sum(i),
+        stat_burst_len_min       => stat_burst_len_min(i),
+        stat_burst_len_max       => stat_burst_len_max(i),
+        stat_elapsed_cycles      => stat_elapsed_cycles(i),
+        stat_rsp_stall           => stat_rsp_stall(i),
+        stat_max_outstanding     => stat_max_outstanding(i),
+        stat_data_errors         => stat_data_errors(i),
+        stat_rlast_errors        => stat_rlast_errors(i),
+        stat_resp_errors         => stat_resp_errors(i),
+        stat_sb_underflow_errors => stat_sb_underflow_errors(i)
       );
 
     -- Drive the bridge client request bus from this client's generator.
@@ -418,46 +407,43 @@ begin
     -- bridge presents every response beat for observation.
     bridge_rsp_ready(i) <= '1';
 
-    -- LED bit from this client's register plane (o_data[5] bit 0).
-    led(i) <= o_data(i)(5)(0);
-
     -- Pack the collected statistics into the status register plane.  The
     -- four 48-bit monitor *_sum counters occupy low + high words.
-    i_data(i)(0)  <= gen_stat.stat_req_issued;
-    i_data(i)(1)  <= gen_stat.stat_req_stall;
-    i_data(i)(2)  <= gen_stat.stat_cfg_errors;
-    i_data(i)(3)  <= mon_stat.stat_req_seen;
-    i_data(i)(4)  <= mon_stat.stat_req_stall;
-    i_data(i)(5)  <= mon_stat.stat_sb_backpressure;
-    i_data(i)(6)  <= mon_stat.stat_xactions;
-    i_data(i)(7)  <= mon_stat.stat_beats;
-    i_data(i)(8)  <= mon_stat.stat_latency_sum(31 downto 0);
-    i_data(i)(9)  <= std_logic_vector(resize(unsigned(
-                       mon_stat.stat_latency_sum(C_MON_STAT_W-1 downto 32)), 32));
-    i_data(i)(10) <= mon_stat.stat_latency_min;
-    i_data(i)(11) <= mon_stat.stat_latency_max;
-    i_data(i)(12) <= mon_stat.stat_first_latency_sum(31 downto 0);
-    i_data(i)(13) <= std_logic_vector(resize(unsigned(
-                       mon_stat.stat_first_latency_sum(C_MON_STAT_W-1 downto 32)), 32));
-    i_data(i)(14) <= mon_stat.stat_first_latency_min;
-    i_data(i)(15) <= mon_stat.stat_first_latency_max;
-    i_data(i)(16) <= mon_stat.stat_interbeat_gap_sum(31 downto 0);
-    i_data(i)(17) <= std_logic_vector(resize(unsigned(
-                       mon_stat.stat_interbeat_gap_sum(C_MON_STAT_W-1 downto 32)), 32));
-    i_data(i)(18) <= mon_stat.stat_interbeat_gap_min;
-    i_data(i)(19) <= mon_stat.stat_interbeat_gap_max;
-    i_data(i)(20) <= mon_stat.stat_burst_len_sum(31 downto 0);
-    i_data(i)(21) <= std_logic_vector(resize(unsigned(
-                       mon_stat.stat_burst_len_sum(C_MON_STAT_W-1 downto 32)), 32));
-    i_data(i)(22) <= mon_stat.stat_burst_len_min;
-    i_data(i)(23) <= mon_stat.stat_burst_len_max;
-    i_data(i)(24) <= mon_stat.stat_elapsed_cycles;
-    i_data(i)(25) <= mon_stat.stat_rsp_stall;
-    i_data(i)(26) <= mon_stat.stat_max_outstanding;
-    i_data(i)(27) <= mon_stat.stat_data_errors;
-    i_data(i)(28) <= mon_stat.stat_rlast_errors;
-    i_data(i)(29) <= mon_stat.stat_resp_errors;
-    i_data(i)(30) <= mon_stat.stat_sb_underflow_errors;
+    i_data(0)  <= gen_stat_req_issued(i);
+    i_data(1)  <= gen_stat_req_stall(i);
+    i_data(2)  <= gen_stat_cfg_errors(i);
+    i_data(3)  <= stat_req_seen(i);
+    i_data(4)  <= stat_req_stall(i);
+    i_data(5)  <= stat_sb_backpressure(i);
+    i_data(6)  <= stat_xactions(i);
+    i_data(7)  <= stat_beats(i);
+    i_data(8)  <= stat_latency_sum(i)(31 downto 0);
+    i_data(9)  <= std_logic_vector(resize(unsigned(
+                       stat_latency_sum(i)(C_MON_STAT_W-1 downto 32)), 32));
+    i_data(10) <= stat_latency_min(i);
+    i_data(11) <= stat_latency_max(i);
+    i_data(12) <= stat_first_latency_sum(i)(31 downto 0);
+    i_data(13) <= std_logic_vector(resize(unsigned(
+                       stat_first_latency_sum(i)(C_MON_STAT_W-1 downto 32)), 32));
+    i_data(14) <= stat_first_latency_min(i);
+    i_data(15) <= stat_first_latency_max(i);
+    i_data(16) <= stat_interbeat_gap_sum(i)(31 downto 0);
+    i_data(17) <= std_logic_vector(resize(unsigned(
+                       stat_interbeat_gap_sum(i)(C_MON_STAT_W-1 downto 32)), 32));
+    i_data(18) <= stat_interbeat_gap_min(i);
+    i_data(19) <= stat_interbeat_gap_max(i);
+    i_data(20) <= stat_burst_len_sum(i)(31 downto 0);
+    i_data(21) <= std_logic_vector(resize(unsigned(
+                       stat_burst_len_sum(i)(C_MON_STAT_W-1 downto 32)), 32));
+    i_data(22) <= stat_burst_len_min(i);
+    i_data(23) <= stat_burst_len_max(i);
+    i_data(24) <= stat_elapsed_cycles(i);
+    i_data(25) <= stat_rsp_stall(i);
+    i_data(26) <= stat_max_outstanding(i);
+    i_data(27) <= stat_data_errors(i);
+    i_data(28) <= stat_rlast_errors(i);
+    i_data(29) <= stat_resp_errors(i);
+    i_data(30) <= stat_sb_underflow_errors(i);
 
   end generate gen_clients;
 
