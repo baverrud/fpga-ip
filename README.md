@@ -78,7 +78,6 @@ the next run for that tool. Use `run clean <ip>` for a thorough cleanup.
 | [axis_skid_buffer](axis_skid_buffer/README.md) | `axis_skid_buffer/` | AXI4-Stream 2-deep skid buffer with bypass path. Absorbs one beat of backpressure. |
 | [axis_downsizer](axis_downsizer/README.md) | `axis_downsizer/` | AXI4-Stream width downsizer (512 -> 128 default, 4:1). LSB-first unpacking, 250 MHz output line rate. |
 | [axis_upsizer](axis_upsizer/README.md) | `axis_upsizer/` | AXI4-Stream width upsizer (128 -> 512 default, 4:1). LSB-first packing, 250 MHz line rate. |
-| [axis_load_balancer](axis_load_balancer/README.md) | `axis_load_balancer/` | Packet-aware AXI4-Stream load balancer; selects the lowest-fill output data FIFO and keeps each packet on its selected channel. |
 | [pulse_extender](pulse_extender/README.md) | `pulse_extender/` | Level-triggered pulse extender. A high on `trigger` sampled at a rising edge while idle drives `pulse_out` high for a configurable number of clock cycles. |
 | [axi_mem_model](axi_mem_model/README.md) | `axi_mem_model/` | AXI3/AXI4 read-slave that models DRAM-like latency and inter-beat gaps. Configurable widths (1-128 B), zero-latency mode, 1/cycle throughput. |
 | [axi_ar_mux](axi_ar_mux/README.md) | `axi_ar_mux/` | Credit-based AXI4 read-address multiplexer with fair round-robin arbitration for multiple clients. |
