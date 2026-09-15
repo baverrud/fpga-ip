@@ -1,6 +1,7 @@
 # --- IDE / Editors ---
 .vscode/
 .idea/
+*.code-workspace
 *.suo
 *.user
 *.userossc
