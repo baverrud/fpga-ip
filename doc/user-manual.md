@@ -22,11 +22,19 @@ run <ip> <manifest> <tool> [--tb <testbench>] [mode]
 
 Python equivalent: `python tools/run.py <ip> <manifest> <tool> [...]`.
 
+When the current directory is an IP folder containing `scripts/*.f`, use `.`
+as the IP argument:
+
+```text
+cd <ip>
+run . <manifest> <tool> [--tb <testbench>] [mode]
+```
+
 ### Arguments
 
 | Argument | Meaning |
 |----------|---------|
-| `<ip>` | IP directory under the fpga-ip root, or `all` for a sweep. |
+| `<ip>` | IP directory under the fpga-ip root, `.` for the current IP folder, or `all` for a sweep. |
 | `<manifest>` | Manifest base name (`vhdl`, `sv`, `uvvm`, `uvvm_util`, `sv-uvvm`), with or without `.f`; resolves to `<ip>/scripts/<manifest>.f`. Or `all`. |
 | `<tool>` | Tool profile name: `modelsim`, `questa`, `vivado`, `xsim`, or `all`. |
 | `--tb <name>` | Select exactly the `[tb:<name>]` section. |
@@ -48,6 +56,8 @@ run <ip|all> <manifest|all> <tool|all>   # Sweep matrix, batch only
 | Command | Description |
 |---------|-------------|
 | `run axis_fifo vhdl modelsim` | ModelSim VHDL testbench (batch) |
+| `cd axis_fifo` then `run . vhdl modelsim` | Same command from inside the IP folder |
+| `cd axis_fifo` then `run . all all` | Sweep this IP's manifests and tools |
 | `run axis_fifo vhdl modelsim --tb default` | Same, explicit testbench |
 | `run axis_fifo uvvm modelsim` | ModelSim UVVM testbench (batch) |
 | `run axis_fifo sv modelsim` | ModelSim SystemVerilog testbench (batch) |

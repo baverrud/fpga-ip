@@ -17,6 +17,42 @@ spec.loader.exec_module(runner)
 
 
 class RunnerTests(unittest.TestCase):
+    def test_dot_ip_context_uses_current_folder_manifest(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ip_root = Path(temp_dir)
+            scripts = ip_root / "scripts"
+            scripts.mkdir()
+            (scripts / "vhdl.f").write_text("[rtl]\nrtl/core.vhd\n", encoding="utf-8")
+
+            with patch.object(runner, "REPO_ROOT", ip_root.parent), \
+                    patch.object(runner.Path, "cwd", return_value=ip_root):
+                args = SimpleNamespace(ip=".")
+                context = runner._resolve_invocation_context(args, "vhdl.f")
+
+            self.assertEqual(context.ip_root, ip_root.resolve())
+            self.assertEqual(context.source_root, ip_root.resolve())
+            self.assertEqual(context.manifest_path, scripts / "vhdl.f")
+
+    def test_dot_ip_sweep_resolves_current_ip_name(self):
+        with patch.object(
+            runner.Path, "cwd", return_value=REPO_ROOT / "axis_fifo"
+        ):
+            self.assertEqual(runner._resolve_sweep_dot(), "axis_fifo")
+
+    def test_dot_clean_removes_current_ip_runs(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ip_root = Path(temp_dir)
+            (ip_root / "scripts").mkdir()
+            runs = ip_root / ".runs"
+            runs.mkdir()
+            (runs / "marker.txt").write_text("test", encoding="utf-8")
+
+            with patch.object(runner, "REPO_ROOT", ip_root.parent), \
+                    patch.object(runner.Path, "cwd", return_value=ip_root):
+                self.assertEqual(runner.cmd_clean(["."]), 0)
+
+            self.assertFalse(runs.exists())
+
     def test_auto_run_dirs_are_stable_and_grouped_by_tool(self):
         modelsim_run = runner._auto_run_dir("axis_fifo", "modelsim")
         repeated_modelsim_run = runner._auto_run_dir("axis_fifo", "modelsim")

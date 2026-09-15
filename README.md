@@ -24,6 +24,8 @@ From the repository root, on a machine with the EDA tool on `PATH`:
 run axis_fifo vhdl modelsim      # ModelSim VHDL testbench, batch
 run axis_fifo vhdl vivado        # Vivado VHDL synthesis, batch
 run axis_fifo uvvm modelsim gui  # UVVM testbench, ModelSim GUI + waves
+cd axis_fifo && run . vhdl modelsim # Same command from inside an IP folder
+cd axis_fifo && run . all all    # Sweep this IP's manifests and tools
 run all all all                  # Sweep: every IP/manifest/tool, batch
 run clean axis_fifo              # Remove axis_fifo/.runs/ build artifacts
 ```
