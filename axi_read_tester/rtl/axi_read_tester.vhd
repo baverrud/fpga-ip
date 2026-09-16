@@ -123,7 +123,7 @@ architecture rtl of axi_read_tester is
 
   -- Per-client register counts (see header / README register map).
   constant C_NUM_ODATA  : positive := 12;
-  constant C_NUM_IDATA  : positive := 31;  -- 3 generator + 28 monitor words
+  constant C_NUM_IDATA  : positive := 32;  -- 3 generator + 28 monitor + busy
 
   -- Monitor statistics width (axi_monitor GC_STAT_WIDTH): the four *_sum
   -- counters are wider than one 32-bit status word and occupy two.
@@ -185,6 +185,9 @@ architecture rtl of axi_read_tester is
   signal stat_burst_len_min       : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
   signal stat_burst_len_max       : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
   signal stat_elapsed_cycles      : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal measurement_start_time  : slv_array_t(0 to GC_NUM_CLIENTS-1)(GC_MON_TIME_WIDTH-1 downto 0);
+  signal measurement_elapsed     : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
+  signal measurement_started     : std_logic_vector(0 to GC_NUM_CLIENTS-1);
   signal stat_rsp_stall           : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
   signal stat_max_outstanding     : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
   signal stat_data_errors         : slv_array_t(0 to GC_NUM_CLIENTS-1)(31 downto 0);
@@ -407,6 +410,35 @@ begin
     -- bridge presents every response beat for observation.
     bridge_rsp_ready(i) <= '1';
 
+    -- Measure from the shared aperture start until the last accepted
+    -- response beat, including any pending-transfer drain after aperture
+    -- closes. The monitor's legacy elapsed counter is not aperture-scoped.
+    p_measurement_time : process(aclk)
+    begin
+      if rising_edge(aclk) then
+        if aresetn = '0' then
+          measurement_start_time(i) <= (others => '0');
+          measurement_elapsed(i) <= (others => '0');
+          measurement_started(i) <= '0';
+        elsif stat_rst = '1' then
+          measurement_start_time(i) <= (others => '0');
+          measurement_elapsed(i) <= (others => '0');
+          measurement_started(i) <= '0';
+        else
+          if aperture = '1' and measurement_started(i) = '0' then
+            measurement_start_time(i) <= std_logic_vector(global_time);
+            measurement_elapsed(i) <= (others => '0');
+            measurement_started(i) <= '1';
+          elsif measurement_started(i) = '1' and
+                bridge_rsp_valid(i) = '1' and
+                bridge_rsp_ready(i) = '1' then
+            measurement_elapsed(i) <= std_logic_vector(resize(
+              global_time - unsigned(measurement_start_time(i)), 32));
+          end if;
+        end if;
+      end if;
+    end process;
+
     -- Pack the collected statistics into the status register plane.  The
     -- four 48-bit monitor *_sum counters occupy low + high words.
     i_data(0)  <= gen_stat_req_issued(i);
@@ -437,13 +469,14 @@ begin
                        stat_burst_len_sum(i)(C_MON_STAT_W-1 downto 32)), 32));
     i_data(22) <= stat_burst_len_min(i);
     i_data(23) <= stat_burst_len_max(i);
-    i_data(24) <= stat_elapsed_cycles(i);
+    i_data(24) <= measurement_elapsed(i);
     i_data(25) <= stat_rsp_stall(i);
     i_data(26) <= stat_max_outstanding(i);
     i_data(27) <= stat_data_errors(i);
     i_data(28) <= stat_rlast_errors(i);
     i_data(29) <= stat_resp_errors(i);
     i_data(30) <= stat_sb_underflow_errors(i);
+    i_data(31) <= (31 downto 1 => '0') & pipeline_busy(i);
 
   end generate gen_clients;
 

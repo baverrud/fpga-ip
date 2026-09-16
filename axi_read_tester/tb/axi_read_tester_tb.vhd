@@ -3,10 +3,8 @@
 --Description      : Integration testbench skeleton for axi_read_tester.
 --                 : Instantiates the tester plus axi_mem_model on the
 --                 : native AXI master, configures client 0 through its
---                 : AXI4-Lite register interface, and runs a smoke window
---                 : that checks a request reaches the native AR channel and
---                 : a response returns.  Flesh out with full per-client
---                 : scenarios, error injection and stat checks as needed.
+--                 : AXI4-Lite register interface, and runs a measurement
+--                 : window that closes, drains, and checks status counters.
 --Author           : Rune Baeverrud
 --Current Revision : 1.00
 --Licensing        : Zero-Clause BSD (0BSD)
@@ -247,6 +245,31 @@ begin
       s_axi_bready(0) <= '0';
     end procedure;
 
+    procedure p_axil_read(
+      constant addr : in std_logic_vector(15 downto 0);
+      variable data : out std_logic_vector(31 downto 0)) is
+    begin
+      s_axi_araddr(0)  <= addr;
+      s_axi_arprot(0)  <= "000";
+      s_axi_arvalid(0) <= '1';
+      wait until rising_edge(aclk);
+      loop
+        exit when s_axi_arready(0) = '1';
+        wait until rising_edge(aclk);
+      end loop;
+      s_axi_arvalid(0) <= '0';
+      s_axi_rready(0)  <= '1';
+      loop
+        exit when s_axi_rvalid(0) = '1';
+        wait until rising_edge(aclk);
+      end loop;
+      data := s_axi_rdata(0);
+      wait until rising_edge(aclk);
+      s_axi_rready(0) <= '0';
+    end procedure;
+
+    variable v_stat : std_logic_vector(31 downto 0);
+
   begin
     aresetn <= '0';
     for i in 1 to 8 loop
@@ -255,22 +278,25 @@ begin
     aresetn <= '1';
     wait until rising_edge(aclk);
 
-    -- Configure client 0: enable generation + monitor enable, line-rate
-    -- pace, base address 0x0, 64 KiB range, 1-beat requests.  The aperture
-    -- and stat_rst/err_rst are external per-client inputs (drive them
-    -- separately).
-    aperture <= '1';
+    -- Configure client 0: enable generation + monitor enable, data checking,
+    -- 32-beat requests, line-rate pace, base address 0x0, and 64 KiB range.
     p_axil_write(x"0000", x"00000001");  -- o_data[0]: enable
     p_axil_write(x"0004", x"00000001");  -- o_data[1]: mon_enable
+    p_axil_write(x"0008", x"00000001");  -- o_data[2]: data_check_enable
     p_axil_write(x"0014", x"0000001F");  -- o_data[5]: cfg_req_len = 32 beats
     p_axil_write(x"001C", x"00000000");  -- o_data[7]: cfg_pace = 0
     p_axil_write(x"0020", x"00000000");  -- o_data[8]: cfg_pace_init = 0
     p_axil_write(x"0024", x"00000000");  -- o_data[9]: cfg_base_addr
     p_axil_write(x"0028", x"00010000");  -- o_data[10]: cfg_addr_range = 64 KiB
 
-    -- Smoke check 1: a request must reach the native AR channel.
+    stat_rst <= '1';
+    wait until rising_edge(aclk);
+    stat_rst <= '0';
+    aperture <= '1';
+
+    -- Check 1: a request must reach the native AR channel.
     v_wait := 0;
-    while ar_valid = '0' loop
+    while ar_valid = '0' or ar_ready = '0' loop
       assert v_wait < 2000
         report "FAIL: no AR transaction issued"
         severity failure;
@@ -280,9 +306,9 @@ begin
     report "SMOKE: native AR issued (id=" & integer'image(to_integer(unsigned(ar_id))) &
            ", len=" & integer'image(to_integer(unsigned(ar_len))) & ")";
 
-    -- Smoke check 2: the memory model must return a response beat.
+    -- Check 2: the memory model must return a response beat.
     v_wait := 0;
-    while r_valid = '0' loop
+    while r_valid = '0' or r_ready = '0' loop
       assert v_wait < 2000
         report "FAIL: no R response returned"
         severity failure;
@@ -291,9 +317,60 @@ begin
     end loop;
     report "SMOKE: R response returned";
 
-    -- Drain and report.
-    wait until rising_edge(aclk);
-    report "AXI READ TESTER SMOKE PASSED";
+    -- Let several bursts complete, then close the aperture and drain them.
+    for i in 1 to 200 loop
+      wait until rising_edge(aclk);
+    end loop;
+    aperture <= '0';
+    v_wait := 0;
+    while pipeline_busy(0) = '1' loop
+      assert v_wait < 2000
+        report "FAIL: pipeline did not drain after aperture close"
+        severity failure;
+      wait until rising_edge(aclk);
+      v_wait := v_wait + 1;
+    end loop;
+
+    p_axil_write(x"0000", x"00000000");  -- stop the generator
+    p_axil_write(x"0004", x"00000000");  -- stop the monitor
+
+    -- Status indexes: xactions=6, beats=7, latency_min=10,
+    -- elapsed=24, data_errors=27, rlast_errors=28, response_errors=29,
+    -- scoreboard_underflows=30.
+    p_axil_read(x"8018", v_stat);
+    assert unsigned(v_stat) > 0
+      report "FAIL: no completed transactions counted"
+      severity failure;
+    p_axil_read(x"801C", v_stat);
+    assert unsigned(v_stat) >= 1
+      report "FAIL: no response beats counted"
+      severity failure;
+    p_axil_read(x"8028", v_stat);
+    assert v_stat /= x"FFFFFFFF"
+      report "FAIL: latency minimum was not sampled"
+      severity failure;
+    p_axil_read(x"8060", v_stat);
+    assert unsigned(v_stat) > 0
+      report "FAIL: aperture elapsed time was not captured"
+      severity failure;
+    p_axil_read(x"806C", v_stat);
+    assert v_stat = x"00000000"
+      report "FAIL: unexpected data errors"
+      severity failure;
+    p_axil_read(x"8070", v_stat);
+    assert v_stat = x"00000000"
+      report "FAIL: unexpected RLAST errors"
+      severity failure;
+    p_axil_read(x"8074", v_stat);
+    assert v_stat = x"00000000"
+      report "FAIL: unexpected response errors"
+      severity failure;
+    p_axil_read(x"8078", v_stat);
+    assert v_stat = x"00000000"
+      report "FAIL: unexpected scoreboard underflows"
+      severity failure;
+
+    report "AXI READ TESTER STATISTICS PASSED";
     sim_done <= true;
     wait;
   end process;

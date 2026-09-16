@@ -159,6 +159,11 @@ are mapped; the four 48-bit `*_sum` counters occupy two words each
 
 Indexes 3-30 are `axi_monitor` outputs.
 
+`stat_elapsed_cycles` is measured in the tester RTL from the shared aperture
+start timestamp to the timestamp of the last accepted response beat. It
+therefore includes pending-transfer drain after the aperture closes and does
+not include per-client AXI-Lite configuration time before the aperture.
+
 ## Instantiation
 
 The examples below use the default **4-client** configuration. The arrayed
