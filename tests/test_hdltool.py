@@ -287,9 +287,65 @@ class HdlToolTests(unittest.TestCase):
             hdltool.validate_name_map({"_patterns": {"M[]": "bad"}})
         with self.assertRaises(ValueError):
             hdltool.validate_name_map(
+                {"_patterns": {"M[]": "bad"}},
+                source_names=["M00", "M01"],
+            )
+        with self.assertRaises(ValueError):
+            hdltool.validate_name_map(
                 {"first": "same", "second": "same"},
                 source_names=["first", "second"],
             )
+
+    def test_split_axi_interfaces_keep_name_map_indices(self):
+        data = {
+            "axi_buses": {
+                "M00_AXI_0": {"protocol": "AXI-Lite"},
+                "M01_AXI_0": {"protocol": "AXI-Lite"},
+                "M00_AXI_1": {"protocol": "AXI-Lite"},
+            }
+        }
+        name_map = hdltool._analysis_generate_name_map(data)
+        patterns = hdltool._analysis_generate_name_patterns(data)
+
+        self.assertEqual(name_map["M00_AXI_0"], "axilite0")
+        self.assertEqual(name_map["M00_AXI_1"], "axilite0_1")
+        self.assertEqual(patterns["M[]_AXI_0"], "axilite[]")
+        self.assertEqual(patterns["M[]_AXI_1"], "axilite[]_1")
+        self.assertNotEqual(
+            hdltool.resolve_name_mapping(
+                "M00_AXI_0_awaddr", {"_interfaces": patterns}
+            ),
+            hdltool.resolve_name_mapping(
+                "M00_AXI_1_awaddr", {"_interfaces": patterns}
+            ),
+        )
+        split_map = {
+            "_interfaces": {
+                "M[]_AXI_0": "axilite[]",
+                "M[]_AXI_1": "axilite_ctrl",
+            }
+        }
+        groups, _indices, _signal_info = hdltool._generation_array_groups(
+            data,
+            split_map,
+        )
+        self.assertIn(("axilite", "axilite"), groups)
+        self.assertIn(("axilite_ctrl", "axilite"), groups)
+
+    def test_singleton_indexed_interface_can_map_to_scalar_name(self):
+        mapping = {"_interfaces": {"M[]_AXI_1": "axilite_ctrl"}}
+        hdltool.validate_name_map(
+            mapping,
+            source_names=["M00_AXI_1", "M00_AXI_1_awaddr"],
+        )
+        self.assertEqual(
+            hdltool.resolve_name_mapping("M00_AXI_1", mapping),
+            "axilite_ctrl",
+        )
+        self.assertEqual(
+            hdltool.resolve_name_mapping("M00_AXI_1_awaddr", mapping),
+            "axilite_ctrl_awaddr",
+        )
 
     def test_name_map_supports_index_offsets(self):
         mapping = {

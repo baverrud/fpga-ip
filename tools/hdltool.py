@@ -1009,7 +1009,9 @@ def _analysis_axi_type(channels):
     return "AXI4"
 
 
-_ANALYSIS_NAME_MAP_AXI_RE = re.compile(r"M(\d+)_AXI_\d+|(?:M|S)_AXI_(.+)_\d+")
+_ANALYSIS_NAME_MAP_AXI_RE = re.compile(
+    r"M(\d+)_AXI_(\d+)|(?:M|S)_AXI_(.+)_\d+"
+)
 _ANALYSIS_HPC_FPD_RE = re.compile(r"^hpc?\d+_fpd$")
 _ANALYSIS_AXILITE_ARRAY_RE = re.compile(r"^M(\d+)_AXI_\d+$")
 _ANALYSIS_HPM_ARRAY_RE = re.compile(r"^M_AXI_HPM(\d+)_(FPD|LPD)_\d+$")
@@ -1129,13 +1131,33 @@ def _analysis_suggest_flat_name(data, signal, name_map):
 
 def _analysis_generate_name_map(data):
     name_map = {}
+    m_axi_matches = {}
+    for prefix in data.get("axi_buses", {}):
+        match = _ANALYSIS_NAME_MAP_AXI_RE.match(prefix)
+        if match and match.group(1) is not None:
+            key = match.group(1)
+            m_axi_matches.setdefault(key, []).append(match.group(2))
+
     for prefix, bus in data.get("axi_buses", {}).items():
         match = _ANALYSIS_NAME_MAP_AXI_RE.match(prefix)
         if match and match.group(1) is not None:
             family = "axilite" if bus.get("protocol") == "AXI-Lite" else "axi"
-            name_map[prefix] = f"{family}{int(match.group(1))}"
+            candidate = f"{family}{int(match.group(1))}"
+            if len(m_axi_matches[match.group(1)]) > 1:
+                # Vivado can reuse M00_AXI on separate external interfaces
+                # after an interconnect is split. Preserve that interface
+                # index so the generated name map remains unambiguous.
+                interfaces = {
+                    int(index) for index in m_axi_matches[match.group(1)]
+                }
+                base_interface = min(interfaces)
+                if int(match.group(2)) != base_interface:
+                    candidate += f"_{int(match.group(2))}"
+            name_map[prefix] = _analysis_unique_name(
+                name_map, prefix, candidate
+            )
         elif match:
-            suggested = match.group(2).lower()
+            suggested = match.group(3).lower()
             if _ANALYSIS_HPC_FPD_RE.search(suggested):
                 suggested = suggested[:-4]
             name_map[prefix] = suggested
@@ -1292,6 +1314,7 @@ def _analysis_generate_name_patterns(data):
     """Generate compact patterns covering repeated indexed interfaces."""
     patterns = {}
     m_axi_patterns = {}
+    m_axi_interfaces = {}
     for prefix in data.get("axi_buses", {}):
         match = re.fullmatch(r"M(\d+)_AXI_(\d+)", prefix)
         if match:
@@ -1302,6 +1325,7 @@ def _analysis_generate_name_patterns(data):
                 else "axi"
             )
             m_axi_patterns.setdefault(pattern, set()).add(family)
+            m_axi_interfaces.setdefault(family, set()).add(match.group(2))
             continue
         match = re.fullmatch(r"M_AXI_HPM(\d+)_(FPD|LPD)_(\d+)", prefix)
         if match:
@@ -1323,7 +1347,15 @@ def _analysis_generate_name_patterns(data):
 
     for pattern, families in m_axi_patterns.items():
         if len(families) == 1:
-            patterns[pattern] = f"{next(iter(families))}[]"
+            family = next(iter(families))
+            interface = pattern.rsplit("_", 1)[1]
+            replacement = f"{family}[]"
+            base_interface = min(
+                int(index) for index in m_axi_interfaces[family]
+            )
+            if len(m_axi_interfaces[family]) > 1 and int(interface) != base_interface:
+                replacement += f"_{interface}"
+            patterns[pattern] = replacement
 
     for signal in _analysis_flat_ports(data):
         if not _analysis_is_clock_reset(signal["name"]):
@@ -1499,7 +1531,26 @@ def _analysis_indexed_identity_pattern(name):
 _VHDL_IDENTIFIER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
 
-def _validate_name_map_entry(pattern, replacement):
+def _pattern_has_singleton_index(pattern, source_names):
+    if "*" in pattern or "[]" not in pattern:
+        return False
+    expression = []
+    for part in re.split(r"(\[\])", pattern):
+        if part == "[]":
+            expression.append(r"(\d+)")
+        else:
+            expression.append(re.escape(part))
+    matcher = re.compile("".join(expression))
+    indices = {
+        match.groups()
+        for source_name in source_names
+        for match in [matcher.match(source_name)]
+        if match is not None
+    }
+    return len(indices) == 1
+
+
+def _validate_name_map_entry(pattern, replacement, allow_singleton_index=False):
     """Validate one exact or compact pattern-based name-map entry."""
     if not isinstance(pattern, str) or not isinstance(replacement, str):
         raise ValueError("name-map keys and values must be strings")
@@ -1508,7 +1559,14 @@ def _validate_name_map_entry(pattern, replacement):
     replacement_index_count = replacement.count("[]") + len(
         re.findall(r"\[-?\d+\]", replacement)
     )
-    if pattern.count("[]") + pattern.count("*") != replacement_index_count + replacement.count("*"):
+    pattern_index_count = pattern.count("[]")
+    if (
+        replacement_index_count > pattern_index_count
+        or (
+            replacement_index_count != pattern_index_count
+            and not allow_singleton_index
+        )
+    ):
         raise ValueError(
             f"pattern placeholder mismatch: {pattern!r} -> {replacement!r}"
         )
@@ -1563,7 +1621,15 @@ def validate_name_map(name_map, source_names=None):
         replacement, _entry_indexable = _name_pattern_entry(
             pattern, entry, name_map, group_indexable
         )
-        _validate_name_map_entry(pattern, replacement)
+        allow_singleton_index = (
+            source_names is not None
+            and _pattern_has_singleton_index(pattern, source_names)
+        )
+        _validate_name_map_entry(
+            pattern,
+            replacement,
+            allow_singleton_index=allow_singleton_index,
+        )
     for name, replacement in name_map.items():
         if name not in (
             "_non_indexable", "_patterns", "_indexable", "_interfaces", "_ignore"
@@ -2112,7 +2178,10 @@ def _generation_array_groups(data, name_map):
             family, member_key = identity
             mapped_prefix = resolve_name_mapping(prefix, name_map)
             match = re.match(r"^(.*?)(\d+)(_.+)?$", mapped_prefix)
-            array_name = (match.group(1) + (match.group(3) or "")).rstrip("_") if match else family
+            array_name = (
+                (match.group(1) + (match.group(3) or "")).rstrip("_")
+                if match else mapped_prefix
+            )
             groups.setdefault((array_name, family), {})[prefix] = member_key
             for channel in bus.get("channels", {}).values():
                 for signal in channel:
@@ -2232,12 +2301,17 @@ def _generation_port_lines(data, name_map, profile):
                     and ((family == "axilite" and bus.get("protocol") == "AXI-Lite")
                          or (family == "hp" and bus.get("protocol") in ("AXI3", "AXI4")))
                 ):
+                    mapped_prefix = resolve_name_mapping(prefix, name_map)
+                    match = re.match(r"^(.*?)(\d+)(_.+)?$", mapped_prefix)
+                    array_name = (
+                        (match.group(1) + (match.group(3) or "")).rstrip("_")
+                        if match else mapped_prefix
+                    )
                     group = next(
                         group for group in array_groups
-                        if group[1] == family
+                        if group[0] == array_name and group[1] == family
                     )
                     count = len(array_groups[group])
-                    array_name = group[0]
                     if count == 1:
                         bus_name = resolve_name_mapping(prefix, name_map)
                         declarations.append(
@@ -2321,14 +2395,14 @@ def _generation_entity(entity_name, declarations, clauses):
             lines.append(f"    {name} : {type_name}{terminator}")
         else:
             lines.append(f"    {name} : {direction} {type_name}{terminator}")
-    lines.extend(["  );", f"end entity {entity_name};", ""])
+    lines.extend(["  );", "end entity;", ""])
     return lines
 
 
 def _generation_top(entity_name, shim_entity, declarations, clauses):
     lines = ["library ieee;", "use ieee.std_logic_1164.all;"]
     lines.extend(f"use work.{clause}.all;" for clause in clauses)
-    lines.extend(["", f"entity {entity_name} is", f"end entity {entity_name};", ""])
+    lines.extend(["", f"entity {entity_name} is", "end entity;", ""])
     lines.extend([f"architecture struct of {entity_name} is"])
     last_group = None
     for name, direction, type_name in declarations:
@@ -2352,7 +2426,7 @@ def _generation_top(entity_name, shim_entity, declarations, clauses):
             last_group = group
         comma = "," if index < len(declarations) - 1 else ""
         lines.append(f"      {name} => {name}{comma}")
-    lines.extend(["    );", "end architecture struct;", ""])
+    lines.extend(["    );", "end architecture;", ""])
     return "\n".join(lines)
 
 
@@ -2406,7 +2480,7 @@ def _generation_files(data, name_map, profile, file_prefix):
             last_group = group
         comma = "," if index < len(mappings) - 1 else ""
         shim.append(f"      {left} => {right}{comma}")
-    shim.extend(["    );", f"end architecture struct;", ""])
+    shim.extend(["    );", "end architecture;", ""])
 
     top = _generation_top(top_entity, shim_entity, declarations, clauses)
     return "\n".join(shim), top
@@ -2426,12 +2500,24 @@ def _generation_validated_map(name_map, data):
 def _generation_load_map(wrapper_path, data, map_path):
     if map_path:
         selected_path = Path(map_path).expanduser()
-        return _generation_validated_map(load_name_map(selected_path), data)
+        return _generation_validated_map(
+            load_name_map(
+                selected_path,
+                source_names=_generation_source_names(data),
+            ),
+            data,
+        )
     current_path = Path.cwd() / "name_map.json"
     wrapper_path_map = Path(wrapper_path).with_name("name_map.json")
     selected_path = current_path if current_path.is_file() else wrapper_path_map
     if selected_path.is_file():
-        return _generation_validated_map(load_name_map(selected_path), data)
+        return _generation_validated_map(
+            load_name_map(
+                selected_path,
+                source_names=_generation_source_names(data),
+            ),
+            data,
+        )
     return _generation_validated_map(_analysis_name_map_file(data), data)
 
 
