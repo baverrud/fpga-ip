@@ -352,6 +352,8 @@ begin
              unsigned(req_addr(0)) + burst_bytes <=
              unsigned(cfg_base_addr) + unsigned(cfg_addr_range)
         report "req burst outside address window" severity failure;
+      assert to_integer(unsigned(req_addr(0)(11 downto 0))) + burst_bytes <= 4096
+        report "req burst crosses AXI 4 KiB boundary" severity failure;
     end if;
   end process;
 

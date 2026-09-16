@@ -74,6 +74,7 @@ end entity;
 architecture rtl of axi_req_gen is
 
   constant C_LEN_WIDTH : positive := log2ceil(GC_MAX_BURST);
+  constant C_AXI_PAGE_BYTES : positive := 4096;
 
   -- Low-bit alignment mask:  forces the low log2(C_DATA_BYTES) address
   -- bits to 0 so every access starts on a C_DATA_BYTES multiple.
@@ -115,18 +116,20 @@ architecture rtl of axi_req_gen is
   signal prng_len_step : std_logic;
 
   ---------------------------------------------------------------------
-  -- Clamp a candidate start address into [base, top] and force the low
-  -- bits to 0 (C_DATA_BYTES alignment).  top is the highest legal start
-  -- address = base + range - bsize.  Used as a safety net at
-  -- presentation; the advance logic already keeps addresses inside the
-  -- window.
+  -- Clamp a candidate start address into [base, top], force the low bits to
+  -- 0 (C_DATA_BYTES alignment), and keep the complete AXI burst inside one
+  -- 4 KiB page. AXI bursts must not cross a 4 KiB boundary.
   ---------------------------------------------------------------------
   function fit_addr(
     constant addr : in unsigned(GC_ADDR_WIDTH-1 downto 0);
     constant base : in unsigned(GC_ADDR_WIDTH-1 downto 0);
-    constant top  : in unsigned(GC_ADDR_WIDTH-1 downto 0)
+    constant top  : in unsigned(GC_ADDR_WIDTH-1 downto 0);
+    constant burst_bytes : in unsigned(31 downto 0)
   ) return unsigned is
-    variable v_a : unsigned(GC_ADDR_WIDTH-1 downto 0);
+    variable v_a          : unsigned(GC_ADDR_WIDTH-1 downto 0);
+    variable v_page_base  : unsigned(GC_ADDR_WIDTH-1 downto 0);
+    variable v_page_offset : unsigned(GC_ADDR_WIDTH-1 downto 0);
+    variable v_page_limit : unsigned(GC_ADDR_WIDTH-1 downto 0);
   begin
     if addr < base then
       v_a := base;
@@ -135,7 +138,24 @@ architecture rtl of axi_req_gen is
     else
       v_a := addr;
     end if;
-    return v_a and C_ALIGN;
+    v_a := v_a and C_ALIGN;
+    if burst_bytes <= C_AXI_PAGE_BYTES then
+      v_page_base := v_a and not to_unsigned(
+        C_AXI_PAGE_BYTES - 1, GC_ADDR_WIDTH);
+      v_page_offset := v_a - v_page_base;
+      v_page_limit := to_unsigned(C_AXI_PAGE_BYTES, GC_ADDR_WIDTH) -
+                      resize(burst_bytes, GC_ADDR_WIDTH);
+      if v_page_offset > v_page_limit then
+        v_a := v_page_base + v_page_limit;
+        if v_a < base then
+          v_a := base;
+        elsif v_a > top then
+          v_a := top;
+        end if;
+        v_a := v_a and C_ALIGN;
+      end if;
+    end if;
+    return v_a;
   end function;
 
 begin
@@ -255,7 +275,8 @@ begin
           -- Present the next burst immediately (line rate).
           prng_len_step <= '1';
           v.req_valid := '1';
-          v.req_addr  := fit_addr(v.cur_addr, unsigned(cfg_base_addr), v_max_start);
+          v.req_addr  := fit_addr(v.cur_addr, unsigned(cfg_base_addr),
+                                  v_max_start, v_bsize);
           v.req_len   := std_logic_vector(v_len_i);
         else
           v.req_valid := '0';
@@ -269,7 +290,8 @@ begin
       -- cfg_pace+1 cycles (cfg_pace=1 -> every 2nd cycle).
       prng_len_step <= '1';
       v.req_valid := '1';
-      v.req_addr  := fit_addr(r.cur_addr, unsigned(cfg_base_addr), v_max_start);
+      v.req_addr  := fit_addr(r.cur_addr, unsigned(cfg_base_addr),
+              v_max_start, v_bsize);
       v.req_len   := std_logic_vector(v_len_i);
       v.pace_cnt  := resize(unsigned(cfg_pace), 32);
     elsif v_gate = '1' then

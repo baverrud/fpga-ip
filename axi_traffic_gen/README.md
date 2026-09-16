@@ -27,7 +27,63 @@ burst length (beats-1) and is sized by `GC_MAX_BURST`
 
 The full req payload (`req_addr`, `req_len`) is latched when a burst is
 presented and held stable until the handshake, so configuration changes
-during backpressure cannot alter an in-flight transfer.
+during backpressure cannot alter an in-flight transfer. Every generated burst
+also stays within one 4 KiB AXI address page, including random-address mode.
+
+### Critical AXI 4 KiB boundary rule
+
+An AXI burst must never cross a 4 KiB address boundary. This applies to every
+request length, not only the maximum burst. The complete burst must satisfy:
+
+```text
+(req_addr AND 0xFFF) + ((req_len + 1) * GC_DATA_BYTES) <= 4096
+```
+
+`req_len` is encoded as beats minus one. For the default 64-byte client beat:
+
+| `req_len` | Beats | Burst size | Latest legal 4 KiB-page offset |
+|---:|---:|---:|---:|
+| 0 | 1 | 64 bytes | `0xFC0` |
+| 1 | 2 | 128 bytes | `0xF80` |
+| 3 | 4 | 256 bytes | `0xF00` |
+| 31 | 32 | 2048 bytes | `0x800` |
+
+For example, a two-beat request starting at page offset `0xFC0` accesses
+`0xFC0..0x103F` and crosses into the next 4 KiB page. Such a burst violates
+the AXI address-channel rule. An interconnect or memory port may split it,
+return unexpected data, or otherwise behave in a way that causes downstream
+data checking to fail rather than returning a clean error response.
+
+This failure is especially easy to trigger in pseudo-random address mode. With
+64-byte alignment and a two-beat burst, one of every 64 aligned page offsets
+is invalid, so approximately 1/64 of requests can fail. Longer bursts have a
+larger invalid tail region. Linear traffic can hide the problem when its step
+larger invalid tail region.
+
+Linear traffic can hide the problem because it does not visit every aligned
+offset independently. For example, with a page-aligned base address, 64-byte
+beats, and two-beat requests, the generator advances by 128 bytes:
+
+```text
+0x0000, 0x0080, 0x0100, ..., 0x0F80, 0x0000, ...
+```
+
+Every one of those starts is safe for a 128-byte burst; the final start is
+`0x0F80`, whose burst ends exactly at `0x1000`. The invalid offset `0x0FC0`
+is never generated. A pseudo-random generator, by contrast, can select
+`0x0FC0`, so the same design appears correct in a linear test while failing
+intermittently in a random-address test.
+
+`axi_req_gen` therefore clamps every presented address against both the
+configured address window and the 4 KiB page limit, in linear and random
+address modes and with fixed or random burst lengths. Do not remove this
+containment when changing the address generator. If `GC_DATA_BYTES` or the
+maximum burst is changed, retain the same rule and ensure the maximum burst
+fits within one 4 KiB page.
+
+The integration testbench asserts the 4 KiB condition for every accepted
+request, including the combined random-address/random-length phase. A passing
+testbench is required before using the generator with an AXI memory port.
 
 Optional random burst lengths are controlled by `cfg_len_mode`:
 
@@ -267,8 +323,8 @@ Coverage (phases 1-7):
   burst lengths vary within [1,16], all requests complete, no errors.
 - **P4B** -- combined random modes (`cfg_addr_mode=1` + `cfg_len_mode=1`):
   both PRNGs step together, variable-length bursts fitted to random
-  addresses (alignment + window verified per request), addresses and
-  lengths both vary, no errors.
+  addresses (alignment + window + 4 KiB boundary verified per request),
+  addresses and lengths both vary, no errors.
 - **P5** -- response backpressure: generator `req_stall` and monitor
   `req_stall`/`rsp_stall` all count; accounting stays exact.
 - **P6** -- maximum (32-beat, credit-limited) burst, `beats` ==
