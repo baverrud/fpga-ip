@@ -91,10 +91,35 @@ Optional random burst lengths are controlled by `cfg_len_mode`:
   `cfg_req_len`.
 - `cfg_len_mode='1'`: every presented burst draws its length from an
   independent `xorshift32` PRNG (separate seed from the address PRNG),
-  stepped once per presented burst and clamped to `cfg_max_len`
-  (beats-1), so burst lengths vary between 1 and `cfg_max_len+1` beats.
-  Values above `cfg_max_len` clump at the maximum (mask-and-clamp, no
-  divider) - acceptable for traffic generation.
+  uniformly distributed over 1 .. `cfg_max_len+1` beats.
+
+The random-length draw is divider-free:
+
+- The draw is the top `log2ceil(GC_MAX_BURST)` bits of the PRNG (the
+  best-mixed bits of xorshift32), masked down to the power of two that
+  covers `0 .. cfg_max_len`.  The mask keeps the draw range as small as
+  possible, which is what keeps the acceptance rate high.
+- A draw above `cfg_max_len` is rejected: the generator presents no burst
+  that cycle and takes a fresh draw on the next one.  The length PRNG
+  free-runs while `cfg_len_mode='1'`, so a fresh draw is always one cycle
+  away, and the counter that would need a modulo is simply not there.
+  Rejecting (instead of clamping) is what leaves the surviving lengths
+  uniform - a mask-and-clamp draw would clump at `cfg_max_len`.
+- Acceptance is `N/2**k` with `N = cfg_max_len+1 > 2**(k-1)`, so a draw is
+  accepted at least every second cycle, and exactly one idle cycle is
+  added per rejected draw (`cfg_pace=0`).  When `cfg_max_len+1` is itself
+  a power of two - e.g. `cfg_max_len=15` for 16-beat bursts - nothing is
+  ever rejected and random-length mode runs at exactly `cfg_pace`.
+
+`cfg_max_len` above `GC_MAX_BURST-1` is clamped to the credit limit and
+counted in `stat_cfg_errors`.
+
+The integration testbench checks the distribution, not just the bounds:
+phase P4 and P4B (`cfg_max_len=15`, nothing rejected) and phase P4C
+(`cfg_max_len=11`, so 4 of every 16 draws are rejected) assert that both
+length extremes occur and that the mean burst length sits at the midpoint
+of `1 .. cfg_max_len+1`.  A regression back to clamping would show up as a
+mean that is far too high, or as bursts longer than `cfg_max_len+1`.
 
 In random-length mode each burst is fitted to its own drawn length, so
 the full burst always fits inside `[base, base+range-bsize]` even though
@@ -127,9 +152,13 @@ from `parallel_prng` (address and length PRNGs).
 | `stat_req_issued` | out | 32 | Reqs successfully issued |
 | `stat_cfg_errors` | out | 32 | Configuration error count |
 
-> Note: random mode (`cfg_addr_mode='1'`) requires `cfg_addr_range` to be a
-> power of two (the offset is a bit-mask).  Linear mode accepts any
-> range.
+> Note: random mode (`cfg_addr_mode='1'`) **requires** `cfg_addr_range` to be
+> a power of two: the random offset is `prng AND (cfg_addr_range-1)`.  A
+> non-power-of-two range does not simply stop working - it silently skips
+> part of the window (the mask clears bits of the offset, so a whole block of
+> offsets between `base` and `base+range` can never be generated), which
+> would leave memory untested without reporting an error.  Linear mode
+> (`cfg_addr_mode='0'`) accepts any range.
 
 > When driving a consumer whose `req_len` port is wider than
 > `log2ceil(GC_MAX_BURST)` (e.g. `axi_read_bridge`, 6 bits), zero-extend
@@ -320,11 +349,18 @@ Coverage (phases 1-7):
 - **P2** -- paced generation (`cfg_pace=2`), same accounting.
 - **P3** -- random addressing (`cfg_addr_mode=1`), same accounting.
 - **P4** -- random request length (`cfg_len_mode=1`, `cfg_max_len=15`):
-  burst lengths vary within [1,16], all requests complete, no errors.
+  burst lengths vary within [1,16], and the measured distribution is
+  checked (both extremes, mean at the midpoint of the range), not just
+  the bounds; all requests complete, no errors.
 - **P4B** -- combined random modes (`cfg_addr_mode=1` + `cfg_len_mode=1`):
   both PRNGs step together, variable-length bursts fitted to random
   addresses (alignment + window + 4 KiB boundary verified per request),
   addresses and lengths both vary, no errors.
+- **P4C** -- random length with a bound that is not a power of two minus
+  one (`cfg_max_len=11`): 4 of every 16 draws are rejected, so this phase
+  exercises the rejection path - lengths must stay within [1,12] and the
+  distribution must still be uniform, which fails if the draw is clamped
+  or unmasked; also proves rejection cannot starve the generator.
 - **P5** -- response backpressure: generator `req_stall` and monitor
   `req_stall`/`rsp_stall` all count; accounting stays exact.
 - **P6** -- maximum (32-beat, credit-limited) burst, `beats` ==

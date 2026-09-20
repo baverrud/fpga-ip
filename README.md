@@ -87,6 +87,7 @@ the next run for that tool. Use `run clean <ip>` for a thorough cleanup.
 | [axi_r_demux](axi_r_demux/README.md) | `axi_r_demux/` | AXI4 read-data channel demultiplexer with per-client elastic FIFOs. 4 clients, 32-bit, depth-32 default; 250 MHz. |
 | [axilite_io](axilite_io/README.md) | `axilite_io/` | AXI4-Lite slave to register & stream bridge. Output registers (byte-strobe), input ports, AXI4-Stream push/pop channels. |
 | [axi_traffic_gen](axi_traffic_gen/README.md) | `axi_traffic_gen/` | Lightweight client read-request (`req_*`) traffic generator. Provides `axi_req_gen` with configurable pace, linear/PRNG addressing, and optional random burst lengths. |
+| [axi_mem_image](axi_mem_image/README.md) | `axi_mem_image/` | Simulation-only file backed memory image (`mem_image`): loads an Intel HEX image (several sparse regions allowed) at time zero and serves it on a simple read port, so a testbench sees real data instead of a generated pattern. |
 
 ---
 

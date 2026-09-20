@@ -494,6 +494,46 @@ begin
           report tag & ": monitor req_stall not counted" severity failure;
       end if;
     end procedure;
+
+    -- Burst-length distribution check for the random-length modes.
+    -- Uniformly drawn lengths 1..max_beats reach both extremes and average
+    -- (max_beats+1)/2.  A mask-and-clamp draw would instead pile bursts on
+    -- max_beats and drag the mean far above the midpoint, so the mean check
+    -- is what catches a regression from rejection back to clamping.
+    procedure p_check_len_uniform(
+      constant tag       : in string;
+      constant max_beats : in natural
+    ) is
+      variable v_mean_x100 : natural;
+    begin
+      -- The bridge/memory pipeline, not the generator, sets the observed
+      -- burst rate (~150 bursts per 2000-cycle phase), so the phase windows
+      -- are sized for that; a 15% mean window is ~3 sigma for a uniform
+      -- draw at this sample count, while a clamping draw is 30% high.
+      assert unsigned(stat_xactions) > 50
+        report tag & ": too few bursts to judge the length distribution"
+        severity failure;
+      assert unsigned(stat_burst_len_min) = 1
+        report tag & ": shortest burst is not 1 beat" severity failure;
+      assert unsigned(stat_burst_len_max) = max_beats
+        report tag & ": longest burst is not " & integer'image(max_beats) &
+               " beats" severity failure;
+      -- Mean in 100ths of a beat, accepted within +/-15% of the midpoint.
+      v_mean_x100 := (to_integer(unsigned(stat_burst_len_sum)) * 100) /
+                     to_integer(unsigned(stat_xactions));
+      report tag & ": lengths xactions=" &
+             integer'image(to_integer(unsigned(stat_xactions))) &
+             " sum=" & integer'image(to_integer(unsigned(stat_burst_len_sum))) &
+             " min=" & integer'image(to_integer(unsigned(stat_burst_len_min))) &
+             " max=" & integer'image(to_integer(unsigned(stat_burst_len_max))) &
+             " mean_x100=" & integer'image(v_mean_x100)
+        severity note;
+      assert v_mean_x100 >= ((max_beats + 1) * 100 * 85) / 200 and
+             v_mean_x100 <= ((max_beats + 1) * 100 * 115) / 200
+        report tag & ": mean burst length " & integer'image(v_mean_x100) &
+               "/100 beats is not near " & integer'image((max_beats + 1) / 2) &
+               " - lengths are not uniformly distributed" severity failure;
+    end procedure;
   begin
     wait for 100 ns;
     aresetn <= '1';
@@ -603,11 +643,8 @@ begin
       report "P4: xactions != req_seen" severity failure;
     assert unsigned(stat_beats) >= unsigned(stat_xactions)
       report "P4: beats < xactions" severity failure;
-    assert unsigned(stat_burst_len_min) >= 1 and
-           unsigned(stat_burst_len_max) <= 16
-      report "P4: random length out of bounds" severity failure;
-    assert unsigned(stat_burst_len_min) < unsigned(stat_burst_len_max)
-      report "P4: random length never varied" severity failure;
+    -- cfg_max_len=15 draws from a 16-value range: uniform, nothing rejected.
+    p_check_len_uniform("P4", 16);
 
     -- ---------------------------------------------------------------
     -- Phase 4B: combined random modes - random addressing AND random
@@ -634,13 +671,41 @@ begin
       report "P4B: xactions != req_seen" severity failure;
     assert unsigned(stat_beats) >= unsigned(stat_xactions)
       report "P4B: beats < xactions" severity failure;
-    assert unsigned(stat_burst_len_min) >= 1 and
-           unsigned(stat_burst_len_max) <= 16
-      report "P4B: random length out of bounds" severity failure;
-    assert unsigned(stat_burst_len_min) < unsigned(stat_burst_len_max)
-      report "P4B: random length never varied" severity failure;
+    p_check_len_uniform("P4B", 16);
     assert addr_changes > 50
       report "P4B: random addressing never varied addresses" severity failure;
+
+    -- ---------------------------------------------------------------
+    -- Phase 4C: random length with a bound that is not a power of two
+    -- minus one.  Lengths 0..11 are drawn from a 16-value range, so 4 of
+    -- every 16 draws are rejected: the generator inserts one idle cycle
+    -- per rejection and draws again.  This is the phase that exercises the
+    -- rejection path; it would fail if the draw were clamped (lengths
+    -- above 12 beats would appear) or if the draw mask were dropped
+    -- (lengths up to 32 beats would appear).  It also proves rejection
+    -- cannot starve the generator.
+    -- ---------------------------------------------------------------
+    p_reset_stats;
+    cfg_addr_mode <= '0';
+    cfg_len_mode  <= '1';
+    cfg_max_len   <= std_logic_vector(to_unsigned(11, C_GEN_LEN_WIDTH));
+    gen_enable <= '1';
+    for i in 1 to 3000 loop
+      wait until rising_edge(aclk);
+    end loop;
+    gen_enable <= '0';
+    p_drain("phase 4C");
+    p_check_stats("P4C", false);
+
+    assert stat_req_seen = gen_stat_req_issued
+      report "P4C: monitor req_seen != generator issued" severity failure;
+    assert stat_xactions = stat_req_seen
+      report "P4C: xactions != req_seen" severity failure;
+    assert unsigned(stat_beats) >= unsigned(stat_xactions)
+      report "P4C: beats < xactions" severity failure;
+    assert unsigned(gen_stat_req_issued) > 50
+      report "P4C: rejection starved the generator" severity failure;
+    p_check_len_uniform("P4C", 12);
 
     -- ---------------------------------------------------------------
     -- Phase 5: response backpressure.  Hold rsp_ready low while the

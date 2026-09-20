@@ -12,18 +12,22 @@
 --                 : same encoding as the req_len output port:  0 means
 --                 : a 1-beat request, 31 a 32-beat request, etc.
 --                 : With cfg_len_mode='1' every presented burst draws
---                 : its length from an independent xorshift32 PRNG,
---                 : clamped to cfg_max_len (beats-1), so burst lengths
---                 : vary between 1 and cfg_max_len+1 beats.
+--                 : its length from an independent xorshift32 PRNG.  The
+--                 : draw is uniform over 0..cfg_max_len, so burst lengths
+--                 : are uniform between 1 and cfg_max_len+1 beats (see
+--                 : the random-length note below).
 --                 :
 --                 : Linear and pseudo-random addressing stay within the
 --                 : configured window and align starts to C_DATA_BYTES;
 --                 : in random-length mode each burst is fitted to its
 --                 : own drawn length.
 --                 :
---                 : Timing note: no dividers or multipliers anywhere;
---                 : random addressing uses a bit-mask, so cfg_addr_range
---                 : must be a power of two when cfg_addr_mode='1'.
+--                 : Timing note: no dividers or multipliers anywhere.
+--                 : Random addressing uses a bit-mask, so cfg_addr_range
+--                 : must be a power of two when cfg_addr_mode='1'.  The
+--                 : random-length draw also uses a bit-mask and adds
+--                 : rejection of out-of-range draws, so it stays uniform
+--                 : without a modulo (see below).
 --Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
@@ -110,8 +114,9 @@ architecture rtl of axi_req_gen is
   signal prng_data : std_logic_vector(63 downto 0);
   signal prng_step : std_logic;
 
-  -- xorshift32 PRNG for random request-length mode (independent seed,
-  -- stepped once per presented burst).
+  -- xorshift32 PRNG for random request-length mode (independent seed).
+  -- It free-runs while cfg_len_mode='1', so a draw rejected as
+  -- out-of-range is always replaced by a fresh one on the next cycle.
   signal prng_len      : std_logic_vector(31 downto 0);
   signal prng_len_step : std_logic;
 
@@ -169,7 +174,8 @@ begin
       data => prng_data
     );
 
-  -- Length PRNG (random request length, stepped once per presented burst).
+  -- Length PRNG (random request length, free-running while cfg_len_mode is
+  -- set; the draw is consumed or rejected at each presentation point).
   u_prng_len : entity work.xorshift32
     generic map (GC_SEED => x"C0FFEE01")
     port map (
@@ -193,6 +199,10 @@ begin
     variable v_next      : unsigned(GC_ADDR_WIDTH-1 downto 0);
     variable v_cfg_clamp : boolean;
     variable v_gate      : std_logic;  -- enable and aperture (combinational, local)
+    variable v_max_len   : unsigned(C_LEN_WIDTH-1 downto 0);  -- clipped random bound
+    variable v_mask      : unsigned(C_LEN_WIDTH-1 downto 0);  -- draw-range mask
+    variable v_cand      : unsigned(C_LEN_WIDTH-1 downto 0);  -- length draw
+    variable v_len_ok    : boolean;    -- draw within 0..v_max_len
   begin
     v := r;  -- recover current state as default for all fields
     v_gate := enable and aperture;
@@ -201,28 +211,57 @@ begin
     req_addr  <= std_logic_vector(r.req_addr);
     req_len   <= r.req_len;
     prng_step <= '0';
-    prng_len_step <= '0';
+    -- The length PRNG free-runs while random lengths are enabled, so a
+    -- rejected draw is always replaced by a fresh one on the next cycle.
+    prng_len_step <= cfg_len_mode;
 
     stat_req_stall   <= std_logic_vector(r.req_stall_cnt);
     stat_req_issued  <= std_logic_vector(r.req_cnt);
     stat_cfg_errors  <= std_logic_vector(r.cfg_err);
 
     ------------------------------------------------------------------
-    -- Select the length of the next burst to present.  Random mode
-    -- draws from the length PRNG and clamps to cfg_max_len (masked to
-    -- the length width, so values above cfg_max_len clump at the max -
-    -- acceptable for traffic generation and keeps the logic divider-free).
-    -- Fixed mode uses cfg_req_len (clamped to GC_MAX_BURST-1 as a
-    -- safety net; an out-of-range config is counted as a cfg error).
+    -- Select the length of the next burst to present.
+    --
+    -- Fixed mode uses cfg_req_len (clamped to GC_MAX_BURST-1 as a safety
+    -- net; an out-of-range config is counted as a cfg error).
+    --
+    -- Random mode draws uniformly from 0..cfg_max_len without a divider:
+    --
+    --   1. v_mask trims the draw range to the power of two that covers
+    --      0..v_max_len, i.e. to 0..2**k-1, so the draw stays uniform.
+    --   2. a draw above v_max_len is rejected and simply not presented;
+    --      the free-running PRNG offers a fresh draw one cycle later.
+    --
+    -- Rejection is what makes the surviving distribution exactly uniform
+    -- over 0..v_max_len (a plain mask-and-clamp would clump at the top).
+    -- The acceptance rate is N/2**k with N = v_max_len+1 > 2**(k-1), so a
+    -- draw is accepted at least every second cycle.  When v_max_len+1 is
+    -- itself a power of two nothing is ever rejected, and random-length
+    -- mode then runs at exactly the configured cfg_pace.
     ------------------------------------------------------------------
     v_cfg_clamp := false;
     if cfg_len_mode = '1' then
-      v_len_i := unsigned(prng_len(C_LEN_WIDTH-1 downto 0));
-      if v_len_i > unsigned(cfg_max_len) then
-        v_len_i := unsigned(cfg_max_len);
+      v_max_len := unsigned(cfg_max_len);
+      if v_max_len > GC_MAX_BURST - 1 then
+        -- Keep every generated burst inside the credit limit.
+        v_max_len := to_unsigned(GC_MAX_BURST - 1, C_LEN_WIDTH);
+        v_cfg_clamp := true;
       end if;
+      -- Mask covering all bits below and including the highest set bit of
+      -- v_max_len:  bit i is set when v_max_len >= 2**i.
+      v_mask(C_LEN_WIDTH-1) := v_max_len(C_LEN_WIDTH-1);
+      for i in C_LEN_WIDTH-2 downto 0 loop
+        v_mask(i) := v_mask(i+1) or v_max_len(i);
+      end loop;
+      -- Take the top C_LEN_WIDTH bits of the PRNG (the best-mixed bits of
+      -- xorshift32) and trim them to the draw range.
+      v_cand   := resize(unsigned(prng_len(31 downto 32 - C_LEN_WIDTH)),
+                         C_LEN_WIDTH) and v_mask;
+      v_len_i  := v_cand;
+      v_len_ok := v_cand <= v_max_len;
     else
-      v_len_i := unsigned(cfg_req_len);
+      v_len_i  := unsigned(cfg_req_len);
+      v_len_ok := true;
       if v_len_i > GC_MAX_BURST - 1 then
         v_len_i := to_unsigned(GC_MAX_BURST - 1, C_LEN_WIDTH);
         v_cfg_clamp := true;
@@ -272,12 +311,17 @@ begin
 
         v.pace_cnt := resize(unsigned(cfg_pace), 32);
         if v_gate = '1' and unsigned(cfg_pace) = 0 then
-          -- Present the next burst immediately (line rate).
-          prng_len_step <= '1';
-          v.req_valid := '1';
-          v.req_addr  := fit_addr(v.cur_addr, unsigned(cfg_base_addr),
-                                  v_max_start, v_bsize);
-          v.req_len   := std_logic_vector(v_len_i);
+          -- Present the next burst immediately (line rate).  A rejected
+          -- random-length draw is retried from the due branch below,
+          -- because pace_cnt stays at 0 (still "due").
+          if v_len_ok then
+            v.req_valid := '1';
+            v.req_addr  := fit_addr(v.cur_addr, unsigned(cfg_base_addr),
+                                    v_max_start, v_bsize);
+            v.req_len   := std_logic_vector(v_len_i);
+          else
+            v.req_valid := '0';
+          end if;
         else
           v.req_valid := '0';
         end if;
@@ -287,13 +331,19 @@ begin
     elsif v_gate = '1' and r.pace_cnt <= 1 then
       -- Present now: pace_cnt is 0 (reset / first burst) or 1 (last idle
       -- cycle of a paced gap).  This keeps the req-to-req gap at
-      -- cfg_pace+1 cycles (cfg_pace=1 -> every 2nd cycle).
-      prng_len_step <= '1';
-      v.req_valid := '1';
-      v.req_addr  := fit_addr(r.cur_addr, unsigned(cfg_base_addr),
-              v_max_start, v_bsize);
-      v.req_len   := std_logic_vector(v_len_i);
-      v.pace_cnt  := resize(unsigned(cfg_pace), 32);
+      -- cfg_pace+1 cycles (cfg_pace=1 -> every 2nd cycle); a rejected
+      -- random-length draw holds pace_cnt at 0, so the retry is due on
+      -- the next cycle and the extra gap is exactly one cycle per retry.
+      if v_len_ok then
+        v.req_valid := '1';
+        v.req_addr  := fit_addr(r.cur_addr, unsigned(cfg_base_addr),
+                v_max_start, v_bsize);
+        v.req_len   := std_logic_vector(v_len_i);
+        v.pace_cnt  := resize(unsigned(cfg_pace), 32);
+      else
+        v.req_valid := '0';
+        v.pace_cnt  := (others => '0');
+      end if;
     elsif v_gate = '1' then
       v.req_valid := '0';
       v.pace_cnt  := r.pace_cnt - 1;
