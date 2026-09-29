@@ -80,6 +80,7 @@ the next run for that tool. Use `run clean <ip>` for a thorough cleanup.
 | [axis_upsizer](axis_upsizer/README.md) | `axis_upsizer/` | AXI4-Stream width upsizer (128 -> 512 default, 4:1). LSB-first packing, 250 MHz line rate. |
 | [pulse_extender](pulse_extender/README.md) | `pulse_extender/` | Level-triggered pulse extender. A high on `trigger` sampled at a rising edge while idle drives `pulse_out` high for a configurable number of clock cycles. |
 | [axi_mem_model](axi_mem_model/README.md) | `axi_mem_model/` | AXI3/AXI4 read-slave that models DRAM-like latency and inter-beat gaps. Configurable widths (1-128 B), zero-latency mode, 1/cycle throughput. |
+| [axi_mem_store](axi_mem_store/README.md) | `axi_mem_store/` | AXI3/AXI4 read-slave backed by a parameterizable byte-addressed store, with runtime byte population, write-error reporting and per-entry response latency controls. |
 | [axi_ar_mux](axi_ar_mux/README.md) | `axi_ar_mux/` | Credit-based AXI4 read-address multiplexer with fair round-robin arbitration for multiple clients. |
 | [axi_read_bridge](axi_read_bridge/README.md) | `axi_read_bridge/` | Multi-client native AXI read path with request/response conversion and clock-domain crossing. |
 | [axi_monitor](axi_monitor/README.md) | `axi_monitor/` | Passive client read-transaction monitor for the `req_*` / `rsp_*` interfaces (no ID). Taps a client of `axi_read_bridge`, validates every rsp beat against a scoreboard, and accumulates transaction, latency, burst-length, and protocol-error statistics. |
