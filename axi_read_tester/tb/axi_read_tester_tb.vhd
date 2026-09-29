@@ -1,10 +1,12 @@
 -----------------------------------------------------------------------
 --Filename         : axi_read_tester_tb.vhd
---Description      : Integration testbench skeleton for axi_read_tester.
---                 : Instantiates the tester plus axi_mem_model on the
---                 : native AXI master, configures client 0 through its
---                 : AXI4-Lite register interface, and runs a measurement
---                 : window that closes, drains, and checks status counters.
+--Description      : Integration testbench for axi_read_tester.
+--                 : Instantiates the tester plus a selectable native AXI
+--                 : read slave: axi_mem_store by default or axi_mem_model.
+--                 : The store mode populates the byte store before traffic;
+--                 : both modes run the same measurement and status checks.
+--                 : Set GC_USE_MEM_STORE to false (manifest tb:model) to
+--                 : select axi_mem_model instead.
 --Author           : Rune Baeverrud
 --Current Revision : 1.00
 --Licensing        : Zero-Clause BSD (0BSD)
@@ -16,7 +18,8 @@ use work.util_pkg.all;
 
 entity axi_read_tester_tb is
   generic (
-    GC_CLK_PERIOD : time := 4 ns   -- 250 MHz
+    GC_CLK_PERIOD    : time := 4 ns;   -- 250 MHz
+    GC_USE_MEM_STORE : boolean := true
   );
 end entity;
 
@@ -25,6 +28,10 @@ architecture sim of axi_read_tester_tb is
   constant C_NUM_CLIENTS : positive := 4;
   constant C_ADDR_W      : positive := 32;
   constant C_ID_W        : positive := 4;
+  -- Population costs one native clock per byte, so C_MEM_BYTES x
+  -- GC_CLK_PERIOD must stay well inside the watchdog: 4 KiB is about 16 us
+  -- of the 100 us budget, and roughly 16 KiB is the practical ceiling.
+  constant C_MEM_BYTES   : positive := 4096;
 
   -- Tester DUT I/O
   signal aclk : std_logic := '0';
@@ -60,7 +67,7 @@ architecture sim of axi_read_tester_tb is
   signal err_rst    : std_logic := '0';
   signal global_time : unsigned(47 downto 0) := (others => '0');
 
-  -- Native AXI master (to axi_mem_model)
+  -- Native AXI master (to the selected memory slave)
   signal ar_id    : std_logic_vector(C_ID_W-1 downto 0);
   signal ar_addr  : std_logic_vector(C_ADDR_W-1 downto 0);
   signal ar_len   : std_logic_vector(7 downto 0);
@@ -73,11 +80,34 @@ architecture sim of axi_read_tester_tb is
   signal r_valid  : std_logic;
   signal r_ready  : std_logic;
 
-  -- Memory model control (tie to simple constant latency)
+  -- Memory-store timing control (tie to simple constant latency)
   signal mem_base_latency : std_logic_vector(15 downto 0) := x"0008";
   signal mem_base_gap     : std_logic_vector(15 downto 0) := x"0000";
 
+  -- Runtime byte-population interface for axi_mem_store. It is unused when
+  -- GC_USE_MEM_STORE is false.
+  signal mem_wr_addr  : std_logic_vector(C_ADDR_W-1 downto 0) := (others => '0');
+  signal mem_wr_data  : std_logic_vector(7 downto 0) := (others => '0');
+  signal mem_wr_valid : std_logic := '0';
+  signal mem_wr_ready : std_logic;
+  signal mem_wr_error : std_logic;
+
+  -- Sticky flag: any population write error is latched, so the check does not
+  -- depend on sampling the exact cycle the one-clock error pulse occurs.
+  signal mem_wr_error_seen : std_logic := '0';
+
   signal sim_done : boolean := false;
+
+  -- Match axi_mem_model's address-derived pattern. Each native 32-bit word
+  -- contains its aligned byte address, stored in little-endian byte order.
+  function expected_mem_byte(addr : natural) return std_logic_vector is
+    variable word_data : std_logic_vector(31 downto 0);
+    variable byte_idx  : natural;
+  begin
+    word_data := std_logic_vector(to_unsigned(addr - (addr mod 4), 32));
+    byte_idx := addr mod 4;
+    return word_data(8*byte_idx+7 downto 8*byte_idx);
+  end function;
 
 begin
 
@@ -136,35 +166,75 @@ begin
       r_ready  => r_ready
     );
 
-  -- Native AXI read slave (memory model)
-  u_mem : entity work.axi_mem_model
-    generic map (
-      GC_DATA_BYTES    => 16,
-      GC_ADDR_WIDTH    => C_ADDR_W,
-      GC_ID_WIDTH      => C_ID_W,
-      GC_TIMER_WIDTH   => 16
-    )
-    port map (
-      aclk             => mem_aclk,
-      aresetn          => aresetn,
-      ar_base_enable   => '1',
-      ar_jitter_enable => '0',
-      r_base_enable    => '1',
-      r_jitter_enable  => '0',
-      base_latency     => mem_base_latency,
-      base_beat_gap    => mem_base_gap,
-      ar_id    => ar_id,
-      ar_addr  => ar_addr,
-      ar_len   => ar_len,
-      ar_valid => ar_valid,
-      ar_ready => ar_ready,
-      r_id     => r_id,
-      r_data   => r_data,
-      r_resp   => r_resp,
-      r_last   => r_last,
-      r_valid  => r_valid,
-      r_ready  => r_ready
-    );
+  gen_mem_store : if GC_USE_MEM_STORE generate
+    -- Runtime-populated native AXI read slave.
+    u_mem : entity work.axi_mem_store
+      generic map (
+        GC_DATA_BYTES     => 16,
+        GC_ADDR_WIDTH     => C_ADDR_W,
+        GC_ID_WIDTH       => C_ID_W,
+        GC_TIMER_WIDTH    => 16,
+        GC_MEM_SIZE_BYTES => C_MEM_BYTES
+      )
+      port map (
+        aclk             => mem_aclk,
+        aresetn          => aresetn,
+        ar_base_enable   => '1',
+        ar_jitter_enable => '0',
+        r_base_enable    => '1',
+        r_jitter_enable  => '0',
+        base_latency     => mem_base_latency,
+        base_beat_gap    => mem_base_gap,
+        mem_wr_addr      => mem_wr_addr,
+        mem_wr_data      => mem_wr_data,
+        mem_wr_valid     => mem_wr_valid,
+        mem_wr_ready     => mem_wr_ready,
+        mem_wr_error     => mem_wr_error,
+        ar_id    => ar_id,
+        ar_addr  => ar_addr,
+        ar_len   => ar_len,
+        ar_valid => ar_valid,
+        ar_ready => ar_ready,
+        r_id     => r_id,
+        r_data   => r_data,
+        r_resp   => r_resp,
+        r_last   => r_last,
+        r_valid  => r_valid,
+        r_ready  => r_ready
+      );
+  end generate;
+
+  gen_mem_model : if not GC_USE_MEM_STORE generate
+    -- Generated-pattern native AXI read slave.
+    u_mem : entity work.axi_mem_model
+      generic map (
+        GC_DATA_BYTES  => 16,
+        GC_ADDR_WIDTH  => C_ADDR_W,
+        GC_ID_WIDTH    => C_ID_W,
+        GC_TIMER_WIDTH => 16
+      )
+      port map (
+        aclk             => mem_aclk,
+        aresetn          => aresetn,
+        ar_base_enable   => '1',
+        ar_jitter_enable => '0',
+        r_base_enable    => '1',
+        r_jitter_enable  => '0',
+        base_latency     => mem_base_latency,
+        base_beat_gap    => mem_base_gap,
+        ar_id    => ar_id,
+        ar_addr  => ar_addr,
+        ar_len   => ar_len,
+        ar_valid => ar_valid,
+        ar_ready => ar_ready,
+        r_id     => r_id,
+        r_data   => r_data,
+        r_resp   => r_resp,
+        r_last   => r_last,
+        r_valid  => r_valid,
+        r_ready  => r_ready
+      );
+  end generate;
 
   -- -----------------------------------------------------------------
   -- Clocks (both domains, same frequency)
@@ -209,11 +279,39 @@ begin
     end if;
   end process;
 
+  -- Latch any memory-population write error. The pulse is one clock wide and
+  -- may occur on any byte of the population loop, so it must not be sampled
+  -- only at the end of the loop.
+  p_mem_wr_err : process(mem_aclk)
+  begin
+    if rising_edge(mem_aclk) then
+      if aresetn = '0' then
+        mem_wr_error_seen <= '0';
+      elsif mem_wr_error = '1' then
+        mem_wr_error_seen <= '1';
+      end if;
+    end if;
+  end process;
+
   -- -----------------------------------------------------------------
   -- Stimulus: reset, configure client 0, run a smoke window.
   -- -----------------------------------------------------------------
   p_stim : process
     variable v_wait : natural := 0;
+
+    procedure p_mem_write(
+      constant addr : in natural;
+      constant data : in std_logic_vector(7 downto 0)) is
+    begin
+      mem_wr_addr  <= std_logic_vector(to_unsigned(addr, C_ADDR_W));
+      mem_wr_data  <= data;
+      mem_wr_valid <= '1';
+      loop
+        wait until rising_edge(mem_aclk);
+        exit when mem_wr_ready = '1';
+      end loop;
+      mem_wr_valid <= '0';
+    end procedure;
 
     -- AXI4-Lite single-word write to client 0 (drives the tester's
     -- per-client register interface). Local to this process so it can drive
@@ -278,8 +376,24 @@ begin
     aresetn <= '1';
     wait until rising_edge(aclk);
 
+    if GC_USE_MEM_STORE then
+      -- Populate the store before enabling traffic. The byte values reproduce
+      -- axi_mem_model's address-derived 32-bit word pattern expected by the
+      -- monitor's data checker.
+      for addr in 0 to C_MEM_BYTES-1 loop
+        p_mem_write(addr, expected_mem_byte(addr));
+      end loop;
+      -- One further edge lets the sticky monitor latch an error from the last
+      -- write. Errors from any earlier write were already latched.
+      wait until rising_edge(mem_aclk);
+      wait for 0 ns;
+      assert mem_wr_error_seen = '0'
+        report "FAIL: memory population reported an unexpected write error"
+        severity failure;
+    end if;
+
     -- Configure client 0: enable generation + monitor enable, data checking,
-    -- 32-beat requests, line-rate pace, base address 0x0, and 64 KiB range.
+    -- 32-beat requests, line-rate pace, base address 0x0, and 4 KiB range.
     p_axil_write(x"0000", x"00000001");  -- o_data[0]: enable
     p_axil_write(x"0004", x"00000001");  -- o_data[1]: mon_enable
     p_axil_write(x"0008", x"00000001");  -- o_data[2]: data_check_enable
@@ -287,7 +401,7 @@ begin
     p_axil_write(x"001C", x"00000000");  -- o_data[7]: cfg_pace = 0
     p_axil_write(x"0020", x"00000000");  -- o_data[8]: cfg_pace_init = 0
     p_axil_write(x"0024", x"00000000");  -- o_data[9]: cfg_base_addr
-    p_axil_write(x"0028", x"00010000");  -- o_data[10]: cfg_addr_range = 64 KiB
+    p_axil_write(x"0028", x"00001000");  -- o_data[10]: cfg_addr_range = 4 KiB
 
     stat_rst <= '1';
     wait until rising_edge(aclk);
@@ -306,7 +420,7 @@ begin
     report "SMOKE: native AR issued (id=" & integer'image(to_integer(unsigned(ar_id))) &
            ", len=" & integer'image(to_integer(unsigned(ar_len))) & ")";
 
-    -- Check 2: the memory model must return a response beat.
+    -- Check 2: the selected memory slave must return a response beat.
     v_wait := 0;
     while r_valid = '0' or r_ready = '0' loop
       assert v_wait < 2000

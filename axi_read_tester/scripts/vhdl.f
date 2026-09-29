@@ -16,8 +16,10 @@
 #
 # The closure lists every dependency inline (repo convention): util_pkg,
 # the bridge core and its sub-IPs, the monitor (req/rsp/core), the request
-# generator and its PRNGs, and the AXI4-Lite register bridge. axi_mem_model
-# is only needed by the testbench (the core exposes the native AXI master).
+# generator and its PRNGs, and the AXI4-Lite register bridge. The integration
+# testbench selects its native read slave with GC_USE_MEM_STORE; both tb
+# sections list both selectable slaves so either generic value elaborates.
+# The simple testbench uses axi_mem_model.
 # ============================================================================
 DEFAULT_STD: 2008
 DEFAULT_LIB: work
@@ -49,6 +51,18 @@ axi_read_tester/top/axi_read_tester_top.vhd
 
 [tb:default]
 top = axi_read_tester_tb
+generics = GC_USE_MEM_STORE=true
+axi_mem_store/rtl/axi_mem_store_core.vhd
+axi_mem_store/rtl/axi_mem_store.vhd
+axi_mem_model/rtl/axi_mem_model_core.vhd
+axi_mem_model/rtl/axi_mem_model.vhd
+axi_read_tester/tb/axi_read_tester_tb.vhd
+
+[tb:model]
+top = axi_read_tester_tb
+generics = GC_USE_MEM_STORE=false
+axi_mem_store/rtl/axi_mem_store_core.vhd
+axi_mem_store/rtl/axi_mem_store.vhd
 axi_mem_model/rtl/axi_mem_model_core.vhd
 axi_mem_model/rtl/axi_mem_model.vhd
 axi_read_tester/tb/axi_read_tester_tb.vhd

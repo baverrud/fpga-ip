@@ -33,7 +33,8 @@ returns their statistics.
 
 The native master is exposed (`ar_id/addr/len/size/valid/ready`,
 `r_id/data/resp/last/valid/ready`) so the tester drives any AXI read slave -
-typically `axi_mem_model` in the testbench, or a real memory controller in
+the integration testbench uses `axi_mem_store`, while a real memory controller
+can be used in
 an integration. The read data is consumed only by the per-client monitor
 tap (`rsp_ready` is held high), so the tester is purely a generate-and-
 observe engine.
@@ -429,8 +430,10 @@ Resolved by `scripts/vhdl.f` (inline closure, per repo convention):
 `axi_read_bridge` (+ `axi_ar_mux`, `axi_r_demux`, `axis_cdc`,
 `axis_upsizer`, `axis_fifo`, `jitter_gen`, `axis_latency_gen`),
 `axi_monitor` (`req`/`rsp`/core), `axi_req_gen` (+ `xorshift32/128`),
-`axilite_io`, `common/util_pkg`. `axi_mem_model` is only needed by the
-testbench.
+`axilite_io`, `common/util_pkg`. The integration testbench adds both
+selectable memory slaves: `GC_USE_MEM_STORE=true` selects `axi_mem_store`,
+while the `model` testbench mode selects `axi_mem_model`. The simple
+testbench also retains `axi_mem_model`.
 
 Because this tester integrates `axi_read_bridge`, its Vivado implementation
 contains `axis_cdc` instances. Apply and adapt the constraints in
@@ -440,6 +443,7 @@ contains `axis_cdc` instances. Apply and adapt the constraints in
 
 ```text
 run axi_read_tester vhdl modelsim   # ModelSim simulation
+run axi_read_tester vhdl modelsim --tb model  # Same test with axi_mem_model
 run axi_read_tester vhdl xsim       # XSim simulation
 run axi_read_tester vhdl vivado     # Vivado synthesis + timing check
 ```
@@ -451,6 +455,7 @@ timing constraints.
 
 - RTL core and wrappers: **new** (interfaces wired; all monitor statistics
   mapped to `i_data`).
-- Testbench: skeleton smoke test (client 0 config -> native AR -> R
-  response). Expand with per-client scenarios, error injection, stat
-  checks, and `data_check_en` verification.
+- Testbench: one parameterized integration smoke test with runtime-populated
+  `axi_mem_store` by default or generated-pattern `axi_mem_model` in `--tb
+  model` mode. Both paths cover client 0 configuration, native AR/R activity,
+  data checking and status counter verification.
