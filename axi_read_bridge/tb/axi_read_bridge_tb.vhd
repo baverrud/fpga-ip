@@ -1,9 +1,16 @@
 -----------------------------------------------------------------------
 --Filename         : axi_read_bridge_tb.vhd
---Description      : Integration testbench for axi_read_bridge and
---                 : axi_mem_model. Checks dual-clock transport, native
---                 : ARLEN expansion, upsized response data, response last,
---                 : and multiple client routing.
+--Description      : Integration testbench for axi_read_bridge.
+--                 : The native slave is axi_mem_store (default), filled
+--                 : with an address-derived pattern, or axi_mem_model
+--                 : (GC_USE_MEM_STORE = false), which generates the same
+--                 : pattern.  Checks dual-clock transport at a
+--                 : non-integer clock ratio, native ARLEN expansion,
+--                 : upsized response data, response last, multiple client
+--                 : routing, backpressure, reset, error responses
+--                 : (including an error on a single native beat),
+--                 : bursts returned out of order across IDs, and
+--                 : (store only) an out-of-range read.
 --Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
@@ -14,6 +21,9 @@ use ieee.numeric_std.all;
 use work.util_pkg.all;
 
 entity axi_read_bridge_tb is
+  generic (
+    GC_USE_MEM_STORE : boolean := true  -- false: axi_mem_model native slave
+  );
 end entity axi_read_bridge_tb;
 
 architecture sim of axi_read_bridge_tb is
@@ -26,8 +36,15 @@ architecture sim of axi_read_bridge_tb is
   constant C_CLIENT_FIFO_DEPTH : positive := 32;
   constant C_CDC_DEPTH         : positive := 8;
   constant C_CLIENT_PERIOD     : time := 10 ns;
-  constant C_MEM_PERIOD        : time := 4 ns;
+  -- Not a divisor of the client period, so the two clock edges drift
+  -- against each other and the CDCs see every phase relationship.
+  -- Requires a ps time resolution (time_res = ps in the manifest).
+  constant C_MEM_PERIOD        : time := 4.3 ns;
   constant C_TIMEOUT           : time := 2 ms;
+
+  -- axi_mem_store size.  Covers every address the phases read; phase 12
+  -- reads at exactly this address to get a real SLVERR from the store.
+  constant C_MEM_BYTES : positive := 16#C000#;
 
   -- Per-client response base addresses for the arbitration (phase 4) test.
   type addr4_t is array (0 to 3) of natural;
@@ -44,9 +61,12 @@ architecture sim of axi_read_bridge_tb is
   --   [11]     phase 7: client 0 len=0 after reset -> ARLEN 3
   --   [12]     phase 8: client 0 len=0 with SLVERR -> ARLEN 3
   --   [13..14] phase 9: client 1 len=0 re-presented -> ARLEN 3 each
+  --   [15]     phase 10: client 2 len=0, SLVERR on one native beat -> 3
+  --   [16..17] phase 11: client 0 len=1 -> 7, client 1 len=0 -> 3 (reordered)
+  --   [18]     phase 12 (store only): client 3 len=0 out of range -> 3
   type arlen_seq_t is array (natural range <>) of integer;
   constant C_EXPECTED_ARLEN : arlen_seq_t :=
-    (3, 7, 11, 3, 3, 3, 3, 127, 3, 3, 3, 3, 3, 3, 3);
+    (3, 7, 11, 3, 3, 3, 3, 127, 3, 3, 3, 3, 3, 3, 3, 3, 7, 3, 3);
 
   signal aclk     : std_logic := '0';
   signal mem_aclk : std_logic := '0';
@@ -80,15 +100,47 @@ architecture sim of axi_read_bridge_tb is
   signal ar_seen          : natural := 0;
   signal watchdog_expired : boolean := false;
 
-  -- Native-side injection controls (phases 6 and 8). ar_ready_enable gates
-  -- the whole native AR handshake for backpressure testing; r_resp_inject
-  -- forces the native response code seen by the bridge for error testing.
-  signal mem_ar_ready : std_logic;
+  -- Native-side injection controls (phases 6, 8 and 10). ar_ready_enable
+  -- gates the whole native AR handshake for backpressure testing;
+  -- r_resp_inject forces the native response of every beat; err_one_beat
+  -- forces SLVERR on only the second native beat after it is raised.
+  signal mem_ar_ready    : std_logic;
   signal ar_ready_enable : std_logic := '1';
-  signal mem_ar_valid : std_logic;
-  signal mem_r_resp   : std_logic_vector(1 downto 0);
-  signal r_resp_inject : std_logic_vector(1 downto 0) := "00";
+  signal mem_ar_valid    : std_logic;
+  signal mem_r_resp      : std_logic_vector(1 downto 0);
+  signal r_resp_inject   : std_logic_vector(1 downto 0) := "00";
+  signal err_one_beat    : std_logic := '0';
+  signal err_beat_cnt    : natural := 0;  -- Native R handshakes since err_one_beat rose
 
+  -- Memory-side R channel, before the reordering-responder mux.
+  signal mem_r_id    : std_logic_vector(C_ID_WIDTH-1 downto 0);
+  signal mem_r_data  : std_logic_vector(8*C_NATIVE_BYTES-1 downto 0);
+  signal mem_r_last  : std_logic;
+  signal mem_r_valid : std_logic;
+  signal mem_r_ready : std_logic;
+
+  -- Phase 11: a testbench native responder replaces the memory and returns
+  -- two bursts in the reverse of their AR order.
+  signal reorder_sel : std_logic := '0';  -- '1': responder drives the native port
+  signal tb_ar_ready : std_logic := '0';
+  signal tb_r_id     : std_logic_vector(C_ID_WIDTH-1 downto 0) := (others => '0');
+  signal tb_r_data   : std_logic_vector(8*C_NATIVE_BYTES-1 downto 0) := (others => '0');
+  signal tb_r_last   : std_logic := '0';
+  signal tb_r_valid  : std_logic := '0';
+
+  -- axi_mem_store population (one byte per mem_aclk).
+  signal mem_wr_addr       : std_logic_vector(C_ADDR_WIDTH-1 downto 0) := (others => '0');
+  signal mem_wr_data       : std_logic_vector(7 downto 0) := (others => '0');
+  signal mem_wr_valid      : std_logic := '0';
+  signal mem_wr_ready      : std_logic;
+  signal mem_wr_error      : std_logic;
+  signal mem_wr_error_seen : std_logic := '0';  -- Sticky: any population error
+  -- Only gen_mem_store drives this.  The model generates its data from the
+  -- address, so for the model variant it starts (and stays) true.
+  signal mem_populated     : boolean := not GC_USE_MEM_STORE;
+
+  -- Client beat expected at base_addr: 32-bit word k holds base_addr + 4*k,
+  -- the pattern axi_mem_model generates and the store is filled with.
   function f_expected_data(base_addr : natural) return std_logic_vector is
     variable v_data : std_logic_vector(8*C_CLIENT_BYTES-1 downto 0) := (others => '0');
   begin
@@ -97,6 +149,25 @@ architecture sim of axi_read_bridge_tb is
         std_logic_vector(to_unsigned(base_addr + word_idx*4, 32));
     end loop;
     return v_data;
+  end function;
+
+  -- Native beat at addr in the same pattern (used by the phase 11 responder).
+  function f_native_beat(addr : natural) return std_logic_vector is
+    variable v_data : std_logic_vector(8*C_NATIVE_BYTES-1 downto 0) := (others => '0');
+  begin
+    for word_idx in 0 to C_NATIVE_BYTES/4-1 loop
+      v_data(32*word_idx+31 downto 32*word_idx) :=
+        std_logic_vector(to_unsigned(addr + word_idx*4, 32));
+    end loop;
+    return v_data;
+  end function;
+
+  -- Byte at addr in that pattern, little endian, for filling the store.
+  function f_mem_byte(addr : natural) return std_logic_vector is
+    variable v_word : std_logic_vector(31 downto 0);
+  begin
+    v_word := std_logic_vector(to_unsigned(addr - (addr mod 4), 32));
+    return v_word(8*(addr mod 4)+7 downto 8*(addr mod 4));
   end function;
 begin
   p_client_clk : process
@@ -168,44 +239,188 @@ begin
       r_ready   => r_ready
     );
 
-  u_mem : entity work.axi_mem_model
-    generic map (
-      GC_DATA_BYTES    => C_NATIVE_BYTES,
-      GC_ADDR_WIDTH    => C_ADDR_WIDTH,
-      GC_ID_WIDTH      => C_ID_WIDTH,
-      GC_TIMER_WIDTH   => 16,
-      GC_AR_FIFO_DEPTH => 8,
-      GC_R_FIFO_DEPTH  => 8
-    )
-    port map (
-      aclk             => mem_aclk,
-      aresetn          => aresetn,
-      ar_base_enable   => '0',
-      ar_jitter_enable => '0',
-      r_base_enable    => '0',
-      r_jitter_enable  => '0',
-      base_latency     => (others => '0'),
-      base_beat_gap    => (others => '0'),
-      ar_id            => ar_id,
-      ar_addr          => ar_addr,
-      ar_len           => ar_len,
-      ar_valid         => mem_ar_valid,
-      ar_ready         => mem_ar_ready,
-      r_id             => r_id,
-      r_data           => r_data,
-      r_resp           => mem_r_resp,
-      r_last           => r_last,
-      r_valid          => r_valid,
-      r_ready          => r_ready
-    );
+  -- Native slave: real byte store (default) or generated-pattern model.
+  -- Both answer through the mem_* R signals; the mux below sits between
+  -- them and the bridge.
+  gen_mem_store : if GC_USE_MEM_STORE generate
+    u_mem : entity work.axi_mem_store
+      generic map (
+        GC_DATA_BYTES     => C_NATIVE_BYTES,
+        GC_ADDR_WIDTH     => C_ADDR_WIDTH,
+        GC_ID_WIDTH       => C_ID_WIDTH,
+        GC_TIMER_WIDTH    => 16,
+        GC_AR_FIFO_DEPTH  => 8,
+        GC_R_FIFO_DEPTH   => 8,
+        GC_MEM_SIZE_BYTES => C_MEM_BYTES
+      )
+      port map (
+        aclk             => mem_aclk,
+        aresetn          => aresetn,
+        ar_base_enable   => '0',
+        ar_jitter_enable => '0',
+        r_base_enable    => '0',
+        r_jitter_enable  => '0',
+        base_latency     => (others => '0'),
+        base_beat_gap    => (others => '0'),
+        mem_wr_addr      => mem_wr_addr,
+        mem_wr_data      => mem_wr_data,
+        mem_wr_valid     => mem_wr_valid,
+        mem_wr_ready     => mem_wr_ready,
+        mem_wr_error     => mem_wr_error,
+        ar_id            => ar_id,
+        ar_addr          => ar_addr,
+        ar_len           => ar_len,
+        ar_valid         => mem_ar_valid,
+        ar_ready         => mem_ar_ready,
+        r_id             => mem_r_id,
+        r_data           => mem_r_data,
+        r_resp           => mem_r_resp,
+        r_last           => mem_r_last,
+        r_valid          => mem_r_valid,
+        r_ready          => mem_r_ready
+      );
 
-  -- Gated native AR handshake and error-injection mux between the memory
-  -- model and the bridge native side (phases 6 and 8). Gating both ar_valid
-  -- (into the model) and ar_ready (into the bridge) keeps the handshake
-  -- coherent while the bridge's AR pipeline backs up.
-  mem_ar_valid <= ar_valid and ar_ready_enable;
-  ar_ready     <= mem_ar_ready and ar_ready_enable;
-  r_resp       <= mem_r_resp when r_resp_inject = "00" else r_resp_inject;
+    -- Fill the store with the axi_mem_model pattern, one byte per native
+    -- clock, before any request is issued.  The store keeps its contents
+    -- across the phase 7 reset.
+    p_populate : process
+    begin
+      wait until aresetn = '1';
+      wait until rising_edge(mem_aclk);
+      for addr in 0 to C_MEM_BYTES-1 loop
+        mem_wr_addr  <= std_logic_vector(to_unsigned(addr, C_ADDR_WIDTH));
+        mem_wr_data  <= f_mem_byte(addr);
+        mem_wr_valid <= '1';
+        wait until rising_edge(mem_aclk);  -- mem_wr_ready is high out of reset
+      end loop;
+      mem_wr_valid  <= '0';
+      mem_populated <= true;
+      wait;
+    end process;
+
+    -- Latch any population error; the pulse is only one clock wide.
+    p_wr_error : process(mem_aclk)
+    begin
+      if rising_edge(mem_aclk) then
+        if mem_wr_error = '1' then
+          mem_wr_error_seen <= '1';
+        end if;
+      end if;
+    end process;
+  end generate;
+
+  gen_mem_model : if not GC_USE_MEM_STORE generate
+    u_mem : entity work.axi_mem_model
+      generic map (
+        GC_DATA_BYTES    => C_NATIVE_BYTES,
+        GC_ADDR_WIDTH    => C_ADDR_WIDTH,
+        GC_ID_WIDTH      => C_ID_WIDTH,
+        GC_TIMER_WIDTH   => 16,
+        GC_AR_FIFO_DEPTH => 8,
+        GC_R_FIFO_DEPTH  => 8
+      )
+      port map (
+        aclk             => mem_aclk,
+        aresetn          => aresetn,
+        ar_base_enable   => '0',
+        ar_jitter_enable => '0',
+        r_base_enable    => '0',
+        r_jitter_enable  => '0',
+        base_latency     => (others => '0'),
+        base_beat_gap    => (others => '0'),
+        ar_id            => ar_id,
+        ar_addr          => ar_addr,
+        ar_len           => ar_len,
+        ar_valid         => mem_ar_valid,
+        ar_ready         => mem_ar_ready,
+        r_id             => mem_r_id,
+        r_data           => mem_r_data,
+        r_resp           => mem_r_resp,
+        r_last           => mem_r_last,
+        r_valid          => mem_r_valid,
+        r_ready          => mem_r_ready
+      );
+  end generate;
+
+  -- Native port mux.  ar_ready_enable gates the memory's AR handshake
+  -- (phase 6).  reorder_sel hands the whole native port to the phase 11
+  -- responder; the memory sees no AR and no R ready meanwhile.
+  mem_ar_valid <= ar_valid and ar_ready_enable and not reorder_sel;
+  ar_ready     <= tb_ar_ready when reorder_sel = '1' else
+                  mem_ar_ready and ar_ready_enable;
+  mem_r_ready  <= r_ready and not reorder_sel;
+
+  r_id    <= tb_r_id    when reorder_sel = '1' else mem_r_id;
+  r_data  <= tb_r_data  when reorder_sel = '1' else mem_r_data;
+  r_last  <= tb_r_last  when reorder_sel = '1' else mem_r_last;
+  r_valid <= tb_r_valid when reorder_sel = '1' else mem_r_valid;
+  -- Response injection: phase 8 forces every beat, phase 10 only the
+  -- second native beat (a mid-group beat of the upsizer).
+  r_resp  <= "00"          when reorder_sel = '1' else
+             r_resp_inject when r_resp_inject /= "00" else
+             "10"          when err_one_beat = '1' and err_beat_cnt = 1 else
+             mem_r_resp;
+
+  -- Counts native R handshakes while err_one_beat is high.
+  p_err_beat : process(mem_aclk)
+  begin
+    if rising_edge(mem_aclk) then
+      if err_one_beat = '0' then
+        err_beat_cnt <= 0;
+      elsif r_valid = '1' and r_ready = '1' then
+        err_beat_cnt <= err_beat_cnt + 1;
+      end if;
+    end if;
+  end process;
+
+  -- Phase 11 native responder.  Accepts two ARs, then returns the second
+  -- burst before the first.  AXI allows this across IDs; the beats of each
+  -- burst stay contiguous, which the bridge requires.
+  p_reorder : process
+    type nat2_t is array (0 to 1) of natural;
+    variable v_id   : nat2_t;
+    variable v_addr : nat2_t;
+    variable v_len  : nat2_t;
+    variable v_burst : natural;
+  begin
+    wait until reorder_sel = '1';
+
+    -- Accept two ARs.  Values read right after the edge are the ones the
+    -- bridge presented at that edge.
+    tb_ar_ready <= '1';
+    for n in 0 to 1 loop
+      loop
+        wait until rising_edge(mem_aclk);
+        exit when ar_valid = '1';
+      end loop;
+      v_id(n)   := to_integer(unsigned(ar_id));
+      v_addr(n) := to_integer(unsigned(ar_addr));
+      v_len(n)  := to_integer(unsigned(ar_len));
+    end loop;
+    tb_ar_ready <= '0';
+
+    -- Return burst 1 first, then burst 0, in the memory's data pattern.
+    for k in 0 to 1 loop
+      v_burst := 1 - k;
+      for beat in 0 to v_len(v_burst) loop
+        tb_r_id    <= std_logic_vector(to_unsigned(v_id(v_burst), C_ID_WIDTH));
+        tb_r_data  <= f_native_beat(v_addr(v_burst) + beat*C_NATIVE_BYTES);
+        if beat = v_len(v_burst) then
+          tb_r_last <= '1';
+        else
+          tb_r_last <= '0';
+        end if;
+        tb_r_valid <= '1';
+        loop
+          wait until rising_edge(mem_aclk);
+          exit when r_ready = '1';
+        end loop;
+      end loop;
+    end loop;
+    tb_r_valid <= '0';
+    tb_r_last  <= '0';
+    wait;
+  end process;
 
   p_ar_monitor : process(mem_aclk)
   begin
@@ -229,7 +444,8 @@ begin
   end process;
 
   p_stim : process
-    variable wait_count : natural;
+    variable wait_count     : natural;
+    variable v_expected_ars : natural;  -- Native ARs this variant must issue
 
     -- Wait until the client request is accepted (req_ready high at an edge).
     procedure p_wait_accept(constant idx : natural) is
@@ -290,6 +506,12 @@ begin
   begin
     wait for 100 ns;
     aresetn <= '1';
+    -- The store must hold its pattern before the first read.  Tested with
+    -- an if: mem_populated is already true for the model variant, and a
+    -- bare "wait until" would wait forever for an event that never comes.
+    if not mem_populated then
+      wait until mem_populated;
+    end if;
 
     -- One 512-bit client beat becomes four native 128-bit beats.
     wait until falling_edge(aclk);
@@ -604,8 +826,109 @@ begin
       report "client 1 second sideband mismatch (re-presentation)"
       severity failure;
 
-    assert ar_seen = 15
+    -- Phase 10: SLVERR on a single native beat.  Only the second of the
+    -- four native beats that form one client beat carries SLVERR.  The
+    -- client must still see SLVERR: the upsizer keeps the worst response
+    -- of every packed group, so a mid-group error is never masked.
+    wait until falling_edge(aclk);
+    err_one_beat <= '1';
+    req_addr(2) <= std_logic_vector(to_unsigned(16#A000#, C_ADDR_WIDTH));
+    req_len(2)  <= (others => '0');
+    req_valid(2) <= '1';
+    p_wait_accept(2);
+    req_valid(2) <= '0';
+    p_wait_rsp(2);
+    assert rsp_data(2) = f_expected_data(16#A000#)
+      report "client 2 data mismatch with single-beat SLVERR"
+      severity failure;
+    assert rsp_resp(2) = "10"
+      report "SLVERR on one native beat was masked"
+      severity failure;
+    assert rsp_last(2) = '1'
+      report "client 2 response missing last with single-beat SLVERR"
+      severity failure;
+    err_one_beat <= '0';
+
+    -- Phase 11: bursts returned out of order across IDs.  The testbench
+    -- responder takes over the native port, accepts client 0's two-beat
+    -- burst and then client 1's one-beat burst, and answers client 1
+    -- first.  Both clients must still receive exactly their own data.
+    wait until falling_edge(aclk);
+    reorder_sel  <= '1';
+    rsp_ready(0) <= '0';
+    req_addr(0) <= std_logic_vector(to_unsigned(16#B000#, C_ADDR_WIDTH));
+    req_len(0)  <= std_logic_vector(to_unsigned(1, C_CLIENT_LEN_WIDTH));
+    req_valid(0) <= '1';
+    p_wait_accept(0);
+    req_valid(0) <= '0';
+    req_addr(1) <= std_logic_vector(to_unsigned(16#B100#, C_ADDR_WIDTH));
+    req_len(1)  <= (others => '0');
+    req_valid(1) <= '1';
+    p_wait_accept(1);
+    req_valid(1) <= '0';
+    p_wait_rsp(1);
+    assert rsp_data(1) = f_expected_data(16#B100#)
+      report "client 1 data mismatch with reordered bursts"
+      severity failure;
+    assert rsp_resp(1) = "00" and rsp_last(1) = '1'
+      report "client 1 sideband mismatch with reordered bursts"
+      severity failure;
+    rsp_ready(0) <= '1';
+    for n in 0 to 1 loop
+      p_wait_rsp(0);
+      assert rsp_data(0) = f_expected_data(16#B000# + n*C_CLIENT_BYTES)
+        report "client 0 data mismatch with reordered bursts"
+        severity failure;
+      assert rsp_resp(0) = "00"
+        report "client 0 resp mismatch with reordered bursts"
+        severity failure;
+      if n = 1 then
+        assert rsp_last(0) = '1'
+          report "client 0 final reordered beat not asserted last"
+          severity failure;
+      else
+        assert rsp_last(0) = '0'
+          report "client 0 early reordered beat asserted last"
+          severity failure;
+      end if;
+    end loop;
+    wait until falling_edge(aclk);
+    reorder_sel <= '0';
+
+    -- Phase 12 (store only): a read outside the store.  axi_mem_store
+    -- answers every native beat with SLVERR and zero data, so the client
+    -- beat must be SLVERR with zero data.
+    if GC_USE_MEM_STORE then
+      wait until falling_edge(aclk);
+      req_addr(3) <= std_logic_vector(to_unsigned(C_MEM_BYTES, C_ADDR_WIDTH));
+      req_len(3)  <= (others => '0');
+      req_valid(3) <= '1';
+      p_wait_accept(3);
+      req_valid(3) <= '0';
+      p_wait_rsp(3);
+      assert rsp_resp(3) = "10"
+        report "out-of-range read did not return SLVERR"
+        severity failure;
+      assert unsigned(rsp_data(3)) = 0
+        report "out-of-range read did not return zero data"
+        severity failure;
+      assert rsp_last(3) = '1'
+        report "out-of-range read missing last"
+        severity failure;
+    end if;
+
+    -- Phase 12 issues one extra native AR in the store variant.
+    if GC_USE_MEM_STORE then
+      v_expected_ars := 19;
+    else
+      v_expected_ars := 18;
+    end if;
+    wait_mem_cycles(4);  -- Let ar_seen settle after the last handshake
+    assert ar_seen = v_expected_ars
       report "unexpected native AR transaction count"
+      severity failure;
+    assert mem_wr_error_seen = '0'
+      report "axi_mem_store population write error"
       severity failure;
     report "ALL AXI READ BRIDGE CHECKS PASSED" severity note;
     sim_done <= true;

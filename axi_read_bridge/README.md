@@ -70,13 +70,59 @@ or increase `GC_CLIENT_FIFO_DEPTH` to cover the largest single request.
 
 `rsp_data`, `rsp_resp`, `rsp_last`, `rsp_valid`, and `rsp_ready` form the
 per-client response output. One `rsp_data` beat is one client-domain beat.
-A response pop returns one client-beat credit to the AR mux.
+A response pop returns one client-beat credit to the AR mux. `rsp_resp` is
+the worst (numerically largest) `RRESP` of the native beats packed into that
+client beat, so a single failing native beat is never lost.
+
+### Request rules
+
+- `req_addr` must be aligned to `GC_CLIENT_DATA_BYTES`. The upsizer packs
+  native beats in fixed groups, so an unaligned start would shift every
+  client beat.
+- A request must not cross a 4 KiB boundary (AXI burst rule). The bridge
+  forwards `req_addr` unchanged and does not split bursts.
+
+Both rules are checked in simulation (`p_req_check`, severity failure) and
+are not checked in hardware.
+
+## Clocks and reset
+
+`aclk` and `mem_aclk` are independent; any ratio, including non-integer
+ratios, is supported. `aresetn` is active low and may be asynchronous: the
+bridge synchronizes it into each domain (assert asynchronously, release
+synchronously) before driving the mux, demux and upsizer. Hold it low for
+at least a few cycles of the slower clock.
+
+The bridge does not drain bursts that are in flight at reset. Reset the
+native slave (or let it finish its outstanding bursts) together with the
+bridge, otherwise stale R beats arrive after reset with no matching credit.
 
 ## Composition
 
 The RTL instantiates `axi_ar_mux`, two `axis_cdc` instances, `axis_upsizer`,
-and `axi_r_demux`. The integration testbench also instantiates
-`axi_mem_model` as a 128-bit native memory controller at 250 MHz.
+and `axi_r_demux`.
+
+## Testbenches
+
+| Bench | Command | Native slave |
+|---|---|---|
+| `default` | `run axi_read_bridge vhdl modelsim` | `axi_mem_store`, filled with a known pattern |
+| `model` | `run axi_read_bridge vhdl modelsim --tb model` | `axi_mem_model` (data derived from the address) |
+| `simple` | `run axi_read_bridge vhdl modelsim --tb simple` | `axi_mem_store`, one client, four requests |
+
+The comprehensive bench (`default` / `model`) runs a 4.3 ns native clock
+against a 10 ns client clock (non-integer ratio, `-t ps`). Its phases cover
+single and multi-beat requests on all clients, simultaneous requests, a
+maximum-length request, back-pressure on the client and native sides,
+reset with a response in flight, `RRESP` forwarding (every beat, and a
+single SLVERR beat
+inside a packed group), out-of-order bursts across IDs, a read past the end
+of the store (SLVERR with zero data, store variant only), and an exact
+native AR/ARLEN sequence check. The simple bench is a short starting point
+for experiments.
+
+All three are simulation-only; the memory models are listed in the tb
+sections of `scripts/vhdl.f` so they never reach synthesis.
 
 ## CDC constraints
 
@@ -92,17 +138,19 @@ multiple clients are outstanding simultaneously (up to the per-client
 credit limit), and the native downstream may return R bursts in any order
 across IDs; `axi_r_demux` routes them back per client.  A per-client
 in-order scoreboard on the native AR/R bus would mis-attribute reordered
-bursts, so verify the native side with `axi_mem_model` (in-order, as in
-the integration testbench) or a per-ID scoreboard.  The client side is
+bursts, so verify the native side with an in-order slave (`axi_mem_store`
+or `axi_mem_model`, as in the integration testbench) or a per-ID
+scoreboard.  The client side is
 verified with the `axi_monitor` IP, which taps each client's `req_*` /
 `rsp_*` interface (no ID, in-order per client).
 
-Related constraint: the R path packs four contiguous native beats per wide
-beat (`axis_upsizer`), so the native downstream must deliver bursts
-atomically. AXI guarantees this - beats within a burst stay contiguous and
-in-order per ID, and reordering only occurs across bursts. A beat-level
-interleave across IDs within a pack window trips the upsizer's "rid changed
-within packed group" assertion.
+Related requirement: the R path packs contiguous native beats into one
+client beat (`axis_upsizer`), so the native slave must not interleave R
+beats from different IDs. AXI itself allows read-data interleaving across
+IDs, so this is a real restriction on the slave. Zynq HP ports and typical
+DDR controllers return each burst contiguously and satisfy it. An
+interleave within a pack window trips the upsizer's "rid changed within
+packed group" assertion in simulation.
 
 ## Instantiation
 
@@ -130,7 +178,7 @@ constant C_LEN_WIDTH    : positive := 6;  -- GC_NATIVE_ARLEN_WIDTH - log2(ratio)
 -- Clock / reset
 signal aclk     : std_logic;
 signal mem_aclk : std_logic;
-signal aresetn  : std_logic;  -- synchronous, active low
+signal aresetn  : std_logic;  -- active low, may be asynchronous
 
 -- Client request interfaces (array indexed 0..C_NUM_CLIENTS-1)
 signal req_addr  : slv_array_t(0 to C_NUM_CLIENTS-1)(31 downto 0);  -- araddr
@@ -223,7 +271,7 @@ localparam int unsigned C_LEN_WIDTH   = 6;  // GC_NATIVE_ARLEN_WIDTH - $clog2(ra
 // Clock / reset
 logic aclk;
 logic mem_aclk;
-logic aresetn;  // synchronous, active low
+logic aresetn;  // active low, may be asynchronous
 
 // Client request interfaces (packed arrays, client index outer)
 logic [C_NUM_CLIENTS-1:0][31:0]           req_addr;

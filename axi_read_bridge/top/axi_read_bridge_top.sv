@@ -28,7 +28,7 @@ module axi_read_bridge_top #(
   // Clock / reset
   input logic aclk,
   input logic mem_aclk,
-  input logic aresetn,   // synchronous, active low
+  input logic aresetn,   // active low, may be asynchronous (synchronized inside)
 
   // Client request interfaces. req_len counts client-domain beats minus 1.
   input  logic [GC_NUM_CLIENTS-1:0][GC_ADDR_WIDTH-1:0]                                                               req_addr,
