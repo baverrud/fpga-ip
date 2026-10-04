@@ -3,8 +3,7 @@
 //Description      : Instantiation template for axi_req_gen_top.
 //                 : Binds the VHDL core directly; passes the
 //                 : configuration parameters through and exposes the
-//                 : req channel plus runtime configuration and
-//                 : statistics ports.
+//                 : req channel plus runtime configuration ports.
 //Author           : Rune Baeverrud
 //Current Revision : 1.00
 //Licensing        : Zero-Clause BSD (0BSD)
@@ -20,11 +19,10 @@ module axi_req_gen_inst #(
   logic aresetn;
   logic enable;
   logic aperture;
-  logic stat_rst;
   logic [$clog2(GC_MAX_BURST)-1:0] cfg_req_len;
   logic cfg_len_mode;
   logic [$clog2(GC_MAX_BURST)-1:0] cfg_max_len;
-  logic [31:0] cfg_pace;
+  logic [31:0] cfg_pace; // one request credit per cfg_pace+1 cycles
   logic [31:0] cfg_pace_init;
   logic [GC_ADDR_WIDTH-1:0] cfg_base_addr;
   logic [GC_ADDR_WIDTH-1:0] cfg_addr_range;
@@ -33,9 +31,6 @@ module axi_req_gen_inst #(
   logic req_ready;
   logic [GC_ADDR_WIDTH-1:0] req_addr;
   logic [$clog2(GC_MAX_BURST)-1:0] req_len;
-  logic [31:0] stat_req_stall;
-  logic [31:0] stat_req_issued;
-  logic [31:0] stat_cfg_errors;
 
 
   axi_req_gen #(
@@ -50,7 +45,6 @@ module axi_req_gen_inst #(
   // Control
     .enable   (enable),
     .aperture (aperture),
-    .stat_rst (stat_rst),
 
   // Runtime configuration
     .cfg_req_len    (cfg_req_len),
@@ -66,12 +60,7 @@ module axi_req_gen_inst #(
     .req_valid (req_valid),
     .req_ready (req_ready),
     .req_addr  (req_addr),
-    .req_len   (req_len),
-
-  // Statistics
-    .stat_req_stall  (stat_req_stall),
-    .stat_req_issued (stat_req_issued),
-    .stat_cfg_errors (stat_cfg_errors)
+    .req_len   (req_len)
   );
 
 endmodule

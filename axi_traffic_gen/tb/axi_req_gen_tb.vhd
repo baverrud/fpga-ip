@@ -8,10 +8,11 @@
 --                   zero false errors.
 --
 --                   Phases: fixed line-rate linear, paced, random
---                   addressing, random request length, combined random
---                   addressing + random length, response backpressure
---                   (req/rsp stall counting), maximum (32-beat
---                   credit-limited) burst, and stat_rst.
+--                   addressing, random request length (linear and
+--                   random-address), combined random addressing +
+--                   random length, response backpressure (req/rsp stall
+--                   counting), maximum (32-beat credit-limited) burst,
+--                   and monitor stat_rst.
 --Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
@@ -40,6 +41,45 @@ architecture sim of axi_req_gen_tb is
   constant C_MON_TIME_WIDTH : positive := 48;
   constant C_MON_STAT_WIDTH : positive := 48;
   constant C_MON_SB_DEPTH   : positive := 64;
+
+  function fit_expected_addr(
+    constant candidate : in unsigned(C_ADDR_WIDTH-1 downto 0);
+    constant base_addr : in unsigned(C_ADDR_WIDTH-1 downto 0);
+    constant max_start : in unsigned(C_ADDR_WIDTH-1 downto 0);
+    constant burst_bytes : in natural
+  ) return unsigned is
+    variable fitted_addr : unsigned(C_ADDR_WIDTH-1 downto 0);
+    variable page_base   : unsigned(C_ADDR_WIDTH-1 downto 0);
+    variable page_offset : unsigned(C_ADDR_WIDTH-1 downto 0);
+    variable page_limit  : unsigned(C_ADDR_WIDTH-1 downto 0);
+  begin
+    if candidate < base_addr then
+      fitted_addr := base_addr;
+    elsif candidate > max_start then
+      fitted_addr := max_start;
+    else
+      fitted_addr := candidate;
+    end if;
+    fitted_addr := fitted_addr and
+                   not to_unsigned(C_CLIENT_BYTES - 1, C_ADDR_WIDTH);
+
+    if burst_bytes <= 4096 then
+      page_base := fitted_addr and not to_unsigned(4095, C_ADDR_WIDTH);
+      page_offset := fitted_addr - page_base;
+      page_limit := to_unsigned(4096 - burst_bytes, C_ADDR_WIDTH);
+      if page_offset > page_limit then
+        fitted_addr := page_base + page_limit;
+        if fitted_addr < base_addr then
+          fitted_addr := base_addr;
+        elsif fitted_addr > max_start then
+          fitted_addr := max_start;
+        end if;
+        fitted_addr := fitted_addr and
+                       not to_unsigned(C_CLIENT_BYTES - 1, C_ADDR_WIDTH);
+      end if;
+    end if;
+    return fitted_addr;
+  end function;
 
   signal aclk : std_logic := '0';
   signal mem_aclk    : std_logic := '0';
@@ -77,7 +117,6 @@ architecture sim of axi_req_gen_tb is
   -- Request generator
   signal gen_enable     : std_logic := '0';
   signal gen_aperture   : std_logic := '0';
-  signal gen_stat_rst   : std_logic := '0';
   signal cfg_req_len    : std_logic_vector(C_GEN_LEN_WIDTH-1 downto 0) := (others => '0');
   signal cfg_len_mode   : std_logic := '0';
   signal cfg_max_len    : std_logic_vector(C_GEN_LEN_WIDTH-1 downto 0) := (others => '0');
@@ -90,12 +129,8 @@ architecture sim of axi_req_gen_tb is
   signal gen_req_ready       : std_logic;
   signal gen_req_addr        : std_logic_vector(C_ADDR_WIDTH-1 downto 0);
   signal gen_req_len         : std_logic_vector(C_GEN_LEN_WIDTH-1 downto 0);
-  signal gen_stat_req_stall  : std_logic_vector(31 downto 0);
-  signal gen_stat_req_issued : std_logic_vector(31 downto 0);
-  signal gen_stat_cfg_errors : std_logic_vector(31 downto 0);
 
   -- Monitor (taps the bridge client req/rsp)
-  signal mon_enable     : std_logic := '1';
   signal mon_stat_rst   : std_logic := '0';
   signal mon_err_rst    : std_logic := '0';
   signal mon_data_check : std_logic := '1';
@@ -131,9 +166,10 @@ architecture sim of axi_req_gen_tb is
   -- accepted request addresses (proves random addressing varies).
   signal addr_changes : natural := 0;
   signal addr_var_rst : std_logic := '0';
+  signal linear_addr_check : std_logic := '0';
 
-  -- Reference for stat_elapsed_cycles (increments while the monitor is
-  -- enabled, cleared by mon_stat_rst - mirrors the RTL counter).
+  -- Reference for the monitor's stat_elapsed_cycles: free-running,
+  -- cleared by mon_stat_rst (the monitor has no enable gate).
   signal mon_elapsed_ref : unsigned(31 downto 0) := (others => '0');
 begin
 
@@ -197,7 +233,6 @@ begin
       aresetn         => aresetn,
       enable          => gen_enable,
       aperture        => gen_aperture,
-      stat_rst        => gen_stat_rst,
       cfg_req_len     => cfg_req_len,
       cfg_len_mode    => cfg_len_mode,
       cfg_max_len     => cfg_max_len,
@@ -209,10 +244,7 @@ begin
       req_valid       => gen_req_valid,
       req_ready       => gen_req_ready,
       req_addr        => gen_req_addr,
-      req_len         => gen_req_len,
-      stat_req_stall  => gen_stat_req_stall,
-      stat_req_issued => gen_stat_req_issued,
-      stat_cfg_errors => gen_stat_cfg_errors
+      req_len         => gen_req_len
     );
 
   u_bridge : entity work.axi_read_bridge
@@ -298,7 +330,6 @@ begin
       aclk                     => aclk,
       aresetn                  => aresetn,
       global_time              => global_time,
-      enable                   => mon_enable,
       stat_rst                 => mon_stat_rst,
       err_rst                  => mon_err_rst,
       data_check_en            => mon_data_check,
@@ -340,20 +371,59 @@ begin
 
   -- Check every accepted request: start aligned to C_CLIENT_BYTES and
   -- the full burst inside [base, base+range].
+  --
+  -- While linear_addr_check is high, also verify that a linear sweep
+  -- advances by the accepted burst size, including window wrap and 4 KiB
+  -- page fitting for windows that span multiple pages.
   p_addr_check : process(aclk)
     variable burst_bytes : natural;
+    variable prev_addr : unsigned(C_ADDR_WIDTH-1 downto 0) := (others => '0');
+    variable prev_burst_bytes : natural := 0;
+    variable expected_addr : unsigned(C_ADDR_WIDTH-1 downto 0);
+    variable have_prev : boolean := false;
   begin
-    if rising_edge(aclk) and aresetn = '1' and
-       req_valid(0) = '1' and req_ready(0) = '1' then
-      assert unsigned(req_addr(0)(log2ceil(C_CLIENT_BYTES)-1 downto 0)) = 0
-        report "req addr not aligned to client bytes" severity failure;
-      burst_bytes := (to_integer(unsigned(req_len(0))) + 1) * C_CLIENT_BYTES;
-      assert unsigned(req_addr(0)) >= unsigned(cfg_base_addr) and
-             unsigned(req_addr(0)) + burst_bytes <=
-             unsigned(cfg_base_addr) + unsigned(cfg_addr_range)
-        report "req burst outside address window" severity failure;
-      assert to_integer(unsigned(req_addr(0)(11 downto 0))) + burst_bytes <= 4096
-        report "req burst crosses AXI 4 KiB boundary" severity failure;
+    if rising_edge(aclk) then
+      if aresetn = '0' then
+        have_prev := false;
+      elsif req_valid(0) = '1' and req_ready(0) = '1' then
+        assert unsigned(req_addr(0)(log2ceil(C_CLIENT_BYTES)-1 downto 0)) = 0
+          report "req addr not aligned to client bytes" severity failure;
+        burst_bytes := (to_integer(unsigned(req_len(0))) + 1) * C_CLIENT_BYTES;
+        assert unsigned(req_addr(0)) >= unsigned(cfg_base_addr) and
+               unsigned(req_addr(0)) + burst_bytes <=
+               unsigned(cfg_base_addr) + unsigned(cfg_addr_range)
+          report "req burst outside address window" severity failure;
+        assert to_integer(unsigned(req_addr(0)(11 downto 0))) + burst_bytes <= 4096
+          report "req burst crosses AXI 4 KiB boundary" severity failure;
+
+        if linear_addr_check = '1' then
+          if have_prev then
+            expected_addr := prev_addr + to_unsigned(prev_burst_bytes, C_ADDR_WIDTH);
+            if burst_bytes <= to_integer(unsigned(cfg_addr_range)) and
+               expected_addr > unsigned(cfg_base_addr) +
+                               unsigned(cfg_addr_range) -
+                               to_unsigned(burst_bytes, C_ADDR_WIDTH) then
+              expected_addr := unsigned(cfg_base_addr);
+            end if;
+            expected_addr := fit_expected_addr(
+              expected_addr,
+              unsigned(cfg_base_addr),
+              unsigned(cfg_base_addr) + unsigned(cfg_addr_range) -
+                to_unsigned(burst_bytes, C_ADDR_WIDTH),
+              burst_bytes);
+            assert unsigned(req_addr(0)) = expected_addr
+              report "linear address step did not use the accepted burst length"
+              severity failure;
+          end if;
+          prev_addr := unsigned(req_addr(0));
+          prev_burst_bytes := burst_bytes;
+          have_prev := true;
+        else
+          have_prev := false;
+        end if;
+      elsif linear_addr_check = '0' then
+        have_prev := false;
+      end if;
     end if;
   end process;
 
@@ -379,14 +449,14 @@ begin
     end if;
   end process;
 
-  -- Reference counter for stat_elapsed_cycles: increments while the
-  -- client-0 monitor is enabled, cleared by mon_stat_rst (same as RTL).
+  -- Reference counter for stat_elapsed_cycles: free-running, cleared by
+  -- mon_stat_rst (same as RTL).  The monitor has no enable gate.
   p_elapsed_ref : process(aclk)
   begin
     if rising_edge(aclk) then
       if aresetn = '0' or mon_stat_rst = '1' then
         mon_elapsed_ref <= (others => '0');
-      elsif mon_enable = '1' then
+      else
         mon_elapsed_ref <= mon_elapsed_ref + 1;
       end if;
     end if;
@@ -399,12 +469,10 @@ begin
     procedure p_reset_stats is
     begin
       wait until falling_edge(aclk);
-      gen_stat_rst <= '1';
       mon_stat_rst <= '1';
       mon_err_rst  <= '1';
       addr_var_rst <= '1';
       wait until rising_edge(aclk);
-      gen_stat_rst <= '0';
       mon_stat_rst <= '0';
       mon_err_rst  <= '0';
       addr_var_rst <= '0';
@@ -440,13 +508,10 @@ begin
         report tag & ": monitor errors on traffic" severity failure;
       assert stat_sb_backpressure = x"00000000"
         report tag & ": scoreboard backpressure" severity failure;
-      assert gen_stat_cfg_errors = x"00000000"
-        report tag & ": generator cfg errors" severity failure;
     end procedure;
 
-    -- Assert the full stat audit: clean traffic (errors, backpressure,
-    -- cfg errors) plus every stat counter behaving correctly:
-    --   - generator and monitor req_stall cross-check (same bus tap)
+    -- Assert the full stat audit: clean traffic (errors, backpressure)
+    -- plus every stat counter behaving correctly:
     --   - stat_elapsed_cycles vs the reference counter
     --   - stat_burst_len_sum == stat_beats (no underflow beats)
     --   - min <= max and sum >= max for the latency / first-latency /
@@ -463,8 +528,6 @@ begin
     begin
       p_check_clean(tag);
 
-      assert gen_stat_req_stall = stat_req_stall
-        report tag & ": gen/monitor req_stall diverged" severity failure;
       assert stat_elapsed_cycles = std_logic_vector(mon_elapsed_ref)
         report tag & ": elapsed counter drifted" severity failure;
       assert unsigned(stat_burst_len_sum) =
@@ -488,8 +551,6 @@ begin
       assert to_integer(unsigned(stat_max_outstanding)) > 0
         report tag & ": max_outstanding zero" severity failure;
       if check_stall then
-        assert unsigned(gen_stat_req_stall) > 0
-          report tag & ": generator req_stall not counted" severity failure;
         assert unsigned(stat_req_stall) > 0
           report tag & ": monitor req_stall not counted" severity failure;
       end if;
@@ -563,10 +624,8 @@ begin
     p_drain("phase 1");
     p_check_stats("P1", true);
 
-    assert unsigned(gen_stat_req_issued) > 50
+    assert unsigned(stat_req_seen) > 50
       report "P1: traffic volume too low" severity failure;
-    assert stat_req_seen = gen_stat_req_issued
-      report "P1: monitor req_seen != generator issued" severity failure;
     assert stat_xactions = stat_req_seen
       report "P1: xactions != req_seen" severity failure;
     assert stat_beats = std_logic_vector(resize(unsigned(stat_xactions) * 4, 32))
@@ -587,10 +646,8 @@ begin
     p_drain("phase 2");
     p_check_stats("P2", false);
 
-    assert unsigned(gen_stat_req_issued) > 0
+    assert unsigned(stat_req_seen) > 0
       report "P2: no requests issued" severity failure;
-    assert stat_req_seen = gen_stat_req_issued
-      report "P2: monitor req_seen != generator issued" severity failure;
     assert stat_xactions = stat_req_seen
       report "P2: xactions != req_seen" severity failure;
     assert stat_beats = std_logic_vector(resize(unsigned(stat_xactions) * 4, 32))
@@ -613,8 +670,7 @@ begin
     p_drain("phase 3");
     p_check_stats("P3", true);
 
-    assert stat_req_seen = gen_stat_req_issued and
-           stat_xactions = stat_req_seen and
+    assert stat_xactions = stat_req_seen and
            stat_beats = std_logic_vector(resize(unsigned(stat_xactions) * 4, 32))
       report "P3: accounting mismatch" severity failure;
     assert stat_burst_len_min = x"00000004" and stat_burst_len_max = x"00000004"
@@ -626,19 +682,21 @@ begin
     -- Phase 4: random request length (cfg_len_mode=1, max 16 beats).
     -- ---------------------------------------------------------------
     p_reset_stats;
+    cfg_base_addr  <= x"00002000";
+    cfg_addr_range <= x"00003000";
     cfg_addr_mode <= '0';
     cfg_len_mode  <= '1';
     cfg_max_len   <= std_logic_vector(to_unsigned(15, C_GEN_LEN_WIDTH));
+    linear_addr_check <= '1';
     gen_enable <= '1';
     for i in 1 to 2000 loop
       wait until rising_edge(aclk);
     end loop;
     gen_enable <= '0';
+    linear_addr_check <= '0';
     p_drain("phase 4");
     p_check_stats("P4", true);
 
-    assert stat_req_seen = gen_stat_req_issued
-      report "P4: monitor req_seen != generator issued" severity failure;
     assert stat_xactions = stat_req_seen
       report "P4: xactions != req_seen" severity failure;
     assert unsigned(stat_beats) >= unsigned(stat_xactions)
@@ -665,8 +723,6 @@ begin
     p_drain("phase 4B");
     p_check_stats("P4B", true);
 
-    assert stat_req_seen = gen_stat_req_issued
-      report "P4B: monitor req_seen != generator issued" severity failure;
     assert stat_xactions = stat_req_seen
       report "P4B: xactions != req_seen" severity failure;
     assert unsigned(stat_beats) >= unsigned(stat_xactions)
@@ -689,6 +745,7 @@ begin
     cfg_addr_mode <= '0';
     cfg_len_mode  <= '1';
     cfg_max_len   <= std_logic_vector(to_unsigned(11, C_GEN_LEN_WIDTH));
+    linear_addr_check <= '1';
     gen_enable <= '1';
     for i in 1 to 3000 loop
       wait until rising_edge(aclk);
@@ -697,15 +754,15 @@ begin
     p_drain("phase 4C");
     p_check_stats("P4C", false);
 
-    assert stat_req_seen = gen_stat_req_issued
-      report "P4C: monitor req_seen != generator issued" severity failure;
     assert stat_xactions = stat_req_seen
       report "P4C: xactions != req_seen" severity failure;
     assert unsigned(stat_beats) >= unsigned(stat_xactions)
       report "P4C: beats < xactions" severity failure;
-    assert unsigned(gen_stat_req_issued) > 50
+    assert unsigned(stat_req_seen) > 50
       report "P4C: rejection starved the generator" severity failure;
     p_check_len_uniform("P4C", 12);
+
+    linear_addr_check <= '0';
 
     -- ---------------------------------------------------------------
     -- Phase 5: response backpressure.  Hold rsp_ready low while the
@@ -713,6 +770,8 @@ begin
     -- (req_stall), and the monitor counts both req and rsp stalls.
     -- ---------------------------------------------------------------
     p_reset_stats;
+    cfg_base_addr  <= x"00001000";
+    cfg_addr_range <= x"00008000";
     cfg_len_mode <= '0';
     cfg_req_len  <= std_logic_vector(to_unsigned(3, C_GEN_LEN_WIDTH));
     gen_enable <= '1';
@@ -731,14 +790,11 @@ begin
     p_drain("phase 5");
     p_check_stats("P5", false);
 
-    assert unsigned(gen_stat_req_stall) > 0
-      report "P5: generator req_stall not counted" severity failure;
     assert unsigned(stat_req_stall) > 0
       report "P5: monitor req_stall not counted" severity failure;
     assert unsigned(stat_rsp_stall) > 0
       report "P5: monitor rsp_stall not counted" severity failure;
-    assert stat_req_seen = gen_stat_req_issued and
-           stat_xactions = stat_req_seen
+    assert stat_xactions = stat_req_seen
       report "P5: accounting mismatch under backpressure" severity failure;
 
     -- ---------------------------------------------------------------
@@ -754,10 +810,9 @@ begin
     p_drain("phase 6");
     p_check_stats("P6", true);
 
-    assert unsigned(gen_stat_req_issued) > 5
+    assert unsigned(stat_req_seen) > 5
       report "P6: traffic volume too low" severity failure;
-    assert stat_req_seen = gen_stat_req_issued and
-           stat_xactions = stat_req_seen
+    assert stat_xactions = stat_req_seen
       report "P6: accounting mismatch" severity failure;
     assert stat_beats = std_logic_vector(resize(unsigned(stat_xactions) * 32, 32))
       report "P6: beats != xactions*32" severity failure;
@@ -765,9 +820,9 @@ begin
       report "P6: burst length stats wrong" severity failure;
 
     -- ---------------------------------------------------------------
-    -- Phase 7: stat_rst mid-traffic clears the generator and monitor
-    -- counters without corrupting in-flight tracking; a clean second
-    -- window has exact accounting.
+    -- Phase 7: stat_rst mid-traffic clears the monitor counters without
+    -- corrupting in-flight tracking; a clean second window has exact
+    -- accounting.  (The generator keeps no counters of its own.)
     -- ---------------------------------------------------------------
     p_reset_stats;
     cfg_req_len <= std_logic_vector(to_unsigned(3, C_GEN_LEN_WIDTH));
@@ -792,8 +847,7 @@ begin
     gen_enable <= '0';
     p_drain("phase 7 clean");
     p_check_stats("P7 clean", true);
-    assert stat_req_seen = gen_stat_req_issued and
-           stat_xactions = stat_req_seen and
+    assert stat_xactions = stat_req_seen and
            stat_beats = std_logic_vector(resize(unsigned(stat_xactions) * 4, 32))
       report "P7: clean window accounting mismatch" severity failure;
 

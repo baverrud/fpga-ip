@@ -3,7 +3,7 @@
 --Description      : Synthesis Wrapper and Instantiation Top-Level for
 --                 : axi_req_gen.  Passes the configuration generics
 --                 : through and exposes the req channel plus runtime
---                 : configuration and statistics ports.
+--                 : configuration ports.
 --Author           : Rune Baeverrud
 --Current Revision : 1.00
 --Licensing        : Zero-Clause BSD (0BSD)
@@ -26,14 +26,13 @@ entity axi_req_gen_top is
     -- Control
     enable   : in std_logic;  -- per-instance enable
     aperture : in std_logic;  -- measurement window
-    stat_rst : in std_logic;  -- clears statistic counters
 
     -- Runtime configuration
     cfg_req_len    : in std_logic_vector(log2ceil(GC_MAX_BURST)-1 downto 0);  -- beats-1; 0 = 1 beat
     cfg_len_mode   : in std_logic;                                            -- '0' = fixed, '1' = random length
     cfg_max_len    : in std_logic_vector(log2ceil(GC_MAX_BURST)-1 downto 0);  -- random length upper bound (beats-1)
-    cfg_pace       : in std_logic_vector(31 downto 0);                        -- idle cycles between reqs
-    cfg_pace_init  : in std_logic_vector(31 downto 0);                        -- delay before first burst
+    cfg_pace       : in std_logic_vector(31 downto 0);                        -- one request credit per cfg_pace+1 cycles
+    cfg_pace_init  : in std_logic_vector(31 downto 0);                        -- phase offset of the first credit
     cfg_base_addr  : in std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
     cfg_addr_range : in std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
     cfg_addr_mode  : in std_logic;                                            -- '0' = linear sweep, '1' = pseudo-random
@@ -42,12 +41,7 @@ entity axi_req_gen_top is
     req_valid : out std_logic;
     req_ready : in  std_logic;
     req_addr  : out std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
-    req_len   : out std_logic_vector(log2ceil(GC_MAX_BURST)-1 downto 0);  -- beats-1
-
-    -- Statistics (plain register reads, no pipeline latency)
-    stat_req_stall  : out std_logic_vector(31 downto 0);
-    stat_req_issued : out std_logic_vector(31 downto 0);
-    stat_cfg_errors : out std_logic_vector(31 downto 0)
+    req_len   : out std_logic_vector(log2ceil(GC_MAX_BURST)-1 downto 0)  -- beats-1
   );
 end entity;
 
@@ -68,7 +62,6 @@ begin
       -- Control
       enable   => enable,
       aperture => aperture,
-      stat_rst => stat_rst,
 
       -- Runtime configuration
       cfg_req_len    => cfg_req_len,
@@ -86,10 +79,5 @@ begin
       req_addr  => req_addr,
       req_len   => req_len,
 
-      -- Statistics
-      stat_req_stall  => stat_req_stall,
-      stat_req_issued => stat_req_issued,
-      stat_cfg_errors => stat_cfg_errors
-    );
 
 end architecture;

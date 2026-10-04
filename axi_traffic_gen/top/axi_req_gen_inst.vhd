@@ -3,7 +3,7 @@
 --Description      : Instantiation template for axi_req_gen_top.
 --                 : axi_req_gen.  Passes the configuration generics
 --                 : through and exposes the req channel plus runtime
---                 : configuration and statistics ports.
+--                 : configuration ports.
 --Author           : Rune Baeverrud
 --Current Revision : 1.00
 --Licensing        : Zero-Clause BSD (0BSD)
@@ -26,7 +26,6 @@ architecture rtl of axi_req_gen_inst is
   signal aresetn : std_logic;
   signal enable : std_logic;
   signal aperture : std_logic;
-  signal stat_rst : std_logic;
   signal cfg_req_len : std_logic_vector(log2ceil(GC_MAX_BURST)-1 downto 0);
   signal cfg_len_mode : std_logic;
   signal cfg_max_len : std_logic_vector(log2ceil(GC_MAX_BURST)-1 downto 0);
@@ -39,9 +38,6 @@ architecture rtl of axi_req_gen_inst is
   signal req_ready : std_logic;
   signal req_addr : std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
   signal req_len : std_logic_vector(log2ceil(GC_MAX_BURST)-1 downto 0);
-  signal stat_req_stall : std_logic_vector(31 downto 0);
-  signal stat_req_issued : std_logic_vector(31 downto 0);
-  signal stat_cfg_errors : std_logic_vector(31 downto 0);
 
 begin
 
@@ -59,7 +55,6 @@ begin
       -- Control
       enable   => enable,
       aperture => aperture,
-      stat_rst => stat_rst,
 
       -- Runtime configuration
       cfg_req_len    => cfg_req_len,
@@ -77,10 +72,5 @@ begin
       req_addr  => req_addr,
       req_len   => req_len,
 
-      -- Statistics
-      stat_req_stall  => stat_req_stall,
-      stat_req_issued => stat_req_issued,
-      stat_cfg_errors => stat_cfg_errors
-    );
 
 end architecture;

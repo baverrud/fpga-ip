@@ -4,6 +4,7 @@
 # Used by:
 #   run axi_traffic_gen vhdl modelsim       (simulation; default tb: reqgen)
 #   run axi_traffic_gen vhdl modelsim --tb reqsimple   (hand-editable skeleton)
+#   run axi_traffic_gen vhdl modelsim --tb pace        (pace/credit unit test)
 #   run axi_traffic_gen vhdl vivado         (synthesis: [rtl] + [top] only)
 #   run axi_traffic_gen vhdl xsim           (XSim simulation)
 #
@@ -61,3 +62,7 @@ axi_monitor/rtl/axi_monitor_req.vhd
 axi_monitor/rtl/axi_monitor_rsp.vhd
 axi_monitor/rtl/axi_monitor.vhd
 axi_traffic_gen/tb/axi_req_gen_simple_tb.vhd
+
+[tb:pace]
+top = axi_req_gen_pace_tb
+axi_traffic_gen/tb/axi_req_gen_pace_tb.vhd

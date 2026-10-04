@@ -3,8 +3,7 @@
 //Description      : Synthesis wrapper for axi_req_gen (SystemVerilog).
 //                 : Binds the VHDL core directly; passes the
 //                 : configuration parameters through and exposes the
-//                 : req channel plus runtime configuration and
-//                 : statistics ports.
+//                 : req channel plus runtime configuration ports.
 //Author           : Rune Baeverrud
 //Current Revision : 1.00
 //Licensing        : Zero-Clause BSD (0BSD)
@@ -24,14 +23,13 @@ module axi_req_gen_top #(
   // Control
   input logic enable,    // per-instance enable
   input logic aperture,  // measurement window
-  input logic stat_rst,  // clears statistic counters
 
   // Runtime configuration
   input logic [$clog2(GC_MAX_BURST)-1:0] cfg_req_len,     // fixed request length (beats-1)
   input logic                            cfg_len_mode,    // 0 = fixed, 1 = random length
   input logic [$clog2(GC_MAX_BURST)-1:0] cfg_max_len,     // random length upper bound (beats-1)
-  input logic [31:0]                     cfg_pace,        // idle cycles between reqs
-  input logic [31:0]                     cfg_pace_init,   // delay before first burst
+  input logic [31:0]                     cfg_pace,        // one request credit per cfg_pace+1 cycles
+  input logic [31:0]                     cfg_pace_init,   // phase offset of the first credit
   input logic [GC_ADDR_WIDTH-1:0]        cfg_base_addr,   // window start
   input logic [GC_ADDR_WIDTH-1:0]        cfg_addr_range,  // window size
   input logic                            cfg_addr_mode,   // 0 = linear, 1 = random
@@ -40,12 +38,7 @@ module axi_req_gen_top #(
   output logic                            req_valid,  // request valid
   input  logic                            req_ready,  // request ready
   output logic [GC_ADDR_WIDTH-1:0]        req_addr,   // request address
-  output logic [$clog2(GC_MAX_BURST)-1:0] req_len,    // request length (beats-1)
-
-  // Statistics
-  output logic [31:0] stat_req_stall,   // req stall events
-  output logic [31:0] stat_req_issued,  // reqs issued
-  output logic [31:0] stat_cfg_errors   // config error count
+  output logic [$clog2(GC_MAX_BURST)-1:0] req_len     // request length (beats-1)
 );
 
   axi_req_gen #(
@@ -60,7 +53,6 @@ module axi_req_gen_top #(
     // Control
     .enable   (enable),
     .aperture (aperture),
-    .stat_rst (stat_rst),
 
     // Runtime configuration
     .cfg_req_len    (cfg_req_len),
@@ -76,12 +68,7 @@ module axi_req_gen_top #(
     .req_valid (req_valid),
     .req_ready (req_ready),
     .req_addr  (req_addr),
-    .req_len   (req_len),
-
-    // Statistics
-    .stat_req_stall  (stat_req_stall),
-    .stat_req_issued (stat_req_issued),
-    .stat_cfg_errors (stat_cfg_errors)
+    .req_len   (req_len)
   );
 
 endmodule

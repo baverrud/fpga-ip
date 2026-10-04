@@ -11,10 +11,31 @@ Licensed under Zero-Clause BSD (0BSD).
 
 A lightweight client read-request generator for the `req_*` interfaces
 used by e.g. `axi_read_bridge`.  It issues req bursts at a configurable
-`cfg_pace`, decoupled from response completion:
+`cfg_pace`, decoupled from response completion.
 
-- `cfg_pace=0` -> a new req can be issued every clock cycle (back-to-back)
-- `cfg_pace=1` -> every second cycle, `cfg_pace=2` -> every third, ...
+Rate control is a **credit bucket**, so `cfg_pace` is a bandwidth
+requirement rather than a minimum gap:
+
+- a divider mints one credit every `cfg_pace+1` cycles while the gate is
+  open (`cfg_pace=0` -> a credit every cycle, i.e. back-to-back)
+- each accepted request spends one credit
+- a request is presented whenever a credit is available and the gate is
+  open, and is held until accepted
+
+Because the divider never stops for backpressure, a downstream stall does
+not cost bandwidth: credits accumulate (the bucket is 8-bit and saturates
+at 255) and are then spent back-to-back once `req_ready` returns.  The
+request count over a window therefore matches the configured rate, minus
+only the overflow that a stall longer than 255 credit periods cannot hold.
+
+While the gate is closed the divider is re-armed from `cfg_pace_init` and
+the bucket is cleared, so every aperture starts from the same state and no
+debt crosses a window boundary.  With several instances sharing one
+aperture, `cfg_pace_init` staggers them.
+
+The block keeps **no statistics** of its own: rate and stall measurement
+belongs to `axi_monitor`, which taps the same req channel and is the
+single source of truth.
 
 It supports linear sweep and pseudo-random (XOR-shift) addressing within
 a configured window.  Every presented start address is aligned to
@@ -57,12 +78,12 @@ data checking to fail rather than returning a clean error response.
 This failure is especially easy to trigger in pseudo-random address mode. With
 64-byte alignment and a two-beat burst, one of every 64 aligned page offsets
 is invalid, so approximately 1/64 of requests can fail. Longer bursts have a
-larger invalid tail region. Linear traffic can hide the problem when its step
 larger invalid tail region.
 
-Linear traffic can hide the problem because it does not visit every aligned
-offset independently. For example, with a page-aligned base address, 64-byte
-beats, and two-beat requests, the generator advances by 128 bytes:
+Linear traffic can hide the problem when its step happens to avoid the invalid
+tail region, because it does not visit every aligned offset independently. For
+example, with a page-aligned base address, 64-byte beats, and fixed two-beat
+requests, the generator advances by 128 bytes:
 
 ```text
 0x0000, 0x0080, 0x0100, ..., 0x0F80, 0x0000, ...
@@ -111,8 +132,8 @@ The random-length draw is divider-free:
   a power of two - e.g. `cfg_max_len=15` for 16-beat bursts - nothing is
   ever rejected and random-length mode runs at exactly `cfg_pace`.
 
-`cfg_max_len` above `GC_MAX_BURST-1` is clamped to the credit limit and
-counted in `stat_cfg_errors`.
+`cfg_max_len` above `GC_MAX_BURST-1` is clamped to the credit limit as a
+safety net.  The clamp is uncounted: this block keeps no statistics.
 
 The integration testbench checks the distribution, not just the bounds:
 phase P4 and P4B (`cfg_max_len=15`, nothing rejected) and phase P4C
@@ -123,7 +144,9 @@ mean that is far too high, or as bursts longer than `cfg_max_len+1`.
 
 In random-length mode each burst is fitted to its own drawn length, so
 the full burst always fits inside `[base, base+range-bsize]` even though
-`bsize` varies per burst.  `cfg_req_len`, `cfg_max_len`, and `req_len`
+`bsize` varies per burst, and the linear sweep advances by the burst size
+that was actually accepted rather than by the next drawn size.
+`cfg_req_len`, `cfg_max_len`, and `req_len`
 are all `log2ceil(GC_MAX_BURST)` bits wide.
 
 Dependencies: `util_pkg` and the `xorshift128` / `xorshift32` entities
@@ -136,21 +159,19 @@ from `parallel_prng` (address and length PRNGs).
 | `aclk` / `aresetn` | in | 1 | Clock / synchronous active-low reset |
 | `enable` | in | 1 | Per-instance enable (gates generation) |
 | `aperture` | in | 1 | Measurement window (gates generation) |
-| `stat_rst` | in | 1 | Clears statistic counters (not the FSM); takes priority over a coincident handshake |
 | `cfg_req_len` | in | `log2ceil(GC_MAX_BURST)` | Fixed request length (beats-1); 0 = 1 beat |
 | `cfg_len_mode` | in | 1 | `'0'` = fixed `cfg_req_len`, `'1'` = random length |
 | `cfg_max_len` | in | `log2ceil(GC_MAX_BURST)` | Random length upper bound (beats-1) |
-| `cfg_pace` | in | 32 | Idle cycles between reqs (0 = every cycle) |
-| `cfg_pace_init` | in | 32 | Initial delay before first burst (first req appears `cfg_pace_init+1` cycles after reset) |
+| `cfg_pace` | in | 32 | Rate: one request credit per `cfg_pace+1` cycles (0 = every cycle) |
+| `cfg_pace_init` | in | 32 | Phase offset: first credit `cfg_pace_init+1` cycles after the gate opens (0 = first gated cycle) |
 | `cfg_base_addr` | in | `GC_ADDR_WIDTH` | Start of address window |
 | `cfg_addr_range` | in | `GC_ADDR_WIDTH` | Size of address window |
 | `cfg_addr_mode` | in | 1 | `'0'` = linear sweep, `'1'` = pseudo-random |
 | `req_valid` / `req_ready` | out/in | 1 | Client request handshake |
 | `req_addr` | out | `GC_ADDR_WIDTH` | Request address |
 | `req_len` | out | `log2ceil(GC_MAX_BURST)` | Request length (beats-1) |
-| `stat_req_stall` | out | 32 | Req stall events (valid, not ready) |
-| `stat_req_issued` | out | 32 | Reqs successfully issued |
-| `stat_cfg_errors` | out | 32 | Configuration error count |
+
+There are no statistic ports: measure rate and stalls with `axi_monitor`.
 
 > Note: random mode (`cfg_addr_mode='1'`) **requires** `cfg_addr_range` to be
 > a power of two: the random offset is `prng AND (cfg_addr_range-1)`.  A
@@ -200,7 +221,6 @@ signal aresetn : std_logic;  -- synchronous, active low
 -- Control
 signal enable   : std_logic;  -- per-instance enable
 signal aperture : std_logic;  -- measurement window
-signal stat_rst : std_logic;  -- clears statistic counters
 
 -- Runtime configuration
 signal cfg_req_len    : std_logic_vector(C_LEN_WIDTH-1 downto 0);
@@ -218,11 +238,6 @@ signal req_ready : std_logic;
 signal req_addr  : std_logic_vector(31 downto 0);
 signal req_len   : std_logic_vector(C_LEN_WIDTH-1 downto 0);
 
--- Statistics
-signal stat_req_stall  : std_logic_vector(31 downto 0);
-signal stat_req_issued : std_logic_vector(31 downto 0);
-signal stat_cfg_errors : std_logic_vector(31 downto 0);
-
 -- ---------------------------------------------------------------------
 -- Instantiation (grouped port map)
 -- ---------------------------------------------------------------------
@@ -237,7 +252,6 @@ u_req_gen : entity work.axi_req_gen
     aresetn        => aresetn,
     enable         => enable,
     aperture       => aperture,
-    stat_rst       => stat_rst,
     cfg_req_len    => cfg_req_len,
     cfg_len_mode   => cfg_len_mode,
     cfg_max_len    => cfg_max_len,
@@ -249,10 +263,7 @@ u_req_gen : entity work.axi_req_gen
     req_valid      => req_valid,
     req_ready      => req_ready,
     req_addr       => req_addr,
-    req_len        => req_len,
-    stat_req_stall => stat_req_stall,
-    stat_req_issued => stat_req_issued,
-    stat_cfg_errors => stat_cfg_errors
+    req_len        => req_len
   );
 ```
 
@@ -271,7 +282,6 @@ logic aresetn;  // synchronous, active low
 // Control
 logic enable;    // per-instance enable
 logic aperture;  // measurement window
-logic stat_rst;  // clears statistic counters
 
 // Runtime configuration
 logic [C_LEN_WIDTH-1:0] cfg_req_len;
@@ -289,11 +299,6 @@ logic                   req_ready;
 logic [31:0]            req_addr;
 logic [C_LEN_WIDTH-1:0] req_len;
 
-// Statistics
-logic [31:0] stat_req_stall;
-logic [31:0] stat_req_issued;
-logic [31:0] stat_cfg_errors;
-
 // ---------------------------------------------------------------------
 // Instantiation (grouped port map)
 // ---------------------------------------------------------------------
@@ -306,7 +311,6 @@ axi_req_gen #(
     .aresetn        (aresetn),
     .enable         (enable),
     .aperture       (aperture),
-    .stat_rst       (stat_rst),
     .cfg_req_len    (cfg_req_len),
     .cfg_len_mode   (cfg_len_mode),
     .cfg_max_len    (cfg_max_len),
@@ -318,10 +322,7 @@ axi_req_gen #(
     .req_valid      (req_valid),
     .req_ready      (req_ready),
     .req_addr       (req_addr),
-    .req_len        (req_len),
-    .stat_req_stall (stat_req_stall),
-    .stat_req_issued(stat_req_issued),
-    .stat_cfg_errors(stat_cfg_errors)
+    .req_len        (req_len)
 );
 ```
 
@@ -339,13 +340,13 @@ Every phase also runs a full stat audit: generator/monitor `req_stall`
 cross-check, `elapsed`-vs-reference, `burst_len_sum == beats`, min<=max
 and sum>=max consistency for the latency / first-latency / gap /
 burst-length accumulator groups, `gap_min >= 1`, `max_outstanding > 0`,
-and (at line rate) both `req_stall` counters counting.
+and (at line rate) the monitor `req_stall` counter counting.
 
 Coverage (phases 1-7):
 
 - **P1** -- fixed 4-beat bursts, line rate, linear addressing:
-  monitor `req_seen` == generator `req_issued`, `xactions` ==
-  `req_seen`, `beats` == `xactions*4`, burst-length 4/4, no errors.
+  `xactions` == `req_seen`, `beats` == `xactions*4`, burst-length 4/4,
+  no errors.
 - **P2** -- paced generation (`cfg_pace=2`), same accounting.
 - **P3** -- random addressing (`cfg_addr_mode=1`), same accounting.
 - **P4** -- random request length (`cfg_len_mode=1`, `cfg_max_len=15`):
@@ -361,16 +362,39 @@ Coverage (phases 1-7):
   exercises the rejection path - lengths must stay within [1,12] and the
   distribution must still be uniform, which fails if the draw is clamped
   or unmasked; also proves rejection cannot starve the generator.
-- **P5** -- response backpressure: generator `req_stall` and monitor
-  `req_stall`/`rsp_stall` all count; accounting stays exact.
+- **P5** -- response backpressure: monitor `req_stall`/`rsp_stall`
+  count; accounting stays exact.
 - **P6** -- maximum (32-beat, credit-limited) burst, `beats` ==
   `xactions*32`.
-- **P7** -- `stat_rst` mid-traffic clears generator and monitor
-  counters without corrupting in-flight tracking; clean window is
-  exact.
+- **P7** -- `stat_rst` mid-traffic clears the monitor counters without
+  corrupting in-flight tracking; clean window is exact.
 
 ```bash
 run axi_traffic_gen vhdl modelsim            # default tb: axi_req_gen_tb
+```
+
+### `axi_req_gen_pace_tb` (rate/credit unit test)
+
+Unit testbench that drives the request channel by hand - no bridge - so the
+rate is set purely by `cfg_pace` and by the consumer's `req_ready`.  It is
+the test that pins down the credit-bucket semantics:
+
+- **P1** -- `cfg_pace=0` is line rate: 38 requests in 40 cycles, longest
+  back-to-back run 38.
+- **P2** -- `cfg_pace=3`: exactly 50 requests in 200 cycles (one per
+  `cfg_pace+1` cycles) and never two back-to-back.
+- **P3** -- `cfg_pace_init=5`: first handshake at gated cycle 7, i.e.
+  `cfg_pace_init+2` (one cycle to mint, one to register the request).
+- **P4** -- 1300-cycle stall: the bucket saturates and the catch-up burst is
+  exactly the fixed point `255 + burst/(cfg_pace+1) = 340` back-to-back
+  requests.
+- **P5** -- two identical 4000-cycle windows, one with a 1300-cycle stall:
+  both issue one request per `cfg_pace+1` cycles minus only the overflow the
+  8-bit bucket cannot hold (325 mints - 255 held = 70).  A divider that
+  paused during the stall, or a bucket that never saturated, both fail.
+
+```bash
+run axi_traffic_gen vhdl modelsim --tb pace
 ```
 
 ### `axi_req_gen_simple_tb` (hand-editable skeleton)

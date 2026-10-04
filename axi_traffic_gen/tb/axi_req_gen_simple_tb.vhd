@@ -76,7 +76,6 @@ architecture sim of axi_req_gen_simple_tb is
   -- Request generator control/config -- initial values
   signal gen_enable   : std_logic := '0';
   signal gen_aperture : std_logic := '1';
-  signal gen_stat_rst : std_logic := '0';
   signal cfg_req_len  : std_logic_vector(C_GEN_LEN_WIDTH-1 downto 0) :=
                           std_logic_vector(to_unsigned(3, C_GEN_LEN_WIDTH));  -- 4 beats
   signal cfg_len_mode : std_logic := '0';                                 -- fixed length
@@ -95,12 +94,8 @@ architecture sim of axi_req_gen_simple_tb is
   signal gen_req_ready       : std_logic;
   signal gen_req_addr        : std_logic_vector(C_ADDR_WIDTH-1 downto 0);
   signal gen_req_len         : std_logic_vector(C_GEN_LEN_WIDTH-1 downto 0);
-  signal gen_stat_req_stall  : std_logic_vector(31 downto 0);
-  signal gen_stat_req_issued : std_logic_vector(31 downto 0);
-  signal gen_stat_cfg_errors : std_logic_vector(31 downto 0);
 
   -- Monitor (taps the bridge client req/rsp)
-  signal mon_enable     : std_logic := '1';
   signal mon_stat_rst   : std_logic := '0';
   signal mon_err_rst    : std_logic := '0';
   signal mon_data_check : std_logic := '1';
@@ -201,7 +196,6 @@ begin
       aresetn         => aresetn,
       enable          => gen_enable,
       aperture        => gen_aperture,
-      stat_rst        => gen_stat_rst,
       cfg_req_len     => cfg_req_len,
       cfg_len_mode    => cfg_len_mode,
       cfg_max_len     => cfg_max_len,
@@ -213,10 +207,7 @@ begin
       req_valid       => gen_req_valid,
       req_ready       => gen_req_ready,
       req_addr        => gen_req_addr,
-      req_len         => gen_req_len,
-      stat_req_stall  => gen_stat_req_stall,
-      stat_req_issued => gen_stat_req_issued,
-      stat_cfg_errors => gen_stat_cfg_errors
+      req_len         => gen_req_len
     );
 
   u_bridge : entity work.axi_read_bridge
@@ -302,7 +293,6 @@ begin
       aclk                     => aclk,
       aresetn                  => aresetn,
       global_time              => global_time,
-      enable                   => mon_enable,
       stat_rst                 => mon_stat_rst,
       err_rst                  => mon_err_rst,
       data_check_en            => mon_data_check,
@@ -371,7 +361,6 @@ begin
     aresetn        <= '0';
     gen_enable     <= '0';
     gen_aperture   <= '0';
-    gen_stat_rst   <= '0';
     mon_stat_rst   <= '0';
     mon_err_rst    <= '0';
     rsp_ready(0)   <= '1';
