@@ -19,8 +19,10 @@
 --                   disabled, beats are still counted and all protocol
 --                   checks still run, but rsp_data is not compared.
 --
---                   Statistics accumulate while the instance is
---                   enabled; every event while enabled is captured.
+--                   Statistics accumulate continuously; every accepted
+--                   beat is captured.  The measurement window is defined
+--                   by stat_rst (clear) and by reading the counters, not
+--                   by gating the tap.
 --Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
@@ -42,7 +44,6 @@ entity axi_monitor_rsp is
     global_time : in  unsigned(GC_TIME_WIDTH-1 downto 0);
 
     -- Control
-    enable       : in  std_logic;   -- per-instance enable (0 = monitor inert)
     stat_rst     : in  std_logic;   -- clears stat counters (not burst tracking)
     err_rst      : in  std_logic;   -- clears error counters
     data_check_en: in  std_logic;   -- '1' = verify rsp_data vs expected pattern
@@ -195,22 +196,20 @@ begin
     -- Pipeline busy:  active if scoreboard has entries or a burst is in
     -- progress.  Used to indicate the measurement window is still draining.
     v.busy := '0';
-    if enable = '1' and (sb_tvalid = '1' or r.burst_beats > 0) then
+    if sb_tvalid = '1' or r.burst_beats > 0 then
       v.busy := '1';
     end if;
 
-    -- Elapsed cycle counter (free-running while enabled).
-    if enable = '1' then
-      v.elapsed := r.elapsed + 1;
-    end if;
+    -- Elapsed cycle counter (free-running; cleared by stat_rst).
+    v.elapsed := r.elapsed + 1;
 
     -- rsp-stall counter:  consumer backpressure on the rsp channel.
-    if enable = '1' and rsp_valid = '1' and rsp_ready = '0' then
+    if rsp_valid = '1' and rsp_ready = '0' then
       v.rsp_stall := r.rsp_stall + 1;
     end if;
 
-    -- Accepted beat:  rsp_valid & rsp_ready (both inputs), gated by enable.
-    v_rsp_fire := rsp_valid and rsp_ready and enable;
+    -- Accepted beat:  rsp_valid & rsp_ready (both inputs).
+    v_rsp_fire := rsp_valid and rsp_ready;
 
     sb_tready <= '0';
 
@@ -290,7 +289,8 @@ begin
         end if;
 
         ------------------------------------------------------------------
-        -- Statistics accumulation -- enabled while the monitor is on.
+        -- Statistics accumulation -- active continuously; stat_rst clears
+        -- the measurement counters without affecting burst tracking.
         ------------------------------------------------------------------
         if v.burst_beats = 0 then
           v_latency := global_time - v.ts_req;

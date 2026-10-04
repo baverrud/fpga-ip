@@ -21,7 +21,6 @@ module axi_monitor_inst #(
   logic aclk;
   logic aresetn;
   logic [GC_TIME_WIDTH-1:0] global_time;
-  logic enable;
   logic stat_rst;
   logic err_rst;
   logic data_check_en;
@@ -74,7 +73,6 @@ module axi_monitor_inst #(
     .global_time (global_time),
 
   // Control
-    .enable        (enable),
     .stat_rst      (stat_rst),
     .err_rst       (err_rst),
     .data_check_en (data_check_en),

@@ -11,8 +11,8 @@
 --
 --                   Corner-case coverage (phases E-M): rsp backpressure,
 --                   req backpressure (credit exhaustion), scoreboard
---                   backpressure (small-FIFO monitor), per-instance
---                   disable/re-enable, stat_rst mid-traffic, err_rst
+--                   backpressure (small-FIFO monitor), always-on capture
+--                   across a stat_rst window, stat_rst mid-traffic, err_rst
 --                   coincident with error detection, maximum and mixed
 --                   burst lengths, sustained varied traffic, and
 --                   stat-accumulator consistency (elapsed counter,
@@ -80,7 +80,6 @@ architecture sim of axi_monitor_tb is
   signal r_ready  : std_logic;
 
   -- Monitor (client 0) control
-  signal mon_enable      : std_logic := '0';
   signal mon_stat_rst    : std_logic := '0';
   signal mon_err_rst     : std_logic := '0';
   signal mon_data_check  : std_logic := '1';
@@ -115,7 +114,6 @@ architecture sim of axi_monitor_tb is
   signal stat_sb_underflow_errors : std_logic_vector(31 downto 0);
 
   -- Error-injection monitor (hand-driven req/rsp)
-  signal err_enable     : std_logic := '0';
   signal err_data_check : std_logic := '1';
   signal err_pipeline   : std_logic;
   signal err_req_valid  : std_logic := '0';
@@ -197,14 +195,14 @@ begin
     wait;
   end process;
 
-  -- Reference counter for stat_elapsed_cycles: increments while the
-  -- client-0 monitor is enabled, cleared by stat_rst (same as the RTL).
+  -- Reference counter for stat_elapsed_cycles: free-running, cleared by
+  -- stat_rst (same as the RTL).  The monitor has no enable gate.
   p_elapsed_ref : process(aclk)
   begin
     if rising_edge(aclk) then
       if aresetn = '0' or mon_stat_rst = '1' then
         mon_elapsed_ref <= (others => '0');
-      elsif mon_enable = '1' then
+      else
         mon_elapsed_ref <= mon_elapsed_ref + 1;
       end if;
     end if;
@@ -305,7 +303,6 @@ begin
       aclk                    => aclk,
       aresetn                 => aresetn,
       global_time             => global_time,
-      enable                  => mon_enable,
       stat_rst                => mon_stat_rst,
       err_rst                 => mon_err_rst,
       data_check_en           => mon_data_check,
@@ -358,7 +355,6 @@ begin
       aclk                    => aclk,
       aresetn                 => aresetn,
       global_time             => global_time,
-      enable                  => err_enable,
       stat_rst                => err_stat_rst,
       err_rst                 => err_err_rst,
       data_check_en           => err_data_check,
@@ -414,7 +410,6 @@ begin
       aclk                    => aclk,
       aresetn                 => aresetn,
       global_time             => global_time,
-      enable                  => mon_enable,
       stat_rst                => mon_stat_rst,
       err_rst                 => mon_err_rst,
       data_check_en           => mon_data_check,
@@ -614,9 +609,8 @@ begin
     wait for 100 ns;
     aresetn <= '1';
 
-    -- Enable the client-0 monitor (data check on).
+    -- The monitor is always listening; no enable is required.
     wait until rising_edge(aclk);
-    mon_enable <= '1';
 
     -- ---------------------------------------------------------------
     -- Phase A: single-beat request on client 0.  One req, one rsp beat.
@@ -726,7 +720,6 @@ begin
     --   Beat 2: spurious rsp_last        -> stat_rlast_errors + underflow
     -- ---------------------------------------------------------------
     wait until falling_edge(aclk);
-    err_enable <= '1';
     wait until rising_edge(aclk);
     wait until falling_edge(aclk);
     req_w(aclk, err_req_addr, err_req_len, err_req_valid, err_req_ready,
@@ -838,9 +831,6 @@ begin
     err_err_rst  <= '0';
     wait until rising_edge(aclk);
 
-    err_enable <= '1';
-    wait until rising_edge(aclk);
-
     -- Present a request but hold req_ready low: 30 stall cycles.
     err_req_addr  <= x"00005000";
     err_req_len   <= x"01";          -- 2 beats
@@ -926,55 +916,39 @@ begin
       report "G: errors on flooded traffic" severity failure;
 
     -- ---------------------------------------------------------------
-    -- Phase H: Per-instance disable.  With the client-0 monitor off,
-    -- traffic flows but all stats stay inert; re-enabling resumes
-    -- cleanly with exact accounting.
+    -- Phase H: Always-on monitoring.  There is no per-instance enable:
+    -- the tap counts every accepted request and response, and stat_rst
+    -- alone defines the window boundary.  The elapsed counter is
+    -- free-running, so it advances even with no traffic at all.
     -- ---------------------------------------------------------------
     p_stat_err_rst(aclk, mon_stat_rst, mon_err_rst);
 
-    mon_enable <= '0';
-    wait until rising_edge(aclk);
-
-    req_w(aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
-          x"00007000", std_logic_vector(to_unsigned(0, C_CLIENT_LEN_WIDTH)));
-    p_rsp_burst(aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
-                rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
-                v_rsp_last, 1, "H0");
-
-    -- Let the pipeline flush while disabled.
-    for i in 1 to 50 loop
+    -- Idle period first: elapsed must run while the bus is quiet.
+    for i in 1 to 20 loop
       wait until rising_edge(aclk);
     end loop;
-
-    assert stat_req_seen = x"00000000" and stat_xactions = x"00000000"
-       and stat_beats = x"00000000"
-      report "H: disabled monitor counted traffic" severity failure;
-    assert stat_data_errors = x"00000000" and stat_sb_underflow_errors = x"00000000"
-      report "H: disabled monitor reported errors" severity failure;
-    assert mon_pipeline = '0'
-      report "H: disabled monitor pipeline not idle" severity failure;
-
-    -- Re-enable and run a clean window.
-    mon_enable <= '1';
-    p_stat_err_rst(aclk, mon_stat_rst, mon_err_rst);
+    assert unsigned(stat_elapsed_cycles) >= 10
+      report "H: elapsed counter not free-running" severity failure;
 
     req_w(aclk, req_addr(0), req_len(0), req_valid(0), req_ready(0),
-          x"00007100", std_logic_vector(to_unsigned(1, C_CLIENT_LEN_WIDTH)));
+          x"00007000", std_logic_vector(to_unsigned(1, C_CLIENT_LEN_WIDTH)));
     p_rsp_burst(aclk, rsp_ready(0), rsp_valid(0), rsp_data(0),
                 rsp_resp(0), rsp_last(0), v_rsp_data, v_rsp_resp,
-                v_rsp_last, 2, "H1");
+                v_rsp_last, 2, "H");
 
     p_drain(aclk, mon_pipeline, "phase H", wait_count);
 
     assert stat_req_seen = x"00000001"
-      report "H: re-enabled req_seen /= 1" severity failure;
+      report "H: req_seen /= 1" severity failure;
     assert stat_xactions = x"00000001"
-      report "H: re-enabled xactions /= 1" severity failure;
+      report "H: xactions /= 1" severity failure;
     assert stat_beats = x"00000002"
-      report "H: re-enabled beats /= 2" severity failure;
+      report "H: beats /= 2" severity failure;
+    assert stat_burst_len_min = x"00000002" and stat_burst_len_max = x"00000002"
+      report "H: burst length stats wrong" severity failure;
     assert stat_data_errors = x"00000000" and stat_rlast_errors = x"00000000"
        and stat_resp_errors = x"00000000" and stat_sb_underflow_errors = x"00000000"
-      report "H: re-enabled monitor reported errors" severity failure;
+      report "H: errors on clean traffic" severity failure;
 
     -- ---------------------------------------------------------------
     -- Phase I: stat_rst mid-traffic.  A 4-beat request is issued and
@@ -1037,7 +1011,6 @@ begin
     err_err_rst  <= '0';
     wait until rising_edge(aclk);
 
-    err_enable <= '1';
     wait until rising_edge(aclk);
 
     req_w(aclk, err_req_addr, err_req_len, err_req_valid, err_req_ready,

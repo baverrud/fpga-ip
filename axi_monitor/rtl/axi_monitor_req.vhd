@@ -35,7 +35,6 @@ entity axi_monitor_req is
     global_time : in  unsigned(GC_TIME_WIDTH-1 downto 0);
 
     -- Control
-    enable   : in  std_logic;   -- per-instance enable (0 = tap inert)
     stat_rst : in  std_logic;
 
     -- req channel taps (all inputs -- passive monitor)
@@ -87,13 +86,14 @@ begin
 
   ---------------------------------------------------------------------
   -- Combinational descriptor capture -- same cycle as the handshake.
-  -- Gated by enable:  when the instance is disabled, no descriptor is
-  -- pushed (and the rsp monitor, disabled in lock-step, stops consuming).
+  -- The monitor is always listening; a descriptor is pushed for every
+  -- accepted req beat.  The measurement window is defined by stat_rst
+  -- (clear) and by reading the counters, never by gating the tap.
   ---------------------------------------------------------------------
   sb_tdata(C_ADDR_HIGH downto C_ADDR_LOW) <= req_addr;
   sb_tdata(C_TS_HIGH downto C_TS_LOW)     <= std_logic_vector(global_time);
   sb_tdata(C_BEATS_HIGH downto C_BEATS_LOW) <= req_len;
-  sb_tvalid <= req_valid and req_ready and enable;
+  sb_tvalid <= req_valid and req_ready;
 
   ---------------------------------------------------------------------
   -- Combinational process -- computes next counter state.
@@ -101,23 +101,20 @@ begin
   -- req_ready=0) is counted separately.  A handshake while the
   -- scoreboard FIFO is full (sb_tready=0) is recorded as backpressure
   -- (the corresponding rsp beats will report as underflow downstream).
-  -- All counters are gated by enable only:  the tap counts every
-  -- handshake while the instance is enabled.
+  -- The tap counts every handshake; the window is bounded by stat_rst.
   ---------------------------------------------------------------------
   p_comb : process(all)
     variable v : rec_t;
   begin
     v := r;  -- recover current state as default for all fields
 
-    if enable = '1' then
-      if req_valid = '1' and req_ready = '1' then
-        v.req_seen := r.req_seen + 1;
-        if sb_tready = '0' then
-          v.sb_bp_cnt := r.sb_bp_cnt + 1;
-        end if;
-      elsif req_valid = '1' and req_ready = '0' then
-        v.req_stall := r.req_stall + 1;
+    if req_valid = '1' and req_ready = '1' then
+      v.req_seen := r.req_seen + 1;
+      if sb_tready = '0' then
+        v.sb_bp_cnt := r.sb_bp_cnt + 1;
       end if;
+    elsif req_valid = '1' and req_ready = '0' then
+      v.req_stall := r.req_stall + 1;
     end if;
 
     -- stat_rst takes priority:  override the counters at the end so a

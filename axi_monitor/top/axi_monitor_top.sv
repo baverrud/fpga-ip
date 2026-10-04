@@ -25,7 +25,6 @@ module axi_monitor_top #(
   input logic [GC_TIME_WIDTH-1:0] global_time,
 
   // Control
-  input logic enable,
   input logic stat_rst,
   input logic err_rst,
   input logic data_check_en,
@@ -84,7 +83,6 @@ module axi_monitor_top #(
     .global_time (global_time),
 
     // Control
-    .enable        (enable),
     .stat_rst      (stat_rst),
     .err_rst       (err_rst),
     .data_check_en (data_check_en),

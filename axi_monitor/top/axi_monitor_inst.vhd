@@ -28,7 +28,6 @@ architecture rtl of axi_monitor_inst is
   signal aclk : std_logic;
   signal aresetn : std_logic;
   signal global_time : unsigned(GC_TIME_WIDTH-1 downto 0);
-  signal enable : std_logic;
   signal stat_rst : std_logic;
   signal err_rst : std_logic;
   signal data_check_en : std_logic;
@@ -84,7 +83,6 @@ begin
       global_time => global_time,
 
       -- Control
-      enable        => enable,
       stat_rst      => stat_rst,
       err_rst       => err_rst,
       data_check_en => data_check_en,

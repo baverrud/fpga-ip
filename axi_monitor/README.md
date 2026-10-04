@@ -68,8 +68,9 @@ synthesized hierarchy.
 - Errors: `stat_data_errors` (gated by `data_check_en`),
   `stat_rlast_errors`, `stat_resp_errors`, `stat_sb_underflow_errors`
 
-All values are integer counts or clock-cycle counts, captured while
-`enable` is high.  Sums are `GC_STAT_WIDTH` bits (default 48); counters
+All values are integer counts or clock-cycle counts.  The monitor is
+always listening (there is no enable gate); `stat_rst` defines the window
+boundary.  Sums are `GC_STAT_WIDTH` bits (default 48); counters
 and min/max are 32 bits.  Latency/gap values are measured against the
 free-running `global_time` counter (`GC_TIME_WIDTH` bits, default 48).
 
@@ -79,12 +80,12 @@ free-running `global_time` counter (`GC_TIME_WIDTH` bits, default 48).
 | `stat_req_stall` | 32 | 0 | Cycles where a request was presented but not accepted (`req_valid=1`, `req_ready=0`). |
 | `stat_sb_backpressure` | 32 | 0 | Req handshakes that occurred while the scoreboard FIFO was full (`sb_tready=0`). The descriptor was dropped; its rsp beats are counted but flagged as `stat_sb_underflow_errors` downstream. |
 | `stat_xactions` | 32 | 0 | Completed read transactions (bursts), incremented on the last accepted beat of each burst. Only counts bursts with a matching scoreboard entry. |
-| `stat_beats` | 32 | 0 | Total accepted rsp beats (`rsp_valid & rsp_ready`, `enable` high), counted unconditionally (including underflow beats). |
+| `stat_beats` | 32 | 0 | Total accepted rsp beats (`rsp_valid & rsp_ready`), counted unconditionally (including underflow beats). |
 | `stat_latency_*` | 48/32 | 0 / all-ones | Per-transaction latency = `global_time - ts_req` taken on the last beat. `min` resets to all-ones ("unset"). |
 | `stat_first_latency_*` | 48/32 | 0 / all-ones | Latency from the req handshake to the first rsp beat of the transaction. |
 | `stat_interbeat_gap_*` | 48/32 | 0 / all-ones | Elapsed cycles between consecutive accepted beats within a burst (>= 1). |
 | `stat_burst_len_*` | 48/32 | 0 / all-ones | Observed burst lengths in beats. |
-| `stat_elapsed_cycles` | 32 | 0 | Free-running cycle counter while `enable` is high. |
+| `stat_elapsed_cycles` | 32 | 0 | Free-running cycle counter, cleared by `stat_rst` - the measurement-window denominator. |
 | `stat_rsp_stall` | 32 | 0 | Cycles where the consumer backpressured the rsp channel (`rsp_valid=1`, `rsp_ready=0`). |
 | `stat_max_outstanding` | 32 | 0 | Peak scoreboard FIFO occupancy (in-flight bursts). |
 | `stat_data_errors` | 32 | 0 | Accepted beats whose `rsp_data` did not match the expected address-derived pattern (only when `data_check_en=1`). |
@@ -136,7 +137,6 @@ signal aresetn     : std_logic;  -- synchronous, active low
 signal global_time : unsigned(47 downto 0);  -- GC_TIME_WIDTH
 
 -- Control
-signal enable        : std_logic;  -- 1 = monitor active
 signal stat_rst      : std_logic;  -- clears all counters
 signal err_rst       : std_logic;  -- clears error counters only
 signal data_check_en : std_logic;  -- 1 = validate rsp_data against pattern
@@ -199,7 +199,6 @@ u_monitor : entity work.axi_monitor
     global_time => global_time,
 
     -- Control
-    enable        => enable,
     stat_rst      => stat_rst,
     err_rst       => err_rst,
     data_check_en => data_check_en,
@@ -259,7 +258,6 @@ logic aresetn;  // synchronous, active low
 logic [47:0] global_time;  // GC_TIME_WIDTH
 
 // Control
-logic enable;         // 1 = monitor active
 logic stat_rst;       // clears all counters
 logic err_rst;        // clears error counters only
 logic data_check_en;  // 1 = validate rsp_data against pattern
@@ -320,7 +318,6 @@ axi_monitor #(
     .global_time (global_time),
 
     // Control
-    .enable        (enable),
     .stat_rst      (stat_rst),
     .err_rst       (err_rst),
     .data_check_en (data_check_en),
@@ -385,8 +382,9 @@ axi_monitor #(
     every grant edge, so bus-side req stalls are a re-presentation).
   - G: scoreboard backpressure - a second small-FIFO monitor instance
     (depth 4) is flooded and `stat_sb_backpressure` counts.
-  - H: per-instance disable / re-enable - disabled monitor is inert,
-    re-enable resumes with exact accounting.
+  - H: always-on capture - the tap counts without any enable gate and the
+    free-running elapsed counter advances even with no traffic; `stat_rst`
+    alone bounds the window.
   - I: `stat_rst` mid-traffic - in-flight burst tracking survives.
   - J: `err_rst` coincident with error detection - the reset wins.
   - K: maximum (32-beat) burst and mixed burst lengths in one window.

@@ -35,7 +35,6 @@ architecture sim of axi_monitor_simple_tb is
   signal sim_done : boolean  := false;
 
   signal global_time   : unsigned(C_TIME_WIDTH-1 downto 0) := (others => '0');
-  signal mon_enable    : std_logic := '1';
   signal data_check_en : std_logic := '1';
   signal pipeline_busy : std_logic;
 
@@ -97,7 +96,6 @@ begin
       aclk                    => aclk,
       aresetn                 => aresetn,
       global_time             => global_time,
-      enable                  => mon_enable,
       stat_rst                => '0',
       err_rst                 => '0',
       data_check_en           => data_check_en,

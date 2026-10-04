@@ -40,7 +40,6 @@ entity axi_monitor is
     global_time : in  unsigned(GC_TIME_WIDTH-1 downto 0);
 
     -- Control
-    enable        : in  std_logic;   -- per-instance enable (0 = monitor inert)
     stat_rst      : in  std_logic;
     err_rst       : in  std_logic;
     data_check_en : in  std_logic;
@@ -127,7 +126,6 @@ begin
       aclk                => aclk,
       aresetn             => aresetn,
       global_time         => global_time,
-      enable              => enable,
       stat_rst            => stat_rst,
       req_valid           => req_valid,
       req_ready           => req_ready,
@@ -172,7 +170,6 @@ begin
       aclk                    => aclk,
       aresetn                 => aresetn,
       global_time             => global_time,
-      enable                  => enable,
       stat_rst                => stat_rst,
       err_rst                 => err_rst,
       data_check_en           => data_check_en,
