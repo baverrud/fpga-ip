@@ -267,6 +267,92 @@ class HdlToolTests(unittest.TestCase):
         ]
         self.assertEqual(len({line.index(":") for line in pattern_lines}), 1)
 
+    def test_axis_and_clock_outputs_are_indexable(self):
+        source = (
+            "entity indexed_wrapper is\n"
+            "  port (\n"
+            "    S_AXIS_0_tdata : in std_logic_vector (31 downto 0);\n"
+            "    S_AXIS_0_tready : out std_logic;\n"
+            "    S_AXIS_0_tvalid : in std_logic;\n"
+            "    S_AXIS_1_tdata : in std_logic_vector (31 downto 0);\n"
+            "    S_AXIS_1_tready : out std_logic;\n"
+            "    S_AXIS_1_tvalid : in std_logic;\n"
+            "    pl_clk0 : out std_logic;\n"
+            "    clk_out1_0 : out std_logic;\n"
+            "    clk_out2_0 : out std_logic\n"
+            "  );\n"
+            "end entity;\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            wrapper = Path(directory) / "indexed_wrapper.vhd"
+            wrapper.write_text(source, encoding="utf-8")
+            data = hdltool.analyze_wrapper(wrapper)
+
+        compact_map = hdltool._analysis_name_map_file(data)
+        self.assertEqual(data["axi_buses"]["S_AXIS_0"]["protocol"], "AXIS")
+        self.assertEqual(compact_map["_indexable"]["S_AXIS_[]"], "s_axis_[]")
+        self.assertEqual(compact_map["_indexable"]["clk_out[]_0"], "ps_clk[]")
+        self.assertTrue(hdltool._name_is_indexable("S_AXIS_0", compact_map))
+        self.assertTrue(hdltool._name_is_indexable("clk_out1_0", compact_map))
+        self.assertEqual(
+            hdltool.resolve_name_mapping("clk_out1_0", compact_map),
+            "ps_clk1",
+        )
+        self.assertNotIn("clk_out1_0", compact_map)
+        self.assertNotIn("clk_out2_0", compact_map)
+        self.assertEqual(compact_map["_non_indexable"]["pl_clk[]"], "ps_clk[]")
+        groups, _indices, _signal_info = hdltool._generation_array_groups(
+            data, compact_map
+        )
+        self.assertEqual(
+            groups[("s_axis", "axis")],
+            {"S_AXIS_0": "0", "S_AXIS_1": "1"},
+        )
+        self.assertEqual(
+            groups[("ps_clk", "clk")],
+            {"clk_out1": "1", "clk_out2": "2"},
+        )
+        declarations, mappings = hdltool._generation_port_lines(
+            data, compact_map, "slv-array"
+        )
+        declaration_names = {name for name, _direction, _type in declarations}
+        self.assertIn("ps_clk", declaration_names)
+        self.assertNotIn("ps_clk_0", declaration_names)
+        clock_mappings = {
+            source: target
+            for source, target in mappings
+            if source.startswith("clk_out")
+        }
+        self.assertEqual(
+            clock_mappings,
+            {"clk_out1_0": "ps_clk(0)", "clk_out2_0": "ps_clk(1)"},
+        )
+
+        override_map = {**compact_map, "clk_out1_0": "primary_clk"}
+        override_groups, _indices, override_signal_info = (
+            hdltool._generation_array_groups(data, override_map)
+        )
+        self.assertEqual(
+            override_groups[("ps_clk", "clk")], {"clk_out2": "2"}
+        )
+        self.assertNotIn("clk_out1_0", override_signal_info)
+        override_declarations, override_mappings = hdltool._generation_port_lines(
+            data, override_map, "slv-array"
+        )
+        override_names = {
+            name for name, _direction, _type in override_declarations
+        }
+        self.assertIn("primary_clk", override_names)
+        self.assertIn("ps_clk", override_names)
+        self.assertEqual(
+            {
+                source: target
+                for source, target in override_mappings
+                if source.startswith("clk_out")
+            },
+            {"clk_out1_0": "primary_clk", "clk_out2_0": "ps_clk"},
+        )
+
     def test_load_name_map_validates_patterns_and_collisions(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "name_map.json"

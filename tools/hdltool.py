@@ -1108,11 +1108,16 @@ def _analysis_flat_ports(data):
 
 def _analysis_suggest_flat_name(data, signal, name_map):
     """Suggest a friendly name for one non-bus port."""
+    name = signal["name"]
+    clock_output_match = re.fullmatch(r"clk_out(\d+)_0", name, re.IGNORECASE)
+    if clock_output_match:
+        candidate = f"ps_clk{int(clock_output_match.group(1))}"
+        return _analysis_unique_name(name_map, name, candidate)
+
     peripheral_name = _analysis_peripheral_name(data, signal)
     if peripheral_name:
         return peripheral_name
 
-    name = signal["name"]
     name_lower = name.lower()
     indexed_match = _ANALYSIS_INDEXED_NAME_RE.match(name)
     indexed_suffix = str(int(indexed_match.group(2))) if indexed_match else ""
@@ -1315,7 +1320,12 @@ def _analysis_generate_name_patterns(data):
     patterns = {}
     m_axi_patterns = {}
     m_axi_interfaces = {}
-    for prefix in data.get("axi_buses", {}):
+    for prefix, bus in data.get("axi_buses", {}).items():
+        if bus.get("protocol") == "AXIS":
+            match = re.fullmatch(r"S_AXIS_(\d+)", prefix)
+            if match:
+                patterns["S_AXIS_[]"] = "s_axis_[]"
+            continue
         match = re.fullmatch(r"M(\d+)_AXI_(\d+)", prefix)
         if match:
             pattern = f"M[]_AXI_{match.group(2)}"
@@ -1359,6 +1369,9 @@ def _analysis_generate_name_patterns(data):
 
     for signal in _analysis_flat_ports(data):
         if not _analysis_is_clock_reset(signal["name"]):
+            continue
+        if re.fullmatch(r"clk_out\d+_0", signal["name"], re.IGNORECASE):
+            patterns["clk_out[]_0"] = "ps_clk[]"
             continue
         indexed_match = _ANALYSIS_INDEXED_NAME_RE.match(signal["name"])
         if not indexed_match:
@@ -1465,7 +1478,7 @@ def _analysis_name_map_file(data):
     indexable = {
         pattern: 0
         for pattern in patterns
-        if "clk" in pattern.casefold()
+        if "clk" in pattern.casefold() and pattern.casefold() != "clk_out[]_0"
     }
     mapping = {
         "_ignore": ignored,
@@ -1982,6 +1995,9 @@ def _generation_signals(data, name_map=None):
 
 def _generation_array_identity(prefix):
     """Return an indexed-array family for a recognized interface prefix."""
+    match = re.fullmatch(r"S_AXIS_(\d+)", prefix)
+    if match:
+        return "axis", match.group(1)
     match = re.fullmatch(r"M(\d+)_AXI_\d+", prefix)
     if match:
         return "axilite", match.group(1)
@@ -2127,7 +2143,10 @@ def _generation_indexed_prefix(name, name_map):
         if match and (
             match.end() == len(name) or name[match.end()] == "_"
         ):
-            return match.group(0), match.group(1)
+            indexed_prefix = before + match.group(1)
+            if pattern.casefold() != "clk_out[]_0":
+                indexed_prefix = match.group(0)
+            return indexed_prefix, match.group(1)
     match = _ANALYSIS_INDEXED_SIGNAL_RE.match(name)
     if match:
         return match.group(0)[:match.end(2)], match.group(2)
@@ -2173,6 +2192,8 @@ def _generation_array_groups(data, name_map):
     groups = {}
     signal_info = {}
     for prefix, bus in sorted(data.get("axi_buses", {}).items()):
+        if prefix in name_map:
+            continue
         identity = _generation_array_identity(prefix)
         if identity and _name_is_indexable(prefix, name_map):
             family, member_key = identity
@@ -2185,9 +2206,12 @@ def _generation_array_groups(data, name_map):
             groups.setdefault((array_name, family), {})[prefix] = member_key
             for channel in bus.get("channels", {}).values():
                 for signal in channel:
-                    signal_info[signal["name"]] = (array_name, prefix)
+                    if signal["name"] not in name_map:
+                        signal_info[signal["name"]] = (array_name, prefix)
 
     for signal in _analysis_flat_ports(data):
+        if signal["name"] in name_map:
+            continue
         match = _ANALYSIS_PERIPHERAL_SIGNAL_RE.match(signal["name"])
         if match:
             family = _ANALYSIS_PERIPHERAL_NAMES.get(
@@ -2211,7 +2235,14 @@ def _generation_array_groups(data, name_map):
             family = prefix.rsplit("_", 1)[0].rstrip("_")
             if not _name_is_indexable(prefix, name_map):
                 continue
-            mapped_prefix = resolve_name_mapping(prefix, name_map)
+            metadata = _name_pattern_metadata(signal["name"], name_map)
+            if metadata and metadata[0].casefold() == "clk_out[]_0":
+                pattern, replacement, _indexable = metadata
+                mapped_prefix = _analysis_apply_name_pattern(
+                    pattern, signal["name"], replacement
+                )
+            else:
+                mapped_prefix = resolve_name_mapping(prefix, name_map)
             index_match = re.match(r"^(.*?)(\d+)(_.+)?$", mapped_prefix)
             array_name = index_match.group(1).rstrip("_") if index_match else family
             groups.setdefault((array_name, family), {})[prefix] = source_index
@@ -2226,7 +2257,7 @@ def _generation_array_groups(data, name_map):
 
 
 def _generation_indexed_port_binding(
-    signal, info, array_groups, array_indices, used_arrays
+    signal, info, array_groups, array_indices, used_arrays, name_map
 ):
     """Build one indexed flat-port declaration and wrapper association.
 
@@ -2244,6 +2275,13 @@ def _generation_indexed_port_binding(
         if signal["name"].startswith(bus_prefix + "_")
         else ""
     )
+    metadata = _name_pattern_metadata(signal["name"], name_map)
+    if metadata:
+        pattern = metadata[0]
+        if "[]" in pattern:
+            _before, suffix = pattern.split("[]", 1)
+            if suffix and signal["name"] == bus_prefix + suffix:
+                field = ""
     field = _generation_clean_name(field)
     port_name = f"{array_name}_{field}" if field else array_name
     declaration = None
@@ -2337,7 +2375,8 @@ def _generation_port_lines(data, name_map, profile):
             info = signal_info.get(signal["name"])
             if profile == "slv-array" and info:
                 binding = _generation_indexed_port_binding(
-                    signal, info, array_groups, array_indices, used_arrays
+                    signal, info, array_groups, array_indices, used_arrays,
+                    name_map,
                 )
                 declaration, mapping = binding
                 if declaration is not None:
@@ -2355,7 +2394,8 @@ def _generation_port_lines(data, name_map, profile):
                 info = signal_info.get(signal["name"])
                 if info:
                     binding = _generation_indexed_port_binding(
-                        signal, info, array_groups, array_indices, used_arrays
+                        signal, info, array_groups, array_indices, used_arrays,
+                        name_map,
                     )
                     declaration, mapping = binding
                     if declaration is not None:
