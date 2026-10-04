@@ -58,6 +58,7 @@ end entity;
 architecture rtl of axi_mem_model_core is
 
   constant C_RDATA_WIDTH : positive := 8 * GC_DATA_BYTES;
+  constant C_LANE_BITS   : natural := log2ceil(GC_DATA_BYTES);
 
   -- Convenience subtypes
   subtype rdata_t      is std_logic_vector(C_RDATA_WIDTH-1 downto 0);
@@ -84,6 +85,15 @@ architecture rtl of axi_mem_model_core is
   function beat_addr(base_addr : ar_addr_t; beat_idx : ar_len_t) return ar_addr_t is
   begin
     return base_addr + to_unsigned(to_integer(beat_idx) * GC_DATA_BYTES, GC_ADDR_WIDTH);
+  end function;
+
+  function aligned_beat(addr : ar_addr_t) return ar_addr_t is
+    variable v_addr : ar_addr_t := addr;
+  begin
+    if C_LANE_BITS > 0 then
+      v_addr(C_LANE_BITS-1 downto 0) := (others => '0');
+    end if;
+    return v_addr;
   end function;
 
   -- =================================================================
@@ -197,7 +207,7 @@ begin
           -- Capture the AR and produce the first beat immediately.
           -- For len=0 this is also the last beat.
           v.cur_id   := ar_id;
-          v.cur_addr := unsigned(ar_addr);
+          v.cur_addr := aligned_beat(unsigned(ar_addr));
           v.cur_len  := unsigned(ar_len);
           v.beat_idx := (others => '0');
 
@@ -236,7 +246,7 @@ begin
               -- Next AR already waiting -> start next transaction
               -- immediately.  r_valid stays high -- zero idle cycles.
               v.cur_id   := ar_id;
-              v.cur_addr := unsigned(ar_addr);
+              v.cur_addr := aligned_beat(unsigned(ar_addr));
               v.cur_len  := unsigned(ar_len);
               v.beat_idx := (others => '0');
               v_last       := '1' when unsigned(ar_len) = 0 else '0';

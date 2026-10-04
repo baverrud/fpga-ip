@@ -322,6 +322,7 @@ begin
       variable i : natural;
       variable rids : r_id_array_t;
       variable final_seen : boolean;
+      variable unaligned_expected : unsigned(31 downto 0);
     begin
       write(output, tag & " (" & integer'image(dbytes) & " B)" & CR);
 
@@ -454,6 +455,21 @@ begin
       end loop;
       ar_valid(idx) <= '0';
       drain(idx, dbytes, 1, X"B", to_unsigned(16#B000#, 32), tag);
+      enable(idx) <= '1';
+
+      -- P8b: unaligned AXI address uses the aligned byte-lane window.
+      write(output, tag & " P8b unaligned byte lanes" & CR);
+      aresetn_dut(idx) <= '0';
+      wait for C_CLK_PERIOD * 3;
+      aresetn_dut(idx) <= '1';
+      wait for C_CLK_PERIOD * 3;
+      enable(idx) <= '0';
+      send_ar(idx, X"C", X"00001001", X"00", tag);
+      unaligned_expected := to_unsigned(16#1000#, 32);
+      if dbytes = 1 then
+        unaligned_expected := to_unsigned(16#1001#, 32);
+      end if;
+      drain(idx, dbytes, 1, X"C", unaligned_expected, tag);
       enable(idx) <= '1';
 
       -- P9 R-backpressure
