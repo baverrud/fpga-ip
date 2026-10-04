@@ -19,7 +19,7 @@ architecture sim of axi_mem_store_tb is
 
   constant C_CLK_PERIOD : time := 10 ns;
   constant C_ADDR_WIDTH : positive := 16;
-  constant C_ID_WIDTH   : positive := 4;
+  constant C_ID_WIDTH   : positive := 6;  -- Holds every test ID (largest is 27)
   constant C_TIMER_WIDTH : positive := 8;
   constant C_MEM_BYTES  : positive := 64;
 

@@ -1,11 +1,10 @@
 -----------------------------------------------------------------------
 --Filename         : axi_mem_store_wide_tb.vhd
---Description      : Wide-bus testbench for axi_mem_store.
---                 : Runs the latency-enabled wrapper at GC_DATA_BYTES = 64
---                 : with the axi_mem_model bus geometry: a 49-bit address,
---                 : a 6-bit ID and a 1 KiB memory, so the whole hierarchy
---                 : carries a 512-bit R data bus.
---                 : Checks 64-byte little-endian beat assembly, the top
+--Description      : Bus-width testbench for axi_mem_store.
+--                 : Runs the latency-enabled wrapper at GC_DATA_BYTES
+--                 : (default 64) with the axi_mem_model bus geometry: a
+--                 : 49-bit address, a 6-bit ID and a 1 KiB memory.
+--                 : Checks little-endian beat assembly, the top
 --                 : memory boundary, the wide-address wrap guard, R-field
 --                 : stability under backpressure and R-side latency.
 --Author           : Rune Baeverrud
@@ -17,16 +16,22 @@ use ieee.numeric_std.all;
 use work.axis_bfm_pkg.all;
 
 entity axi_mem_store_wide_tb is
+  generic (
+    GC_DATA_BYTES : positive := 64;   -- Bus width under test; manifest also runs 1 and 128
+    GC_ADDR_WIDTH : positive := 49;   -- Wide enough that the top-of-space wrap test is real
+    GC_ID_WIDTH   : positive := 6;    -- Holds every test ID (largest is 9)
+    GC_MEM_BYTES  : positive := 1024  -- Must be a multiple of GC_DATA_BYTES
+  );
 end entity;
 
 architecture sim of axi_mem_store_wide_tb is
 
   constant C_CLK_PERIOD  : time     := 10 ns;
-  constant C_DATA_BYTES  : positive := 64;
-  constant C_ADDR_WIDTH  : positive := 49;
-  constant C_ID_WIDTH    : positive := 6;
+  constant C_DATA_BYTES  : positive := GC_DATA_BYTES;
+  constant C_ADDR_WIDTH  : positive := GC_ADDR_WIDTH;
+  constant C_ID_WIDTH    : positive := GC_ID_WIDTH;
   constant C_TIMER_WIDTH : positive := 8;
-  constant C_MEM_BYTES   : positive := 1024;
+  constant C_MEM_BYTES   : positive := GC_MEM_BYTES;
   constant C_RDATA_WIDTH : positive := 8 * C_DATA_BYTES;
 
   constant C_RDATA_ZERO : std_logic_vector(C_RDATA_WIDTH-1 downto 0) :=
@@ -216,7 +221,7 @@ begin
           check_beat_fields(id, "00", '0');
         end if;
         if check_pattern then
-          -- AXI byte lanes: every beat is the aligned 64-byte window.
+          -- AXI byte lanes: every beat is the aligned window.
           check_pattern_bytes((addr - addr mod C_DATA_BYTES) + beat_idx * C_DATA_BYTES);
         end if;
         release_r;
@@ -298,15 +303,15 @@ begin
       mem_wr(addr, expected_byte(addr));
     end loop;
 
-    -- Two 64-byte beats from address zero: every byte must match.
+    -- Two beats from address zero: every byte must match.
     read_burst(1, 0, 2, true);
 
     -- The final fully valid beat ends exactly at the top of memory.
     read_burst(2, C_MEM_BYTES - C_DATA_BYTES, 1, true);
 
     -- An unaligned beat reads its aligned window, which here is the last
-    -- beat of memory, so it is OKAY with that window's data.
-    read_burst(3, C_MEM_BYTES - C_DATA_BYTES / 2, 1, true);
+    -- beat of memory (with 1-byte beats every address is aligned).
+    read_burst(3, C_MEM_BYTES - C_DATA_BYTES + C_DATA_BYTES / 2, 1, true);
 
     -- The first address outside memory is also SLVERR.
     read_bad_burst(4, addr_of(C_MEM_BYTES), 1);

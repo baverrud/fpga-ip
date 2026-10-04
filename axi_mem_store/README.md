@@ -1,7 +1,7 @@
 # axi_mem_store - Real-Data AXI Memory Model
 
-`axi_mem_store` is an AXI3/AXI4-compatible read slave for full-width INCR
-bursts, backed by a
+`axi_mem_store` is a simulation-only AXI3/AXI4-compatible read slave for
+full-width INCR bursts, backed by a
 parameterizable byte-addressed memory. Testbench or simulation logic populates
 the memory through a clocked one-byte write interface. Reads return stored
 values rather than an address-derived pattern.
@@ -12,11 +12,10 @@ a time and are not interleaved across IDs.
 
 ## Start Here
 
-Use `axi_mem_store` when a testbench or hardware model needs a real byte store
-behind an AXI read interface. Use `axi_mem_store_core` only when the enclosing
-design already provides its own request and response timing. Use
-`axi_mem_store_top` when Vivado or a mixed-language design needs a standalone
-top-level wrapper.
+Use `axi_mem_store` when a testbench needs a real byte store behind an AXI
+read interface. Use `axi_mem_store_core` only when the enclosing testbench
+already provides its own request and response timing. The IP is not
+synthesizable: there is no synthesis top and no `[top]` manifest section.
 
 For the simplest useful configuration:
 
@@ -29,16 +28,15 @@ For the simplest useful configuration:
    response backpressure.
 
 The external wrapper has two independent per-entry timing stages. AR timing
-controls request delay; R timing controls response-entry delay. The current R
-stage does not guarantee a fixed gap between R handshakes. See the
-[latency-generator review](../axis_latency_gen/LATENCY_GENERATOR_REVIEW.md)
-before using `base_beat_gap` as a physical bandwidth model.
+controls request delay; R timing controls response-entry delay. The R stage
+delays each entry from its arrival, so it does not guarantee a fixed gap
+between R handshakes; do not use `base_beat_gap` as a physical bandwidth
+model.
 
 ### Minimal VHDL Usage
 
 The following is the essential shape of an instance. The full port list is in
-`top/axi_mem_store_top.vhd`, and `top/axi_mem_store_inst.vhd` is a ready-made
-template.
+`rtl/axi_mem_store.vhd`.
 
 ```vhdl
 u_mem : entity work.axi_mem_store
@@ -89,9 +87,8 @@ AR -> axis_latency_gen -> axi_mem_store_core -> axis_latency_gen -> R
 ```
 
 The shared `axis_latency_gen` remains unchanged and is used on both paths. It
-supplies request-side and response-side per-entry latency and jitter. Its R
-side use does not guarantee a fixed gap between output handshakes; that
-limitation is documented in `axis_latency_gen/LATENCY_GENERATOR_REVIEW.md`.
+supplies request-side and response-side per-entry latency and jitter. On the
+R side it does not guarantee a fixed gap between output handshakes.
 
 ## Generics
 
@@ -219,6 +216,7 @@ Run from the `fpga-ip` repository root after initializing ModelSim:
 run axi_mem_store vhdl modelsim
 run axi_mem_store vhdl modelsim --tb simple
 run axi_mem_store vhdl modelsim --tb wide
+run axi_mem_store vhdl modelsim --tb all    # also runs w1 and w128
 ```
 
 Run the same three testbenches with XSim (Vivado 2023.2) from the `fpga-ip`
@@ -244,11 +242,11 @@ check the minimum legal address width and the core's own AR lookahead
 handshake.
 
 The `simple` testbench is a minimal smoke test. The `wide` testbench runs the
-full wrapper at `GC_DATA_BYTES = 64` with a 49-bit address, a 6-bit ID and a
-1 KiB memory, so the whole hierarchy carries a 512-bit R data bus. It checks
-64-byte little-endian beat assembly, the top memory boundary, the wide
-address wrap guard, R-field stability under backpressure and both latency
-stages.
+full wrapper with a 49-bit address, a 6-bit ID and a 1 KiB memory at
+`GC_DATA_BYTES = 64`; the `w1` and `w128` sections rerun it at 1 and 128
+bytes. It checks little-endian beat assembly, the top memory boundary, the
+wide address wrap guard, R-field stability under backpressure and both
+latency stages.
 
 ## Limits and Notes
 
@@ -263,22 +261,17 @@ stages.
   return `OKAY`.
 - A burst that leaves the memory stays `SLVERR` for the remainder of the
   burst, even if the beat address would wrap at the top of the address space.
-- The memory is a plain byte array with an unclocked read. That is ideal for
-  simulation. For a large synthesised memory, check the inferred RAM style and
-  consider a dedicated synchronous RAM macro if block RAM is required.
-- The VHDL and SystemVerilog synthesis tops declare the same design unit name.
-  Compile them into separate libraries, or use only one language per library.
+- Simulation only. The memory is a process variable and a whole beat is
+  read in one clock, which cannot map to block RAM.
 - `mem_wr_error` is registered, so it is asserted during the clock cycle after
   the accepted invalid write.
-- Reading and writing the same byte on the same clock edge is not specified.
-  A byte written on an edge is visible to reads started afterwards.
+- A byte written on a clock edge is included in a beat loaded on that same
+  edge.
 
 ## Files
 
 - `rtl/axi_mem_store_core.vhd` - stored-memory AXI burst core.
 - `axis_latency_gen/rtl/axis_latency_gen.vhd` - shared AR/R latency stage.
 - `rtl/axi_mem_store.vhd` - full latency-enabled wrapper.
-- `top/` - VHDL and SystemVerilog wrappers and templates.
-- `tb/` - comprehensive, simple and wide-bus testbenches.
+- `tb/` - comprehensive, simple and bus-width testbenches.
 - `scripts/vhdl.f` - manifest: source closure and testbench selections.
-- `AXI_MEM_STORE_REVIEW.md` - review findings and open tasks.
