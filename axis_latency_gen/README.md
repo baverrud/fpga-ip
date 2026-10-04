@@ -17,7 +17,8 @@ Licensed under Zero-Clause BSD (0BSD).
   `signed(timer - t_departure) >= 0`, handles rollover correctly when max
   delay is < half the timer range.
 - **AXI-Stream compliant** — Standard `tvalid`/`tready` handshake on both
-  slave and master sides.
+  slave and master sides. Once `m_axis_tvalid` is asserted it stays asserted,
+  with stable data, until the handshake, however long `m_axis_tready` is low.
 
 ## Interface
 
@@ -42,10 +43,9 @@ Licensed under Zero-Clause BSD (0BSD).
 | `GC_JG_TH_2` | integer | 240 | Third CDF threshold |
 
 `GC_JG_VAL_0` through `GC_JG_VAL_3` must be non-negative and fit within
-`GC_JG_JITTER_WIDTH`.  The maximum configured jitter must remain below
-half the `GC_TIMER_WIDTH` timer range.  At runtime, `base_delay` is also
-checked against the same half-range limit; an unsafe configuration reports
-a configuration error with severity failure.
+`GC_JG_JITTER_WIDTH`. The maximum configured jitter and runtime delay should
+remain below half the `GC_TIMER_WIDTH` timer range. The RTL does not currently
+assert this configuration at runtime; integrators must enforce it.
 
 ### Ports
 
@@ -88,6 +88,11 @@ On `s_axis_tvalid & s_axis_tready`:
 When FIFO not empty and `signed(timer - head.t_departure) >= 0`:
 1. Pop FIFO, split `{data, timestamp}`
 2. Drive `m_axis_tdata` and assert `m_axis_tvalid` when the head is due
+
+A register, `head_released`, remembers that the head entry is due until it is
+popped. Without it, a stall longer than 2^(GC_TIMER_WIDTH-1) cycles would let
+the wrapping comparison turn negative again and drop `m_axis_tvalid` without a
+handshake.
 
 ### Timer wrap (deep dive)
 
@@ -186,6 +191,21 @@ With `GC_TIMER_WIDTH = 32`, the safe maximum is 2^31 cycles. At 100 MHz,
 that is about 21.5 seconds, far beyond the intended latency range for this
 IP.
 
+#### Long output stalls
+
+The same half-range window also applies to time spent waiting for
+`m_axis_tready`:
+
+- **The head entry is always safe.** `head_released` keeps it valid until it
+  is popped, for any stall length.
+- **Entries queued behind a stalled head** can reach the head more than
+  2^(GC_TIMER_WIDTH-1) cycles after their own departure time. They are then
+  seen as "not yet due" and wait up to 2^(GC_TIMER_WIDTH-1) extra cycles.
+  This only adds latency; it never breaks the handshake.
+
+Choose `GC_TIMER_WIDTH` so that output stalls stay well below
+2^(GC_TIMER_WIDTH-1) cycles; with 16 bits that is 32768 cycles.
+
 ### Corner cases
 
 | Scenario | Behavior |
@@ -195,7 +215,7 @@ IP.
 | **`base_delay = 0`** | Minimum 1-cycle FIFO pipeline floor. `t_departure = timer + 1 + jitter`. |
 | **Jitter = 0** | Possible when CDF thresholds route to `GC_VAL_0 = 0`. Still valid — pass-through with only base delay. |
 | **`t_departure` in the past** | `v_time_diff >= 0` immediately. Entry dispatched on the next read cycle. |
-| **`m_axis_tready` deasserted** | `ff_ready` blocked. Entry sits at FIFO head, `v_time_diff` continues to grow. Dispatched as soon as downstream is ready. |
+| **`m_axis_tready` deasserted** | `ff_ready` blocked. Entry sits at FIFO head with `m_axis_tvalid` and data held; `head_released` keeps it valid however long the stall lasts. Dispatched as soon as downstream is ready. |
 | **Simultaneous write + read** | Independent write/read paths on single clock. FIFO handles concurrent push and pop. |
 | **Write burst faster than dispatch** | FIFO fills up. When full, `s_axis_tready` deasserts, gating further writes. |
 | **Back-to-back writes** | Each write steps `jitter_gen`; the new sample is used by the **next** write (one-beat delayed). Independent departure times. |
@@ -232,7 +252,9 @@ run axis_latency_gen vhdl modelsim --tb simple
 
 The comprehensive testbench covers FIFO backpressure, reset while entries
 are in flight, timer rollover, simultaneous push/pop, full-rate ordering,
-minimum-delay behavior, and the deterministic default jitter sequence.
+minimum-delay behavior, the deterministic default jitter sequence, and a
+300-cycle output stall on the 8-bit-timer instance, which must keep
+`m_axis_tvalid` and `m_axis_tdata` unchanged throughout.
 
 ## Instantiation
 

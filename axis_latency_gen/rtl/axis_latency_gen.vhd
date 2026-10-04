@@ -4,7 +4,8 @@
 --                 : base delay and per-entry CDF-based jitter.
 --                 : Stores {tdata, t_departure} in a single wider
 --                 : axis_fifo. Departure decided at entry time.
---                 : Timer wrap handled by signed subtraction.
+--                 : Timer wrap handled by signed subtraction; once the
+--                 : head entry is due it stays valid until popped.
 --Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
@@ -121,11 +122,39 @@ architecture rtl of axis_latency_gen is
   -- This elapsed-time test is valid when the maximum configured delay is
   -- below half the timer range: base_delay + jitter < 2^(N-1).
   --
+  -- The test alone is only correct for 2^(N-1) cycles after departure;
+  -- after that the difference wraps negative again. head_released
+  -- therefore latches "the head entry is due" until it is popped, so
+  -- m_axis_tvalid can never drop without a handshake (AXI-Stream rule),
+  -- however long m_axis_tready stays low.
+  --
+  -- Remaining limit (latency only, never a protocol error): an entry that
+  -- reaches the head more than 2^(N-1) cycles after its own departure time
+  -- (because it was queued behind a long-stalled head) is seen as not yet
+  -- due, and waits up to 2^(N-1) extra cycles. Choose GC_TIMER_WIDTH so
+  -- that output stalls stay well below 2^(N-1) cycles.
+  --
   -- Computed as a single self-contained expression (no intermediate
   -- combinational signal): a cross-concurrent-assignment read on the
   -- shared ff_valid is a VHDL delta race.
   -- -----------------------------------------------------------------
-  signal time_arrived : std_logic;
+  signal time_arrived  : std_logic;
+  signal head_released : std_logic := '0';  -- head entry already due, not yet popped
+
+  function f_time_arrived(valid       : std_logic;
+                           released    : std_logic;
+                           current_time : unsigned;
+                           departure   : unsigned) return std_logic is
+  begin
+    if valid /= '1' then
+      return '0';
+    elsif released = '1' then
+      return '1';
+    elsif signed(current_time - departure) >= 0 then
+      return '1';
+    end if;
+    return '0';
+  end function;
 
 begin
 
@@ -245,8 +274,21 @@ begin
   -- ================================================================
   -- Read side: release when time has arrived
   -- ================================================================
-  time_arrived <= '1' when (ff_valid = '1') and
-                          (signed(timer - ff_t_departure) >= 0) else '0';
+  time_arrived <= f_time_arrived(ff_valid, head_released, timer,
+                                 ff_t_departure);
+
+  -- Remember a due head entry until it is popped, so a long output stall
+  -- cannot let the wrapping timer comparison hide it again.
+  process(aclk)
+  begin
+    if rising_edge(aclk) then
+      if aresetn = '0' then
+        head_released <= '0';
+      else
+        head_released <= time_arrived and not m_axis_tready;
+      end if;
+    end if;
+  end process;
 
   -- Pop FIFO when: entry available, time has arrived, downstream ready
   ff_ready       <= time_arrived and m_axis_tready;

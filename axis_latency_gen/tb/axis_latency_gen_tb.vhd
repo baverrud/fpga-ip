@@ -4,7 +4,8 @@
 --                 : with backpressure, idle, timer wrap (via 8-bit timer DUT),
 --                 : FIFO full, in-flight reset, data ordering, enable-gate
 --                 : paths (jitter toggle, base_delay=0, both low), simultaneous
---                 : push/pop, min-delay observation, and full-rate verification.
+--                 : push/pop, min-delay observation, full-rate verification,
+--                 : and a long output stall that must not drop tvalid.
 --Author           : Rune Baeverrud
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
@@ -686,6 +687,50 @@ begin
       end if;
     end loop;
     write(l, string'("  OK: jitter sequence 0,3,1,0 verified"));
+    writeline(output, l);
+
+    -- ============================================================
+    -- Phase 15: Long output stall (8-bit timer)
+    --   Once m_axis_tvalid is high it must stay high, with stable data,
+    --   until the handshake - however long the consumer stalls. 300
+    --   cycles exceeds half the 8-bit timer range (128), where a purely
+    --   time-based release would wrap and drop tvalid.
+    -- ============================================================
+    write(l, string'("=== Phase 15: Long output stall ===")); writeline(output, l);
+    aresetn <= '0';
+    wr_s_tvalid <= '0';
+    wr_m_tready <= '0';
+    enable_base_delay <= '1';
+    enable_jitter <= '0';
+    wait for C_CLK_PERIOD * 3;
+    aresetn <= '1';
+    wait for C_CLK_PERIOD * 2;
+
+    axis_write(aclk, wr_s_tdata, wr_s_tvalid, wr_s_tready, X"57A11000");
+    for k in 1 to 100 loop
+      wait until rising_edge(aclk);
+      exit when wr_m_tvalid = '1';
+    end loop;
+    assert wr_m_tvalid = '1'
+      report "FAIL: long-stall entry never became valid" severity failure;
+
+    for k in 1 to 300 loop
+      wait until rising_edge(aclk);
+      assert wr_m_tvalid = '1'
+        report "FAIL: m_axis_tvalid dropped without a handshake after " &
+               integer'image(k) & " stall cycles"
+        severity failure;
+      assert wr_m_tdata = X"57A11000"
+        report "FAIL: m_axis_tdata changed during the stall" severity failure;
+    end loop;
+
+    wr_m_tready <= '1';
+    wait until rising_edge(aclk);
+    wr_m_tready <= '0';
+    wait until rising_edge(aclk);
+    assert wr_m_tvalid = '0'
+      report "FAIL: entry still valid after its handshake" severity failure;
+    write(l, string'("  OK: tvalid and tdata held for 300 stall cycles"));
     writeline(output, l);
 
     -- ============================================================
