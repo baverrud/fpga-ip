@@ -118,22 +118,21 @@ Native AXI read channels are arrayed one per tester.
 
 ## Per-client Register Map (via `axilite_io`)
 
-`o_data` registers (`0x0000`..`0x002C`, one per client):
+`o_data` registers (`0x0000`..`0x0028`, one per client):
 
 | Addr | Name | Bits |
 |------|------|------|
 | `0x0000` | `o_data[0]` | `0`=enable |
-| `0x0004` | `o_data[1]` | `0`=mon_enable |
-| `0x0008` | `o_data[2]` | `0`=data_check_en |
-| `0x000C` | `o_data[3]` | `0`=cfg_len_mode |
-| `0x0010` | `o_data[4]` | `0`=cfg_addr_mode |
-| `0x0014` | `o_data[5]` | `cfg_req_len` in bits `C_LEN_WIDTH-1:0` |
-| `0x0018` | `o_data[6]` | `cfg_max_len` in bits `C_LEN_WIDTH-1:0` |
-| `0x001C` | `o_data[7]` | `cfg_pace[31:0]` |
-| `0x0020` | `o_data[8]` | `cfg_pace_init[31:0]` |
-| `0x0024` | `o_data[9]` | `cfg_base_addr[31:0]` |
-| `0x0028` | `o_data[10]` | `cfg_addr_range[31:0]` |
-| `0x002C` | `o_data[11]` | `0`=LED (one bit per client, combined into the top `led` vector) |
+| `0x0004` | `o_data[1]` | `0`=data_check_en |
+| `0x0008` | `o_data[2]` | `0`=cfg_len_mode |
+| `0x000C` | `o_data[3]` | `0`=cfg_addr_mode |
+| `0x0010` | `o_data[4]` | `cfg_req_len` in bits `C_LEN_WIDTH-1:0` |
+| `0x0014` | `o_data[5]` | `cfg_max_len` in bits `C_LEN_WIDTH-1:0` |
+| `0x0018` | `o_data[6]` | `cfg_pace[31:0]` |
+| `0x001C` | `o_data[7]` | `cfg_pace_init[31:0]` |
+| `0x0020` | `o_data[8]` | `cfg_base_addr[31:0]` |
+| `0x0024` | `o_data[9]` | `cfg_addr_range[31:0]` |
+| `0x0028` | `o_data[10]` | `0`=LED (one bit per client, combined into the top `led` vector) |
 
 `i_data` registers (read-only, `0x8000` base). All `axi_monitor` statistics
 are mapped; the four 48-bit `*_sum` counters occupy two words each
@@ -141,24 +140,26 @@ are mapped; the four 48-bit `*_sum` counters occupy two words each
 
 | Index | Statistic | Index | Statistic |
 |-------|-----------|-------|-----------|
-| 0 | `req_gen` `stat_req_issued` | 16 | `stat_interbeat_gap_sum[31:0]` |
-| 1 | `req_gen` `stat_req_stall` | 17 | `stat_interbeat_gap_sum[47:32]` |
-| 2 | `req_gen` `stat_cfg_errors` | 18 | `stat_interbeat_gap_min` |
-| 3 | `stat_req_seen` | 19 | `stat_interbeat_gap_max` |
-| 4 | `stat_req_stall` | 20 | `stat_burst_len_sum[31:0]` |
-| 5 | `stat_sb_backpressure` | 21 | `stat_burst_len_sum[47:32]` |
-| 6 | `stat_xactions` | 22 | `stat_burst_len_min` |
-| 7 | `stat_beats` | 23 | `stat_burst_len_max` |
-| 8 | `stat_latency_sum[31:0]` | 24 | `stat_elapsed_cycles` |
-| 9 | `stat_latency_sum[47:32]` | 25 | `stat_rsp_stall` |
-| 10 | `stat_latency_min` | 26 | `stat_max_outstanding` |
-| 11 | `stat_latency_max` | 27 | `stat_data_errors` |
-| 12 | `stat_first_latency_sum[31:0]` | 28 | `stat_rlast_errors` |
-| 13 | `stat_first_latency_sum[47:32]` | 29 | `stat_resp_errors` |
-| 14 | `stat_first_latency_min` | 30 | `stat_sb_underflow_errors` |
-| 15 | `stat_first_latency_max` | | |
+| 0 | `stat_req_seen` | 15 | `stat_interbeat_gap_min` |
+| 1 | `stat_req_stall` | 16 | `stat_interbeat_gap_max` |
+| 2 | `stat_sb_backpressure` | 17 | `stat_burst_len_sum[31:0]` |
+| 3 | `stat_xactions` | 18 | `stat_burst_len_sum[47:32]` |
+| 4 | `stat_beats` | 19 | `stat_burst_len_min` |
+| 5 | `stat_latency_sum[31:0]` | 20 | `stat_burst_len_max` |
+| 6 | `stat_latency_sum[47:32]` | 21 | `measurement_elapsed` |
+| 7 | `stat_latency_min` | 22 | `stat_rsp_stall` |
+| 8 | `stat_latency_max` | 23 | `stat_max_outstanding` |
+| 9 | `stat_first_latency_sum[31:0]` | 24 | `stat_data_errors` |
+| 10 | `stat_first_latency_sum[47:32]` | 25 | `stat_rlast_errors` |
+| 11 | `stat_first_latency_min` | 26 | `stat_resp_errors` |
+| 12 | `stat_first_latency_max` | 27 | `stat_sb_underflow_errors` |
+| 13 | `stat_interbeat_gap_sum[31:0]` | 28 | `pipeline_busy` (bit 0) |
+| 14 | `stat_interbeat_gap_sum[47:32]` | | |
 
-Indexes 3-30 are `axi_monitor` outputs.
+Indexes 0-20 and 22-27 are `axi_monitor` outputs; index 21 is the tester's
+aperture-scoped `measurement_elapsed`; index 28 is `pipeline_busy`.  The
+generator contributes no statistics: `axi_monitor` is always listening and is
+the single source of truth, so there is no monitor enable bit either.
 
 `stat_elapsed_cycles` is measured in the tester RTL from the shared aperture
 start timestamp to the timestamp of the last accepted response beat. It

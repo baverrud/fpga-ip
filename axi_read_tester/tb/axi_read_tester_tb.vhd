@@ -392,16 +392,15 @@ begin
         severity failure;
     end if;
 
-    -- Configure client 0: enable generation + monitor enable, data checking,
-    -- 32-beat requests, line-rate pace, base address 0x0, and 4 KiB range.
+    -- Configure client 0: enable generation, data checking, 32-beat
+    -- requests, line-rate pace, base address 0x0, and 4 KiB range.
     p_axil_write(x"0000", x"00000001");  -- o_data[0]: enable
-    p_axil_write(x"0004", x"00000001");  -- o_data[1]: mon_enable
-    p_axil_write(x"0008", x"00000001");  -- o_data[2]: data_check_enable
-    p_axil_write(x"0014", x"0000001F");  -- o_data[5]: cfg_req_len = 32 beats
-    p_axil_write(x"001C", x"00000000");  -- o_data[7]: cfg_pace = 0
-    p_axil_write(x"0020", x"00000000");  -- o_data[8]: cfg_pace_init = 0
-    p_axil_write(x"0024", x"00000000");  -- o_data[9]: cfg_base_addr
-    p_axil_write(x"0028", x"00001000");  -- o_data[10]: cfg_addr_range = 4 KiB
+    p_axil_write(x"0004", x"00000001");  -- o_data[1]: data_check_enable
+    p_axil_write(x"0010", x"0000001F");  -- o_data[4]: cfg_req_len = 32 beats
+    p_axil_write(x"0018", x"00000000");  -- o_data[6]: cfg_pace = 0
+    p_axil_write(x"001C", x"00000000");  -- o_data[7]: cfg_pace_init = 0
+    p_axil_write(x"0020", x"00000000");  -- o_data[8]: cfg_base_addr
+    p_axil_write(x"0024", x"00001000");  -- o_data[9]: cfg_addr_range = 4 KiB
 
     stat_rst <= '1';
     wait until rising_edge(aclk);
@@ -446,40 +445,39 @@ begin
     end loop;
 
     p_axil_write(x"0000", x"00000000");  -- stop the generator
-    p_axil_write(x"0004", x"00000000");  -- stop the monitor
 
-    -- Status indexes: xactions=6, beats=7, latency_min=10,
-    -- elapsed=24, data_errors=27, rlast_errors=28, response_errors=29,
-    -- scoreboard_underflows=30.
-    p_axil_read(x"8018", v_stat);
+    -- Status indexes: xactions=3, beats=4, latency_min=7,
+    -- elapsed=21, data_errors=24, rlast_errors=25, response_errors=26,
+    -- scoreboard_underflows=27.  (axi_monitor is always listening.)
+    p_axil_read(x"800C", v_stat);
     assert unsigned(v_stat) > 0
       report "FAIL: no completed transactions counted"
       severity failure;
-    p_axil_read(x"801C", v_stat);
+    p_axil_read(x"8010", v_stat);
     assert unsigned(v_stat) >= 1
       report "FAIL: no response beats counted"
       severity failure;
-    p_axil_read(x"8028", v_stat);
+    p_axil_read(x"801C", v_stat);
     assert v_stat /= x"FFFFFFFF"
       report "FAIL: latency minimum was not sampled"
       severity failure;
-    p_axil_read(x"8060", v_stat);
+    p_axil_read(x"8054", v_stat);
     assert unsigned(v_stat) > 0
       report "FAIL: aperture elapsed time was not captured"
       severity failure;
-    p_axil_read(x"806C", v_stat);
+    p_axil_read(x"8060", v_stat);
     assert v_stat = x"00000000"
       report "FAIL: unexpected data errors"
       severity failure;
-    p_axil_read(x"8070", v_stat);
+    p_axil_read(x"8064", v_stat);
     assert v_stat = x"00000000"
       report "FAIL: unexpected RLAST errors"
       severity failure;
-    p_axil_read(x"8074", v_stat);
+    p_axil_read(x"8068", v_stat);
     assert v_stat = x"00000000"
       report "FAIL: unexpected response errors"
       severity failure;
-    p_axil_read(x"8078", v_stat);
+    p_axil_read(x"806C", v_stat);
     assert v_stat = x"00000000"
       report "FAIL: unexpected scoreboard underflows"
       severity failure;
