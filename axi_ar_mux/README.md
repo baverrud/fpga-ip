@@ -9,17 +9,39 @@ and that IP's `r_pop` outputs feed this IP's `r_pop` inputs to return
 credits.
 
 The default configuration is **4 clients, 32-bit address, 4-bit ID,
-depth-32 credits** and the design forwards **one AR transaction per clock**
-at its verified clock of **143 MHz** (7.0 ns period, post place & route)
-with very low logic usage.
+depth-32 credits** and the design forwards **one AR transaction per clock**.
+It passes twelve generic configurations on both ModelSim and XSim, and
+closes timing at **200 MHz** post place & route; see "Timing" below.
+
+## Documentation
+
+| Document | Contents |
+|----------|----------|
+| `README.md` | This file: integration guide, behaviour, results. |
+| `AR_MUX_ARCHITECTURE.md` | Internal structure, invariants and timing, in detail. |
+| `AR_MUX_REVIEW.md` | Review of revision 1.01. Its debug checklist for a quiet AR channel still applies. |
+
+## Changes from revision 1.01
+
+Revision 2.00 charges credit when a request is **accepted**, instead of when
+it is granted. The ports and generics are unchanged. Two behaviours differ:
+
+| | 1.01 | 2.00 |
+|---|---|---|
+| `r_pop` -> credit visible to `req_ready` | same edge | **two edges later** (`r_pop` is registered on input) |
+| Request that does not fit | could be taken in, then waited inside the mux | refused: waits at `req_ready='0'` |
+| Timing | -1.566 ns at 143 MHz | **+0.436 ns at 200 MHz** |
+
+A client that waits for returned credit must keep its request presented,
+which AXI valid/ready already requires.
 
 ## Overview
 
 Each client presents a read command (`req_addr`, `req_len`,
 `req_valid`/`req_ready`). A per-client credit counter (the
 R-side FIFO depth) limits how many beats that client may have in flight:
-a request of `arlen + 1` beats is only arbitrated when its credits fit.
-Round-robin arbitration picks a fair winner among eligible clients, the
+a request of `arlen + 1` beats is only accepted when its credits fit.
+Round-robin arbitration picks a fair winner among the accepted requests, the
 transaction is forwarded on the shared AR channel with `ar_id` generated
 from the client index, and `r_pop` pulses return a credit per R beat
 popped from that client's FIFO.
@@ -56,8 +78,8 @@ popped from that client's FIFO.
 | `req_addr`  | in  | Per-client ARADDR, `GC_ADDR_WIDTH` bits each. |
 | `req_len`   | in  | Per-client ARLEN (beats - 1), 8 bits each. |
 | `req_valid` | in  | Per-client request valid. |
-| `req_ready` | out | Per-client request accepted (combinational, independent of `ar_ready`; one pending request can be buffered). |
-| `r_pop`     | in  | Per-client credit return pulses (one per R beat popped). |
+| `req_ready` | out | Per-client request accepted. Combinational from registered state and the presented `req_len`; independent of `ar_ready`. |
+| `r_pop`     | in  | Per-client credit return pulses (one per R beat popped). Registered on input. |
 | `ar_id`     | out | AR ID (client index), `GC_ID_WIDTH` bits. |
 | `ar_addr`   | out | ARADDR of the forwarded transaction. |
 | `ar_len`    | out | ARLEN of the forwarded transaction. |
@@ -68,76 +90,126 @@ The `req_*` / `r_pop` ports are arrays indexed by client (`0 .. GC_NUM_CLIENTS-1
 
 ## How It Works
 
+This section is a summary. `AR_MUX_ARCHITECTURE.md` describes the internal
+structure in detail.
+
 RTL follows the canonical **two-process method** from the fpga-rules
-(`hdl_coding_rules.md`): a single state record (`rec_t`), a combinational
-next-state/output process (`p_logic`), and a register process (`p_reg`).
-The micro-architecture is:
+(`hdl_coding_rules.md`): a single state record (`rec_t`), one combinational
+process (`p_comb`) and one register process (`p_reg`). `p_comb` is split
+into three sections that each own part of the state:
 
-1. **Registered AR outputs with one-entry prefetch.** `ar_valid`/`ar_id`/
-  `ar_addr`/`ar_len` are registered from an active
-  transaction record, so `ar_valid` holds until the handshake. One pending
-  request can be accepted while AR is stalled. `req_ready` is combinational
-  from the current exact arbitration and pending-slot availability, and is
-  independent of `ar_ready`.
+| Section | Owns | Decides |
+|---------|------|---------|
+| AR side | `ar_active`, `ar_pending` | Retire an accepted transaction, promote the pending one. |
+| Arbitration | `last_granted` | Grant one held request per clock while `ar_pending` is empty. |
+| Admission and credits | `held_request`, `credits`, `r_pop_delayed` | Per client: accept a request if its holding register is free and its credits cover it. |
 
-2. **Line-rate forwarding.** When the downstream keeps `ar_ready` high and
-  an eligible client stream is ready, a new transaction is captured in the
-  same cycle the previous one handshakes. The pending slot also allows a
-  client to present its next request before that handshake, so the AR
-  channel forwards **one transaction per clock** after the initial fill.
+The key design decision is **credit is charged when a request is accepted,
+not when it is granted**. Every held request is therefore already paid for,
+so arbitration never looks at credits, and each client's credit counter is a
+small independent loop. That split is what makes the design close at
+200 MHz.
+
+1. **Registered AR outputs with one pending slot.** `ar_valid`/`ar_id`/
+  `ar_addr`/`ar_len` come from `ar_active`, so `ar_valid` holds until the
+  handshake. One further grant can wait in `ar_pending` while AR is
+  stalled. Arbitration only checks whether `ar_pending` is empty, never
+  `ar_ready`, so `req_ready` is independent of `ar_ready`.
+
+2. **Line-rate forwarding.** A client's holding register accepts a new
+  request in the same cycle its previous one is granted, so with
+  `ar_ready` high the AR channel forwards **one transaction per clock**,
+  from a single client or shared round-robin between several.
 
 3. **Holding / lock.** While `ar_ready` is low, the active transaction is
-  held (registered) with `ar_valid` high. One additional request may be
-  accepted into the pending slot, but it is not presented on AR until the
-  active transaction handshakes. This preserves the AXI requirement that
-  `ar_valid` and its payload remain stable until the handshake.
+  held with `ar_valid` high. One further grant moves to `ar_pending`, and
+  after that requests wait in their holding registers. This preserves the
+  AXI requirement that `ar_valid` and its payload remain stable until the
+  handshake.
+
+4. **Credit tracking.** Each client starts with `GC_FIFO_DEPTH` credits.
+  `arlen + 1` credits are charged on the `req_valid & req_ready` handshake,
+  and a request is only accepted when they fit, so a client can never
+  over-issue beyond its R-side buffer. Each `r_pop` pulse returns
+  `GC_R_BEATS_PER_POP` credits, saturated at `GC_FIFO_DEPTH`. `r_pop` is
+  registered on input, so a request waiting on returned credits is
+  accepted **two edges** after the `r_pop` pulse.
+
+5. **Round-robin arbitration.** Each grant goes to the first held request
+  after `last_granted`, wrapping, giving fair access. Only accepted
+  requests take part, so a client without credit cannot block the others.
+
+### `req_ready` semantics
+
+`req_ready(i)` is high when client *i*'s holding register is free (empty,
+or its request is granted this clock) **and** either no request is
+presented or the presented request fits the client's credits. So:
+
+- An idle client sees `req_ready` high, so its first request is accepted on
+  the first clock.
+- While a request is presented, `req_ready` depends combinationally on
+  `req_valid` and `req_len`. AXI allows this. The client must not make
+  `req_valid` depend on `req_ready`, and the integrating design must time
+  the `req_len` -> `req_ready` path.
+- `req_ready` does not depend on `ar_ready`.
+
+Per client, at most three requests are inside the mux at once: one in its
+holding register, plus up to two in `ar_active` and `ar_pending`.
+
+### Timelines
+
+One client, `ar_ready` high, one-beat requests A, B, C back to back. Each
+row shows what happens at that clock edge:
+
+```text
+edge          :  1    2    3    4    5
+req accepted  :  A    B    C
+held_request  :       A    B    C
+AR transfer   :            A    B    C
+```
+
+`ar_ready` low while A is on the AR port; clients 1 and 2 then send X and Y:
+
+```text
+ar_active  : A    A    A    A  | X    Y          <- ar_ready goes high at |
+ar_pending :      X    X    X  | -    -
+held(2)    :           Y    Y  | Y    -
+```
+
+Waiting for credit (the request needs more than the client has left):
+
+```text
+edge       :  E        E+1          E+2
+r_pop      :  1        0            0
+req_ready  :  0        0            1      <- accepted at edge E+2
+```
 
 ### Request-to-AR latency
 
-For a request that is accepted and immediately selected by the arbiter, with
+For a request that is accepted and immediately granted, with
 `ar_ready='1'`, the minimum request-to-AR handshake latency is **2 `aclk`
 cycles**:
 
 ```text
-Edge N   : req_valid & req_ready handshake; request enters the client buffer
-Edge N+1 : registered grant enters the active AR slot; ar_valid becomes high
+Edge N   : req_valid & req_ready handshake; request enters held_request
+Edge N+1 : held request is granted into ar_active; ar_valid becomes high
 Edge N+2 : ar_valid & ar_ready handshake
 ```
 
-The `ar_valid` transition is visible after edge N+1, but the AR transfer is
-sampled at edge N+2. This latency comes from the registered grant and active
-AR slot. A request may take longer if another client is selected first, if
-the request waits for credit, or if `ar_ready='0'`. The fixed two-cycle
-pipeline latency does not create a steady-state throughput bubble: after the
-pipeline is filled, eligible requests can produce one AR handshake per clock.
-The first-request self-priming behavior keeps `req_ready` asserted on the
-initial request; it does not bypass the registered AR pipeline.
-
-4. **Credit tracking.** Each client starts with `GC_FIFO_DEPTH` credits. A
-  request is captured into a per-client input buffer on `req_valid &
-  req_ready`, and `arlen + 1` credits are debited when that transaction is
-  granted and forwarded onto the shared AR channel (per client, the active
-  and one pending transaction can be in flight). Each `r_pop` pulse
-  returns `GC_R_BEATS_PER_POP` credits, saturated at `GC_FIFO_DEPTH`. A
-  request is only arbitrated when its beat count fits the remaining
-  credits, so a client can never over-issue beyond its R-side buffer.
-
-5. **Round-robin arbitration.** After every grant the pointer moves past the
-   served client; the next grant scans from there, giving fair access with
-   wrap-around. Ineligible (no credit) clients are skipped.
+A request may take longer if another client is granted first or if
+`ar_ready='0'`. The fixed latency does not create a throughput bubble.
 
 ## Request Size Contract
 
 A single request must fit the per-client credit budget: its beat count
 (`req_len + 1`) must be at most `GC_FIFO_DEPTH`. Credits are capped at
-`GC_FIFO_DEPTH` and only return via `r_pop`, and `r_pop` cannot pulse
-before the request is granted, so a request with `req_len + 1 >
-GC_FIFO_DEPTH` can **never** be granted - presenting one deadlocks the
-client's channel. The RTL flags such a request at presentation time
-(assert, severity `failure`):
+`GC_FIFO_DEPTH` and only return via `r_pop`, so a request with
+`req_len + 1 > GC_FIFO_DEPTH` can **never** be accepted - presenting one
+deadlocks the client's channel. The RTL flags such a request at
+presentation time (assert, severity `failure`):
 
 ```text
-axi_ar_mux: request beats N exceeds GC_FIFO_DEPTH M; request can never be granted
+axi_ar_mux: request beats exceed GC_FIFO_DEPTH; it can never be accepted
 ```
 
 Clients must split transfers larger than `GC_FIFO_DEPTH` beats into
@@ -152,9 +224,24 @@ so the R responses can be routed back by `axi_r_demux` (its `r_id` decode uses
 the same index). ARSIZE, ARBURST, and other AXI AR sidebands are fixed by the
 integration wrapper or downstream interface.
 
+### Pairing with axi_r_demux
+
+```text
+clients --req_*--> axi_ar_mux --ar_*--> memory --r_*--> axi_r_demux --rsp_*--> clients
+                       ^                                     |
+                       +---------------- r_pop --------------+
+```
+
+- Use the same `GC_NUM_CLIENTS`, `GC_ID_WIDTH` and `GC_FIFO_DEPTH` on both.
+- Connect `axi_r_demux.r_pop` to `axi_ar_mux.r_pop` index for index. The
+  demux pulses `r_pop(i)` once for every beat client *i* pops from its FIFO,
+  from a register, so the path into this IP is register to register.
+- A credit therefore means one free beat in that client's R-side FIFO, and
+  the mux never lets a client have more beats in flight than its FIFO holds.
+
 ### Wider R side (axis_upsizer)
 
-Credits are counted in **client beats** (`arlen + 1` is debited per
+Credits are counted in **client beats** (`arlen + 1` is charged per
 request). If the R channel is wider than the client beat width - for
 example an `axis_upsizer` packs `GC_RATIO` client beats into one wide R
 beat - then each R beat returned to the client's buffer covers
@@ -175,64 +262,61 @@ beat count from the same handshake.
 credit returns are saturated at `GC_FIFO_DEPTH` as a defensive measure, but
 `GC_R_BEATS_PER_POP` must still match the actual R-side packing ratio.
 
-## Synthesis Results (measured, 4 clients @ 143 MHz)
+## Synthesis Results (measured, 4 clients)
 
-Standalone `run axi_ar_mux vhdl vivado batch` on **Artix-7
-xc7a35tftg256-1**, Vivado 2023.2, default 4-client config:
+Post place & route on **Artix-7 xc7a200tfbg676-1**, Vivado 2023.2, default
+4-client config:
 
 | Resource | Usage |
 |----------|-------|
-| Slice LUTs | **270** |
-| Slice Registers | **333** |
+| Slice LUTs | **182** |
+| Slice Registers | **268** |
 | F7 / F8 Muxes | 0 |
 | Block RAM / DSP | 0 |
-| WNS @ 143 MHz | **+0.109 ns** (post place & route, all endpoints met) |
 
-Timing is integration-dependent; the integrating design must provide its own
-clock constraints for the target device.
+### Timing
 
-**Frequency note:** the critical path is the exact-credit arbitration loop
-(credit check, round-robin scan and grant selection in one cycle). It does
-not close at the original 200 MHz / 5.0 ns target (post-route WNS
--1.37 ns); the verified ceiling is **143 MHz (7.0 ns)**. Resource counts
-and WNS are from a full **place & route** implementation (`opt_design` +
-`place_design` + `route_design` + `phys_opt_design` +
-`report_timing_summary`). That implementation runs on a larger package
-(**xc7a200tfbg676-1**) because the 4-client/32-bit wrapper has ~245 I/O
-ports, more than the 170 pins available on `xc7a35tftg256-1`; the logic is
-identical, so the internal timing is representative. See
+| Clock | Post-route WNS | Result |
+|-------|----------------|--------|
+| 200 MHz (5.0 ns) | **+0.436 ns** | All user specified timing constraints are met. |
+
+The worst path is now inside one client's credit counter (`credits` ->
+`credits`, 6 logic levels, 3.98 ns). Both possible next credit values are
+computed from registers, and the handshake only selects between them. The
+arbitration loop no longer contains any credit arithmetic.
+
+For comparison, revision 1.01 (credit charged at grant) measured
+**-1.566 ns at 7.0 ns** in the same flow, and did not meet 143 MHz.
+
+The harness constrains `aclk` at 5.0 ns and false-paths all input and output
+ports, so it measures register-to-register timing only. The combinational
+paths `req_valid`/`req_len` -> `req_ready` and `ar_ready` -> AR state belong
+to the integrating design's constraints. Only the default 4-client
+configuration has been implemented. The implementation runs on the
+larger `xc7a200tfbg676-1` package because the 4-client/32-bit wrapper has
+~245 I/O ports, more than the 170 pins of `xc7a35tftg256-1`. Flow:
+`synth_design -flatten_hierarchy rebuilt`, `opt_design`, `place_design
+-directive ExtraPostPlacementOpt`, `phys_opt_design -directive
+AggressiveExplore`, `route_design -directive Explore`. See
 `fpga-rules/vivado_synthesis_guide.md` (Timing Closure & WNS Measurement).
 
-### Possible timing improvement: delayed credit returns (measured, not adopted)
+To reproduce, run from an empty build directory:
 
-The exact-credit reservation is the critical path (`credit_cnt` register
--> beat subtract -> same-edge eligibility/`req_ready` -> buffer capture).
-The `r_pop` credit-return add sits on that chain because returns are
-applied before the eligibility computation. A candidate optimization
-applies returns **only to the register update** (visible one edge later)
-so the saturating add leaves the ready/eligibility path:
+```text
+cd axi_ar_mux/.runs/vivado/implementation
+vivado -mode batch -source ../../../scripts/axi_ar_mux_implementation.tcl
+```
 
-- Measured (Vivado 2023.2, `xc7a200tfbg676-1`, default 4-client config,
-  same place & route flow): synthesis-only WNS at 143 MHz improves
-  **-1.337 ns -> -0.561 ns**; post-route WNS improves **-0.195 ns
-  -> +0.054 ns** (the design goes from a small violation to meeting
-  timing).
-- Trade-off: a credit return becomes visible to `req_ready` / arbitration
-  **one cycle later**. This is conservative - the stored credit stays
-  exact and a client can never over-issue. A request presented in the
-  same cycle as a pop waits one cycle (one bubble, only at the exact
-  credit boundary); steady-state line rate is unaffected.
-- **Not adopted**: the one-cycle return latency changes the documented
-  `r_pop` behavior (a same-edge pop no longer enables an immediate
-  capture). The RTL keeps the eager same-edge return; the note in
-  `rtl/axi_ar_mux.vhd` marks where this change would go.
+The script uses `scripts/axi_ar_mux_timing.xdc`, writes `reports/`, prints
+`AXI_AR_MUX_POST_ROUTE_WNS_NS=<value>`, and exits with 1 if the routed
+slack is negative.
 
 ## Reset
 
-Synchronous active-low reset (`aresetn`) clears the active and pending
-transactions, the round-robin pointer, and restores all credits to
-`GC_FIFO_DEPTH`. `req_ready` is suppressed while reset is asserted; all
-registered AR outputs are cleared after the reset edge.
+Synchronous active-low reset (`aresetn`) clears the holding registers, the
+active and pending transactions, the delayed `r_pop` and the round-robin
+pointer, and restores all credits to `GC_FIFO_DEPTH`. `req_ready` is
+suppressed while reset is asserted.
 
 ## Instantiation
 
@@ -361,11 +445,35 @@ axi_ar_mux #(
 
 `top/axi_ar_mux_top.vhd` / `top/axi_ar_mux_top.sv` provide a standalone
 synthesis wrapper with the 4-client, 32-bit-address, 4-bit-ID, depth-32
-defaults. The wrapper converts client-domain `ARLEN` to native `ARLEN` and
-adds the fixed AXI-facing `ar_size` and `ar_burst` outputs. The SV wrapper
-binds the VHDL array ports as packed arrays (client index in the outer
-dimension) and explicitly reverses the packed outer dimension so SV client
-index 0 maps to VHDL client index 0.
+defaults. The SV wrapper binds the VHDL array ports as packed arrays (client
+index in the outer dimension) and explicitly reverses the packed outer
+dimension so SV client index 0 maps to VHDL client index 0.
+
+### Wrapper generics
+
+The wrapper lets clients work in wider beats than the memory port. It adds:
+
+| Generic | Default | Meaning |
+|---------|---------|---------|
+| `GC_CLIENT_DATA_WIDTH` | 512 | Client beat width, bits. |
+| `GC_NATIVE_DATA_WIDTH` | 128 | Memory-side beat width, bits. |
+| `GC_CLIENT_ARLEN_WIDTH` | 6 | Width of the client `req_len`. |
+| `GC_NATIVE_ARLEN_WIDTH` | 8 | Width of the output `ar_len`. |
+| `GC_BURST_TYPE` | `"01"` | Value driven on `ar_burst` (INCR). |
+
+The output burst is scaled by the width ratio:
+
+```text
+ratio  = GC_CLIENT_DATA_WIDTH / GC_NATIVE_DATA_WIDTH
+ar_len = (req_len + 1) * ratio - 1
+```
+
+For example, one 512-bit client beat on a 128-bit port becomes a 4-beat
+native burst. `ar_size` is derived from `GC_NATIVE_DATA_WIDTH`. Credits stay
+in **client** beats, so set `GC_R_BEATS_PER_POP` to match what one `r_pop`
+returns on the R side. Elaboration assertions check that both widths are
+powers of two in bytes, that their ratio is a power of two, and that
+`GC_NATIVE_ARLEN_WIDTH` can hold the scaled burst.
 
 ## Running the Testbench
 
@@ -378,37 +486,29 @@ run axi_ar_mux vhdl xsim       # XSim simulation
 The Vivado flow synthesizes `top/axi_ar_mux_top.vhd`. Integration designs
 must supply the clock and timing constraints for their target device.
 
-The testbench (`tb/axi_ar_mux_tb.vhd`, 143 MHz clock, generic
-clients/address/ID/credit) verifies:
+The testbench (`tb/axi_ar_mux_tb.vhd`, 200 MHz clock) is organised as small
+helpers (present, send, withdraw, pulse `r_pop`, expect refused, wait for
+AR, stream), one procedure per test, and a main sequence that lists the
+tests. Every test starts from a fresh reset, and burst sizes are written in
+beats. The tests:
 
-- **Reset:** all `req_ready` low, `ar_valid` low.
-- **Single transaction:** `req_ready` pulses (pipelined grant accept), the
-  AR channel presents the correct `ar_id`/`ar_addr`/`ar_len`, and the credit
-  drops by `arlen + 1` after the handshake. Fixed AXI AR attributes are
-  supplied by the wrapper or integration boundary.
-- **AR lock:** with `ar_ready` low, `ar_valid` holds the transaction, no
-  other client is granted, and the handshake completes on release.
-- **Credit limits + pop returns:** an over-credit request is blocked;
-  `r_pop` pulses restore credits and unblock it; re-block at zero credit is
-  verified.
-- **Concurrent credit return:** an `r_pop` coincident with an AR handshake
-  is accounted for on the same client.
-- **Partial-credit arbitration:** an oversized request is skipped when
-  another client has a request that fits.
-- **Input line rate (hard guard):** with every client requesting and
-  `ar_ready` high, the AR channel forwards **one transaction per clock** -
-  `ar_valid` is asserted to never deassert - and round-robin order (with
-  wrap-around) is checked on every transaction.
-- **Single-client line rate:** unique payloads are accepted and forwarded on
-  consecutive cycles, proving that a held-valid source can issue new
-  requests without a bubble.
-- **Exhausted budget:** after draining a client's full credit, its next
-  request is not granted until a pop returns credit.
-- **Mid-stream reset:** `aresetn` pulses low while a transaction is locked
-  in flight; verifies clean recovery and a working post-reset transaction.
-- A watchdog so a deadlock fails instead of hanging.
+| Test | Checks |
+|------|--------|
+| `test_reset_state` | All `req_ready` high and `ar_valid` low after reset. |
+| `test_first_request_line_rate` | A client is accepted on every clock straight after reset; AR payloads arrive in order. |
+| `test_single_transaction` | Correct `ar_id`/`ar_addr`/`ar_len`; the holding register is free again afterwards. |
+| `test_ar_stall` | With `ar_ready` low the AR payload does not change; a second client's grant waits in `ar_pending`, a third client waits in its holding register; all three transfer in order after release. |
+| `test_credit_limit` | A request that does not fit is refused; one `r_pop` makes it fit and it is accepted; zero credit refuses even a one-beat request. |
+| `test_pop_during_handshake` | An `r_pop` on the same clock as the AR transfer is not lost. |
+| `test_refused_does_not_block` | A client refused for credit does not delay another client (needs 2+ clients). |
+| `test_single_client_stream` | One client spends its whole budget at one request per clock, in order. |
+| `test_all_clients_line_rate` | All clients stream: one AR per clock, round-robin order, two full rounds. |
+| `test_exhausted_client` | After spending the whole budget, the next request is refused. |
+| `test_reset_while_stalled` | Reset with a transaction stalled on AR; clean recovery and working traffic. |
+| `test_pop_returns_ratio` | From zero credit, one `r_pop` pays for exactly `GC_R_BEATS_PER_POP` beats. |
 
-The testbench ends with the banner:
+A watchdog fails the run instead of letting a deadlock hang it. The
+testbench ends with the banner:
 
 ```text
 ** Note: ALL AR-MUX CHECKS PASSED

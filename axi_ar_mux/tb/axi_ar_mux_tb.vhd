@@ -1,24 +1,38 @@
 -----------------------------------------------------------------------
 --Filename         : axi_ar_mux_tb.vhd
---Description      : Self-checking testbench for axi_ar_mux:
---                 :  - Reset: all req_ready low, ar_valid low, no AR txn.
---                 :  - Single transaction + immediate AR handshake; checks
---                 :    req_ready pulse, registered ar_* outputs, and credit
---                 :    decrement by the request beat count.
---                 :  - AR lock: ar_ready held low holds ar_valid high and
---                 :    blocks all new grants until the handshake completes.
---                 :  - Credit limit + pop returns: a request larger than the
---                 :    remaining credit is blocked; r_pop pulses restore
---                 :    credits and unblock it; re-block is verified.
---                 :  - Round-robin fairness: simultaneous requests served in
---                 :    RR order with wrap-around.
---                 :  - Input line rate (hard guard): with all clients
---                 :    requesting and ar_ready high, one AR transaction per
---                 :    clock, ar_valid never deasserts, RR order preserved.
---                 :  - Mid-stream reset while a transaction is in flight.
---                 :  - Watchdog to catch deadlocks instead of hanging.
+--Description      : Self-checking testbench for axi_ar_mux (revision 2.00).
+--                 :
+--                 : Structure:
+--                 :  - p_stim's main sequence (at the bottom of p_stim) is a
+--                 :    list of named tests. Read it first.
+--                 :  - Every test starts with p_reset_dut, so it begins with
+--                 :    full credits and empty registers.
+--                 :  - Tests are built from small helpers (present, send,
+--                 :    withdraw, pulse r_pop, expect refused, wait for AR,
+--                 :    stream). Burst sizes are given in beats; f_arlen
+--                 :    converts to AXI ARLEN in one place.
+--                 :
+--                 : Tests:
+--                 :  test_reset_state             all req_ready high, AR idle
+--                 :  test_first_request_line_rate one request per clock
+--                 :                               straight after reset
+--                 :  test_single_transaction      payload, holding release
+--                 :  test_ar_stall                ar_ready low holds AR; one
+--                 :                               grant waits in ar_pending
+--                 :  test_credit_limit            refuse, pop, accept
+--                 :  test_pop_during_handshake    same-cycle r_pop counted
+--                 :  test_refused_does_not_block  other clients still served
+--                 :  test_single_client_stream    full budget at line rate
+--                 :  test_all_clients_line_rate   round robin, no bubble
+--                 :  test_exhausted_client        zero credit blocks
+--                 :  test_reset_while_stalled     clean recovery
+--                 :  test_wide_r_side             GC_R_BEATS_PER_POP > 1
+--                 :
+--                 : Credit returns reach req_ready two edges after r_pop,
+--                 : so tests that wait on credit keep presenting the request.
+--                 : A watchdog fails the run instead of hanging on deadlock.
 --Author           : Rune Baeverrud
---Current Revision : 1.00
+--Current Revision : 2.00
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;
@@ -39,13 +53,14 @@ end entity;
 
 architecture sim of axi_ar_mux_tb is
 
+  -- Maximum number of clocks any wait loop may take before the test fails.
   constant C_WAIT_TIMEOUT : positive := 2000;
 
   signal aclk    : std_logic := '0';
   signal aresetn : std_logic := '0';
 
-  signal req_addr  : slv_array_t(0 to GC_NUM_CLIENTS-1)(GC_ADDR_WIDTH-1 downto 0);
-  signal req_len   : slv8_array_t(0 to GC_NUM_CLIENTS-1);
+  signal req_addr  : slv_array_t(0 to GC_NUM_CLIENTS-1)(GC_ADDR_WIDTH-1 downto 0) := (others => (others => '0'));
+  signal req_len   : slv8_array_t(0 to GC_NUM_CLIENTS-1) := (others => (others => '0'));
   signal req_valid : std_logic_vector(0 to GC_NUM_CLIENTS-1) := (others => '0');
   signal req_ready : std_logic_vector(0 to GC_NUM_CLIENTS-1);
   signal r_pop : std_logic_vector(0 to GC_NUM_CLIENTS-1) := (others => '0');
@@ -67,11 +82,29 @@ architecture sim of axi_ar_mux_tb is
     end if;
   end function;
 
-  -- Distinctive address for client c, transaction t.
-  function f_addr(c : natural; t : natural) return std_logic_vector is
+  -- Distinctive address for client c, request number n, so a wrong or
+  -- repeated AR payload is caught by p_check_ar_is.
+  function f_addr(c : natural; n : natural) return std_logic_vector is
   begin
-    return std_logic_vector(to_unsigned(c * 256 + t, GC_ADDR_WIDTH));
+    return std_logic_vector(to_unsigned(c * 256 + n, GC_ADDR_WIDTH));
   end function;
+
+  -- AXI ARLEN for a burst of the given number of beats.
+  function f_arlen(beats : positive) return std_logic_vector is
+  begin
+    return std_logic_vector(to_unsigned(beats - 1, 8));
+  end function;
+
+  -- The mux uses the client index as AR ID.
+  function f_id(client : natural) return std_logic_vector is
+  begin
+    return std_logic_vector(to_unsigned(client, GC_ID_WIDTH));
+  end function;
+
+  -- Burst sizes that stay legal for every configured GC_FIFO_DEPTH.
+  constant C_SHORT_BURST   : positive := f_min(4, GC_FIFO_DEPTH);
+  -- A burst that one r_pop pulse pays back in full.
+  constant C_ONE_POP_BURST : positive := f_min(GC_R_BEATS_PER_POP, GC_FIFO_DEPTH);
 
 begin
 
@@ -123,519 +156,380 @@ begin
     wait;
   end process;
 
+  -- Stimulus and checking: helpers, then one procedure per test, then the
+  -- main sequence that runs them (at the bottom).
   p_stim : process
-    -- Dynamic "other client" index: lets ModelSim avoid a static out-of-range
-    -- index when the config has only one client (guard keeps it unused).
-    variable v_other : integer := 1;
-    variable v_third : integer := 2;
-    variable stream_input_count : natural;
-    variable stream_ar_count    : natural;
-    variable stream_input_hs    : boolean;
-    variable stream_ar_present  : boolean;
-    -- Present one request and wait for the combinational ready handshake.
-    procedure p_send(
-      constant cli  : in integer;
-      constant addr : in std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
-      constant len  : in std_logic_vector(7 downto 0)
-    ) is
-      variable wait_count : natural := 0;
+
+    ---------------------------------------------------------------------
+    -- Helpers: clock and reset
+    ---------------------------------------------------------------------
+
+    procedure p_wait_clocks(n : natural) is
     begin
-      req_valid(cli) <= '1';
-      req_addr(cli)  <= addr;
-      req_len(cli)   <= len;
-      -- Hold valid until a rising edge observes ready high; that edge is
-      -- the capture/handshake edge.  Release valid immediately after so the
-      -- same request cannot be granted twice.
-      loop
+      for k in 1 to n loop
         wait until rising_edge(aclk);
-        exit when req_ready(cli) = '1';
-        assert wait_count < C_WAIT_TIMEOUT
-          report "FAIL: request handshake timeout for client " & integer'image(cli)
-          severity failure;
-        wait_count := wait_count + 1;
       end loop;
-      req_valid(cli) <= '0';
     end procedure;
 
-    -- Assert the AR channel is presenting the given transaction.
-    procedure p_check_ar(
-      constant cli  : in integer;
-      constant addr : in std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
-      constant len  : in std_logic_vector(7 downto 0)
-    ) is
+    -- Every test starts here: all TB inputs idle, ar_ready high, and a
+    -- two-clock synchronous reset, so credits are full and registers empty.
+    procedure p_start_test(name : string) is
     begin
-      assert ar_valid = '1'
-        report "FAIL: ar_valid not asserted for client " & integer'image(cli)
-        severity failure;
-      assert ar_id = std_logic_vector(to_unsigned(cli, GC_ID_WIDTH))
-        report "FAIL: ar_id mismatch for client " & integer'image(cli)
-        severity failure;
-      assert ar_addr = addr
-        report "FAIL: ar_addr mismatch" severity failure;
-      assert ar_len = len
-        report "FAIL: ar_len mismatch" severity failure;
+      report "AR-MUX TEST: " & name;
+      req_valid <= (others => '0');
+      r_pop     <= (others => '0');
+      ar_ready  <= '1';
+      aresetn   <= '0';
+      p_wait_clocks(2);
+      aresetn   <= '1';
+      p_wait_clocks(1);
     end procedure;
 
-    procedure p_wait_ar(
-      constant cli  : in integer;
-      constant addr : in std_logic_vector(GC_ADDR_WIDTH-1 downto 0);
-      constant len  : in std_logic_vector(7 downto 0)
-    ) is
-      variable wait_count : natural := 0;
+    ---------------------------------------------------------------------
+    -- Helpers: client side
+    ---------------------------------------------------------------------
+    -- A note on sampling: right after 'wait until rising_edge(aclk)' the
+    -- DUT registers have not updated yet, so every DUT output still shows
+    -- the value it had AT that edge. That is what these helpers check.
+
+    -- Put a request on client c's interface and leave it there.
+    procedure p_present(c : natural; addr : std_logic_vector; beats : positive) is
     begin
-      loop
-        if (ar_valid = '1') and
-           (ar_id = std_logic_vector(to_unsigned(cli, GC_ID_WIDTH))) and
-           (ar_addr = addr) and (ar_len = len) then
-          p_check_ar(cli, addr, len);
+      req_addr(c)  <= addr;
+      req_len(c)   <= f_arlen(beats);
+      req_valid(c) <= '1';
+    end procedure;
+
+    procedure p_withdraw(c : natural) is
+    begin
+      req_valid(c) <= '0';
+    end procedure;
+
+    -- Present a request, wait until it is accepted, then withdraw it so the
+    -- same request cannot be accepted twice.
+    procedure p_send(c : natural; addr : std_logic_vector; beats : positive) is
+    begin
+      p_present(c, addr, beats);
+      for k in 1 to C_WAIT_TIMEOUT loop
+        wait until rising_edge(aclk);
+        if req_ready(c) = '1' then
+          p_withdraw(c);
           return;
         end if;
-        assert wait_count < C_WAIT_TIMEOUT
-          report "FAIL: AR presentation timeout for client " & integer'image(cli)
-          severity failure;
-        wait until rising_edge(aclk);
-        wait_count := wait_count + 1;
       end loop;
+      report "FAIL: request never accepted for client " & integer'image(c)
+        severity failure;
+    end procedure;
+
+    -- Client c's presented request must stay refused for n clocks.
+    procedure p_expect_refused(c : natural; n : positive; failure_text : string) is
+    begin
+      for k in 1 to n loop
+        wait until rising_edge(aclk);
+        assert req_ready(c) = '0'
+          report "FAIL: " & failure_text & " (client " & integer'image(c) & ")"
+          severity failure;
+      end loop;
+    end procedure;
+
+    -- One r_pop pulse returns GC_R_BEATS_PER_POP credits to client c.
+    procedure p_pop(c : natural) is
+    begin
+      r_pop(c) <= '1';
+      wait until rising_edge(aclk);
+      r_pop(c) <= '0';
+    end procedure;
+
+    ---------------------------------------------------------------------
+    -- Helpers: AR side
+    ---------------------------------------------------------------------
+
+    -- The AR port must be presenting exactly this transaction.
+    procedure p_check_ar_is(c : natural; addr : std_logic_vector; beats : positive) is
+    begin
+      assert ar_valid = '1'
+        report "FAIL: ar_valid low, expected client " & integer'image(c) severity failure;
+      assert ar_id = f_id(c)
+        report "FAIL: ar_id is not client " & integer'image(c) severity failure;
+      assert ar_addr = addr
+        report "FAIL: wrong ar_addr for client " & integer'image(c) severity failure;
+      assert ar_len = f_arlen(beats)
+        report "FAIL: wrong ar_len for client " & integer'image(c) severity failure;
+    end procedure;
+
+    -- Wait until this transaction is on the AR port. Returns on that edge;
+    -- with ar_ready high, that edge is also its transfer. Transactions of
+    -- other clients presented first are skipped.
+    procedure p_wait_ar(c : natural; addr : std_logic_vector; beats : positive) is
+    begin
+      for k in 0 to C_WAIT_TIMEOUT loop
+        if ar_valid = '1' and ar_id = f_id(c) and ar_addr = addr and
+           ar_len = f_arlen(beats) then
+          return;
+        end if;
+        wait until rising_edge(aclk);
+      end loop;
+      report "FAIL: AR transaction never presented for client " & integer'image(c)
+        severity failure;
+    end procedure;
+
+    -- Client 0 streams n one-beat requests with addresses f_addr(0, first),
+    -- f_addr(0, first + 1), ... changing the address after every accept.
+    -- Checks that every AR transfer carries the next address in order, and
+    -- that req_ready never drops while a request is presented.
+    procedure p_stream_client0(n : positive; first : natural) is
+      variable accepted    : natural := 0;
+      variable transferred : natural := 0;
+    begin
+      p_present(0, f_addr(0, first), 1);
+      for k in 1 to 4 * n + 8 loop
+        wait until rising_edge(aclk);
+        if ar_valid = '1' and ar_ready = '1' then
+          p_check_ar_is(0, f_addr(0, first + transferred), 1);
+          transferred := transferred + 1;
+        end if;
+        if req_valid(0) = '1' then
+          assert req_ready(0) = '1'
+            report "FAIL: req_ready bubble after " & integer'image(accepted) &
+                   " accepted requests"
+            severity failure;
+          accepted := accepted + 1;
+          if accepted < n then
+            req_addr(0) <= f_addr(0, first + accepted);
+          else
+            p_withdraw(0);
+          end if;
+        end if;
+        exit when (accepted = n) and (transferred = n);
+      end loop;
+      assert accepted = n
+        report "FAIL: stream accepted " & integer'image(accepted) & " of " &
+               integer'image(n) & " requests"
+        severity failure;
+      assert transferred = n
+        report "FAIL: stream forwarded " & integer'image(transferred) & " of " &
+               integer'image(n) & " requests"
+        severity failure;
+    end procedure;
+
+    ---------------------------------------------------------------------
+    -- Tests
+    ---------------------------------------------------------------------
+
+    -- After reset every holding register is empty and nobody is presenting,
+    -- so every client must be ready and the AR port idle.
+    procedure test_reset_state is
+    begin
+      p_start_test("reset state");
+      assert req_ready = (0 to GC_NUM_CLIENTS-1 => '1')
+        report "FAIL: req_ready not high after reset" severity failure;
+      assert ar_valid = '0'
+        report "FAIL: ar_valid not low after reset" severity failure;
+    end procedure;
+
+    -- A client holding req_valid high must be accepted on every clock from
+    -- the very first one. This relies on a holding register being free on
+    -- the clock its request is granted; a bubble would halve the input rate.
+    procedure test_first_request_line_rate is
+    begin
+      p_start_test("first-request line rate");
+      p_stream_client0(C_SHORT_BURST, 0);
+    end procedure;
+
+    -- One request, forwarded with the right payload, after which the
+    -- holding register is free again.
+    procedure test_single_transaction is
+    begin
+      p_start_test("single transaction");
+      p_send(0, f_addr(0, 1), C_SHORT_BURST);
+      p_wait_ar(0, f_addr(0, 1), C_SHORT_BURST);
+      p_wait_clocks(1);
+      assert ar_valid = '0'
+        report "FAIL: ar_valid still high after the AR transfer" severity failure;
+      assert req_ready(0) = '1'
+        report "FAIL: holding register not released after the transfer" severity failure;
+    end procedure;
+
+    -- With ar_ready low the AR payload must not change. Client 1's grant
+    -- waits in ar_pending, client 2's request waits in its holding
+    -- register. After release all three transfer in order and AR drains.
+    procedure test_ar_stall is
+    begin
+      p_start_test("AR stall");
+      ar_ready <= '0';
+      p_send(0, f_addr(0, 2), 2);
+      p_wait_ar(0, f_addr(0, 2), 2);
+      if GC_NUM_CLIENTS >= 2 then
+        p_send(1, f_addr(1, 9), 1);
+      end if;
+      if GC_NUM_CLIENTS >= 3 then
+        p_send(2, f_addr(2, 11), 1);
+      end if;
+      for k in 1 to 4 loop
+        wait until rising_edge(aclk);
+        p_check_ar_is(0, f_addr(0, 2), 2);
+      end loop;
+
+      ar_ready <= '1';
+      if GC_NUM_CLIENTS >= 2 then
+        p_wait_ar(1, f_addr(1, 9), 1);
+      end if;
+      if GC_NUM_CLIENTS >= 3 then
+        p_wait_ar(2, f_addr(2, 11), 1);
+      end if;
+      p_wait_clocks(2);
+      assert ar_valid = '0'
+        report "FAIL: AR channel did not drain after the stall" severity failure;
+    end procedure;
+
+    -- Spend a little credit, then present a full-budget request: it no
+    -- longer fits and must be refused. One r_pop pays the spent credit back
+    -- and the request is accepted. That leaves zero credit, so even a
+    -- one-beat request is refused until the next r_pop.
+    procedure test_credit_limit is
+    begin
+      p_start_test("credit limit");
+      p_send(0, f_addr(0, 3), C_ONE_POP_BURST);
+      p_wait_ar(0, f_addr(0, 3), C_ONE_POP_BURST);
+
+      p_present(0, f_addr(0, 4), GC_FIFO_DEPTH);
+      p_expect_refused(0, 6, "full-budget request accepted without credit");
+      p_pop(0);
+      p_send(0, f_addr(0, 4), GC_FIFO_DEPTH);  -- still presented; accepted two edges after the pop
+      p_wait_ar(0, f_addr(0, 4), GC_FIFO_DEPTH);
+
+      p_present(0, f_addr(0, 5), 1);
+      p_expect_refused(0, 4, "one-beat request accepted with zero credit");
+      p_pop(0);
+      p_send(0, f_addr(0, 5), 1);
+      p_wait_ar(0, f_addr(0, 5), 1);
+    end procedure;
+
+    -- Spend the whole budget while ar_ready is low, then release AR with
+    -- r_pop high on the same clock. The returned credit must not be lost.
+    procedure test_pop_during_handshake is
+    begin
+      p_start_test("pop during AR handshake");
+      ar_ready <= '0';
+      p_send(0, f_addr(0, 6), GC_FIFO_DEPTH);
+      p_wait_ar(0, f_addr(0, 6), GC_FIFO_DEPTH);
+      ar_ready <= '1';
+      p_pop(0);  -- same edge as the AR transfer
+      p_send(0, f_addr(0, 7), C_ONE_POP_BURST);
+      p_wait_ar(0, f_addr(0, 7), C_ONE_POP_BURST);
+    end procedure;
+
+    -- Client 0 has one credit left and presents a two-beat request it cannot
+    -- afford. That request never enters the mux, so client 1 must still be
+    -- served, and client 0 must still be refused.
+    procedure test_refused_does_not_block is
+    begin
+      p_start_test("refused request does not block others");
+      p_send(0, f_addr(0, 8), GC_FIFO_DEPTH - 1);
+      p_wait_ar(0, f_addr(0, 8), GC_FIFO_DEPTH - 1);
+      p_present(0, f_addr(0, 9), 2);
+      p_send(1, f_addr(1, 10), 1);
+      p_wait_ar(1, f_addr(1, 10), 1);
+      assert req_ready(0) = '0'
+        report "FAIL: client 0 accepted a request it cannot afford" severity failure;
+      p_withdraw(0);
+    end procedure;
+
+    -- One client spends its whole budget at one request per clock; every
+    -- request is forwarded, in order, with its own address.
+    procedure test_single_client_stream is
+    begin
+      p_start_test("single-client stream");
+      p_stream_client0(GC_FIFO_DEPTH, 500);
+    end procedure;
+
+    -- Every client requests continuously. The AR channel must carry one
+    -- transaction per clock in round-robin order from client 0, for two
+    -- full rounds.
+    procedure test_all_clients_line_rate is
+    begin
+      p_start_test("all-client line rate");
+      for c in 0 to GC_NUM_CLIENTS-1 loop
+        p_present(c, f_addr(c, 20), 1);
+      end loop;
+      for k in 1 to C_WAIT_TIMEOUT loop
+        wait until rising_edge(aclk);
+        exit when ar_valid = '1';
+      end loop;
+      for n in 0 to 2 * GC_NUM_CLIENTS - 1 loop
+        if n > 0 then
+          wait until rising_edge(aclk);
+        end if;
+        p_check_ar_is(n mod GC_NUM_CLIENTS, f_addr(n mod GC_NUM_CLIENTS, 20), 1);
+      end loop;
+      req_valid <= (others => '0');
+    end procedure;
+
+    -- Spend the whole budget one beat at a time; the next request must be
+    -- refused.
+    procedure test_exhausted_client is
+    begin
+      p_start_test("exhausted client");
+      for n in 1 to GC_FIFO_DEPTH loop
+        p_send(0, f_addr(0, 100 + n), 1);
+        p_wait_ar(0, f_addr(0, 100 + n), 1);
+      end loop;
+      p_present(0, f_addr(0, 200), 1);
+      p_expect_refused(0, 4, "exhausted client accepted");
+      p_withdraw(0);
+    end procedure;
+
+    -- Reset while a transaction is stalled on the AR port. Afterwards the
+    -- port must be idle, every client ready, and traffic must work again.
+    procedure test_reset_while_stalled is
+    begin
+      p_start_test("reset while stalled");
+      ar_ready <= '0';
+      p_send(0, f_addr(0, 300), f_min(3, GC_FIFO_DEPTH));
+      p_wait_ar(0, f_addr(0, 300), f_min(3, GC_FIFO_DEPTH));
+
+      p_start_test("reset while stalled: after reset");
+      assert ar_valid = '0'
+        report "FAIL: ar_valid not cleared by reset" severity failure;
+      assert req_ready = (0 to GC_NUM_CLIENTS-1 => '1')
+        report "FAIL: req_ready not high after reset" severity failure;
+      p_send(0, f_addr(0, 301), 1);
+      p_wait_ar(0, f_addr(0, 301), 1);
+    end procedure;
+
+    -- One r_pop returns GC_R_BEATS_PER_POP credits, as when an upsizer puts
+    -- several client beats in one R beat. With zero credit, a single pop
+    -- must be enough for a request of exactly that many beats.
+    procedure test_pop_returns_ratio is
+    begin
+      p_start_test("one pop returns GC_R_BEATS_PER_POP credits");
+      p_send(0, f_addr(0, 400), GC_FIFO_DEPTH);
+      p_wait_ar(0, f_addr(0, 400), GC_FIFO_DEPTH);
+      p_present(0, f_addr(0, 402), C_ONE_POP_BURST);
+      p_expect_refused(0, 4, "request accepted with zero credit");
+      p_pop(0);
+      p_send(0, f_addr(0, 402), C_ONE_POP_BURST);
+      p_wait_ar(0, f_addr(0, 402), C_ONE_POP_BURST);
     end procedure;
 
   begin
-    ------------------------------------------------------------------
-    -- Reset
-    ------------------------------------------------------------------
-    aresetn <= '0';
-    wait until rising_edge(aclk);
-    wait until rising_edge(aclk);
-    aresetn <= '1';
-    wait until rising_edge(aclk);
-
-    assert req_ready = (0 to GC_NUM_CLIENTS-1 => '1')
-      report "FAIL: empty client buffers should be ready after reset" severity failure;
-    assert ar_valid = '0'
-      report "FAIL: ar_valid should be '0' after reset" severity failure;
-
-    ------------------------------------------------------------------
-    -- Test 0: first-request input line rate right after reset.
-    -- The very first request after reset must be accepted on the first
-    -- presented cycle with no req_ready bubble (self-priming pipeline),
-    -- and a held-valid source must sustain one request per cycle from
-    -- the very start.  This catches a pipeline-priming bubble that would
-    -- deassert req_ready for one cycle after the first accept.
-    ------------------------------------------------------------------
-    report "AR-MUX PHASE: test0 first-request line rate";
-    ar_ready <= '1';
-    req_valid(0) <= '1';
-    req_addr(0)  <= f_addr(0, 0);
-    req_len(0)   <= x"00";   -- 1 beat
-
-    stream_input_count := 0;
-    stream_ar_count    := 0;
-    for cycle in 0 to 2 * GC_FIFO_DEPTH + 4 loop
-      wait until rising_edge(aclk);
-      -- A presented request must be accepted immediately, every cycle.
-      if req_valid(0) = '1' then
-        assert req_ready(0) = '1'
-          report "FAIL: req_ready bubble on first requests (cycle " &
-                 integer'image(cycle) & ")"
-          severity failure;
-        stream_input_count := stream_input_count + 1;
-        if stream_input_count < f_min(4, GC_FIFO_DEPTH) then
-          req_addr(0) <= f_addr(0, stream_input_count);
-        else
-          req_valid(0) <= '0';
-        end if;
-      end if;
-      if (ar_valid = '1') and (ar_ready = '1') then
-        stream_ar_count := stream_ar_count + 1;
-      end if;
-      exit when (stream_input_count = f_min(4, GC_FIFO_DEPTH)) and
-                (stream_ar_count = f_min(4, GC_FIFO_DEPTH));
-    end loop;
-    assert stream_input_count = f_min(4, GC_FIFO_DEPTH)
-      report "FAIL: first requests were not all accepted"
-      severity failure;
-    assert stream_ar_count = f_min(4, GC_FIFO_DEPTH)
-      report "FAIL: first requests were not all forwarded"
-      severity failure;
-    req_valid(0) <= '0';
-    wait until rising_edge(aclk);
-
-    ------------------------------------------------------------------
-    -- Test 1: single transaction, immediate AR handshake
-    ------------------------------------------------------------------
-    report "AR-MUX PHASE: reset";
-    ar_ready <= '1';
-    report "AR-MUX PHASE: test1 single transaction";
-        p_send(0, f_addr(0, 1),
-          std_logic_vector(to_unsigned(f_min(4, GC_FIFO_DEPTH) - 1, 8)));
-        p_wait_ar(0, f_addr(0, 1),
-         std_logic_vector(to_unsigned(f_min(4, GC_FIFO_DEPTH) - 1, 8)));
-
-    -- p_wait_ar observed the presentation edge; the transfer happened on
-    -- that edge (ar_ready high), so one more edge settles the release.
-    wait until rising_edge(aclk);
-    assert ar_valid = '0'
-      report "FAIL: ar_valid should drop after the AR handshake" severity failure;
-    assert req_ready(0) = '1'
-      report "FAIL: client buffer was not released after the transfer" severity failure;
-
-    ------------------------------------------------------------------
-    -- Test 2: AR lock - ar_ready held low holds the transaction
-    ------------------------------------------------------------------
-    -- Fresh reset for deterministic credits.
-    report "AR-MUX PHASE: test2 lock";
-    aresetn <= '0';
-    wait until rising_edge(aclk);
-    wait until rising_edge(aclk);
-    aresetn <= '1';
-    wait until rising_edge(aclk);
-
-    ar_ready <= '0';
-    p_send(0, f_addr(0, 2), x"01");   -- 2 beats, ar_ready low
-    p_wait_ar(0, f_addr(0, 2), x"01");
-
-    -- While locked, ar_valid must hold. One other client may be accepted
-    -- into the pending slot, but it must not alter the active AR payload.
+    ---------------------------------------------------------------------
+    -- Main sequence
+    ---------------------------------------------------------------------
+    test_reset_state;
+    test_first_request_line_rate;
+    test_single_transaction;
+    test_ar_stall;
+    test_credit_limit;
+    test_pop_during_handshake;
     if GC_NUM_CLIENTS >= 2 then
-      p_send(v_other, f_addr(v_other, 9), x"00");
+      test_refused_does_not_block;
     end if;
-    if GC_NUM_CLIENTS >= 3 then
-      p_send(v_third, f_addr(v_third, 11), x"00");
-    end if;
-    for k in 0 to 3 loop
-      wait until rising_edge(aclk);
-      p_check_ar(0, f_addr(0, 2), x"01");
-    end loop;
-
-    -- Release: the locked transaction handshakes and the pending request is
-    -- promoted immediately on the same edge.
-    ar_ready <= '1';
-    if GC_NUM_CLIENTS >= 2 then
-      p_wait_ar(v_other, f_addr(v_other, 9), x"00");
-      if GC_NUM_CLIENTS >= 3 then
-        p_wait_ar(v_third, f_addr(v_third, 11), x"00");
-        wait until rising_edge(aclk);
-      else
-        wait until rising_edge(aclk);
-        assert ar_valid = '0'
-          report "FAIL: pending request did not complete"
-          severity failure;
-      end if;
-    else
-      wait until rising_edge(aclk);
-      wait until rising_edge(aclk);
-      assert ar_valid = '0'
-        report "FAIL: locked transaction should complete without pending request"
-        severity failure;
-    end if;
-
-    ------------------------------------------------------------------
-    -- Test 3: credit limit, pop returns, and re-block
-    ------------------------------------------------------------------
-    report "AR-MUX PHASE: test3 credits";
-    aresetn <= '0';
-    wait until rising_edge(aclk);
-    wait until rising_edge(aclk);
-    aresetn <= '1';
-    wait until rising_edge(aclk);
-    ar_ready <= '1';
-
-    -- Drain a number of beats no larger than one pop return. One pop then
-    -- restores the full budget for every positive pop ratio, including a
-    -- ratio larger than the FIFO depth (the RTL saturates at the limit).
-    p_send(0, f_addr(0, 3),
-         std_logic_vector(to_unsigned(f_min(GC_R_BEATS_PER_POP,
-                          GC_FIFO_DEPTH) - 1, 8)));
-    p_wait_ar(0, f_addr(0, 3),
-          std_logic_vector(to_unsigned(f_min(GC_R_BEATS_PER_POP,
-                             GC_FIFO_DEPTH) - 1, 8)));
-    wait until rising_edge(aclk);   -- AR handshake
-
-    -- A full-budget (GC_FIFO_DEPTH-beat) request does not fit: must NOT be
-    -- granted because the initial drain left fewer than GC_FIFO_DEPTH
-    -- credits.
-    req_valid(0) <= '1';
-    req_addr(0)  <= f_addr(0, 4);
-    req_len(0)   <= std_logic_vector(to_unsigned(GC_FIFO_DEPTH - 1, 8));
-    for k in 0 to 5 loop
-      wait until rising_edge(aclk);
-      assert req_ready(0) = '0'
-        report "FAIL: over-credit request granted" severity failure;
-      assert ar_valid = '0'
-        report "FAIL: ar_valid asserted without credit" severity failure;
-    end loop;
-
-    -- One pop returns enough credits to restore the full budget. No further
-    -- pops are issued, so the exact credit limit is exercised.
-    r_pop(0) <= '1';
-    wait until rising_edge(aclk);
-    r_pop(0) <= '0';
-    req_valid(0) <= '0';
-    report "AR-MUX: full-budget request granted after pops";
-    p_wait_ar(0, f_addr(0, 4),
-              std_logic_vector(to_unsigned(GC_FIFO_DEPTH - 1, 8)));
-    wait until rising_edge(aclk);        -- handshake, credit(0) = 0
-    req_valid(0) <= '0';
-
-    -- Now even a 1-beat request is blocked until a pop returns credit.
-    req_valid(0) <= '1';
-    req_addr(0)  <= f_addr(0, 5);
-    req_len(0)   <= x"00";
-    for k in 0 to 3 loop
-      wait until rising_edge(aclk);
-      assert req_ready(0) = '0'
-        report "FAIL: 1-beat request granted with zero credit" severity failure;
-    end loop;
-    r_pop(0) <= '1';
-    wait until rising_edge(aclk);
-    r_pop(0) <= '0';
-    report "AR-MUX: waiting for 1-beat grant after pop";
-    p_wait_ar(0, f_addr(0, 5), x"00");
-    req_valid(0) <= '0';
-    wait until rising_edge(aclk);        -- handshake
-    req_valid(0) <= '0';
-
-    ------------------------------------------------------------------
-    -- Test 3b: simultaneous r_pop and AR handshake
-    ------------------------------------------------------------------
-    report "AR-MUX PHASE: test3b simultaneous pop and handshake";
-    aresetn <= '0';
-    wait until rising_edge(aclk);
-    wait until rising_edge(aclk);
-    aresetn <= '1';
-    wait until rising_edge(aclk);
-
-    -- Hold the AR channel so the request is only presented, then release
-    -- with r_pop in the same cycle as the handshake edge.
-    ar_ready <= '0';
-    p_send(0, f_addr(0, 6),
-           std_logic_vector(to_unsigned(GC_FIFO_DEPTH - 1, 8)));
-    p_wait_ar(0, f_addr(0, 6),
-          std_logic_vector(to_unsigned(GC_FIFO_DEPTH - 1, 8)));
-    ar_ready <= '1';
-    r_pop(0)  <= '1';
-    wait until rising_edge(aclk);       -- AR handshake and credit return
-    r_pop(0)  <= '0';
-
-    p_send(0, f_addr(0, 7),
-           std_logic_vector(to_unsigned(f_min(GC_R_BEATS_PER_POP,
-                                              GC_FIFO_DEPTH) - 1, 8)));
-    p_wait_ar(0, f_addr(0, 7),
-               std_logic_vector(to_unsigned(f_min(GC_R_BEATS_PER_POP,
-                                                   GC_FIFO_DEPTH) - 1, 8)));
-    wait until rising_edge(aclk);
-    req_valid(0) <= '0';
-
-    ------------------------------------------------------------------
-    -- Test 3c: skip an oversized request when another client fits
-    ------------------------------------------------------------------
-    if GC_NUM_CLIENTS >= 2 then
-      report "AR-MUX PHASE: test3c partial-credit arbitration";
-      aresetn <= '0';
-      wait until rising_edge(aclk);
-      wait until rising_edge(aclk);
-      aresetn <= '1';
-      wait until rising_edge(aclk);
-      ar_ready <= '1';
-
-      -- Leave one credit on client 0, then present a two-beat request that
-      -- cannot fit while client 1 presents an eligible one-beat request.
-      p_send(0, f_addr(0, 8),
-             std_logic_vector(to_unsigned(GC_FIFO_DEPTH - 2, 8)));
-            p_wait_ar(0, f_addr(0, 8),
-            std_logic_vector(to_unsigned(GC_FIFO_DEPTH - 2, 8)));
-      wait until rising_edge(aclk);
-      req_valid(0) <= '1';
-      req_addr(0)  <= f_addr(0, 9);
-      req_len(0)   <= x"01";
-      p_send(v_other, f_addr(v_other, 10), x"00");
-      p_wait_ar(v_other, f_addr(v_other, 10), x"00");
-      wait until rising_edge(aclk);
-      req_valid(0) <= '0';
-      req_valid(v_other) <= '0';
-    end if;
-
-    ------------------------------------------------------------------
-    -- Test 3d: unique-payload single-client line rate
-    ------------------------------------------------------------------
-    report "AR-MUX PHASE: test3d single-client line rate";
-    aresetn <= '0';
-    wait until rising_edge(aclk);
-    wait until rising_edge(aclk);
-    aresetn <= '1';
-    wait until rising_edge(aclk);
-    ar_ready <= '1';
-    req_valid <= (others => '0');
-    req_valid(0) <= '1';
-    req_addr(0)  <= f_addr(0, 500);
-    req_len(0)   <= x"00";
-    stream_input_count := 0;
-    stream_ar_count := 0;
-    for cycle in 0 to 4 * GC_FIFO_DEPTH + 8 loop
-      wait until rising_edge(aclk);
-      stream_input_hs := (req_valid(0) = '1') and (req_ready(0) = '1');
-      stream_ar_present := (ar_valid = '1') and (ar_ready = '1');
-      if ar_valid = '1' then
-        p_check_ar(0, f_addr(0, 500 + stream_ar_count), x"00");
-      end if;
-      if stream_input_hs then
-        stream_input_count := stream_input_count + 1;
-        if stream_input_count < GC_FIFO_DEPTH then
-          req_addr(0) <= f_addr(0, 500 + stream_input_count);
-        else
-          req_valid(0) <= '0';
-        end if;
-      end if;
-      if stream_ar_present then
-        stream_ar_count := stream_ar_count + 1;
-      end if;
-      exit when (stream_input_count = GC_FIFO_DEPTH) and
-                (stream_ar_count = GC_FIFO_DEPTH);
-    end loop;
-    assert stream_input_count = GC_FIFO_DEPTH
-      report "FAIL: single-client stream did not accept full budget"
-      severity failure;
-    assert stream_ar_count = GC_FIFO_DEPTH
-      report "FAIL: single-client stream did not forward full budget"
-      severity failure;
-
-    report "AR-MUX PHASE: test4 line rate";
-    aresetn <= '0';
-    wait until rising_edge(aclk);
-    wait until rising_edge(aclk);
-    aresetn <= '1';
-    wait until rising_edge(aclk);
-    ar_ready <= '1';
-
-    -- All clients request continuously; RR with ar_ready high must sustain
-    -- one AR transaction per clock with no bubble on ar_valid.
-    req_valid <= (others => '1');
-    for i in 0 to GC_NUM_CLIENTS-1 loop
-      req_addr(i)  <= f_addr(i, 20);
-      req_len(i)   <= x"00";
-    end loop;
-
-    -- Wait for the first pipelined grant to be presented.
-    loop
-      wait until rising_edge(aclk);
-      exit when ar_valid = '1';
-    end loop;
-    for t in 0 to 2*GC_NUM_CLIENTS-1 loop
-      if t > 0 then
-        wait until rising_edge(aclk);  -- next txn, presented every edge
-      end if;
-      assert ar_valid = '1'
-        report "FAIL: line-rate bubble on ar_valid at txn " & integer'image(t)
-        severity failure;
-      assert ar_id = std_logic_vector(to_unsigned(t mod GC_NUM_CLIENTS, GC_ID_WIDTH))
-        report "FAIL: line-rate RR order broken at txn " & integer'image(t)
-        severity failure;
-      p_check_ar(t mod GC_NUM_CLIENTS,
-                 f_addr(t mod GC_NUM_CLIENTS, 20), x"00");
-    end loop;
-    req_valid <= (others => '0');
-
-    -- Each client issued 2 one-beat transactions, so each still has credit.
-    -- Verify a client with an exhausted budget blocks: drain client 0 fully.
-    report "AR-MUX PHASE: test5 exhaust";
-    aresetn <= '0';
-    wait until rising_edge(aclk);
-    wait until rising_edge(aclk);
-    aresetn <= '1';
-    wait until rising_edge(aclk);
-
-    -- Drain client 0's entire credit budget with one-beat requests.
-    for k in 1 to GC_FIFO_DEPTH loop
-      p_send(0, f_addr(0, 100 + k), x"00");
-      p_wait_ar(0, f_addr(0, 100 + k), x"00");
-      wait until rising_edge(aclk);   -- handshake, credit decremented
-    end loop;
-    -- Credit(0) is now 0: a further request must be blocked.
-    req_valid(0) <= '1';
-    req_addr(0)  <= f_addr(0, 200);
-    req_len(0)   <= x"00";
-    for k in 0 to 3 loop
-      wait until rising_edge(aclk);
-      assert req_ready(0) = '0'
-        report "FAIL: exhausted client 0 granted" severity failure;
-    end loop;
-    req_valid(0) <= '0';
-
-    ------------------------------------------------------------------
-    -- Test 6: mid-stream reset while a transaction is in flight
-    ------------------------------------------------------------------
-    report "AR-MUX PHASE: test6 mid-stream reset";
-    aresetn <= '0';                     -- fresh credits for this test
-    wait until rising_edge(aclk);
-    wait until rising_edge(aclk);
-    aresetn <= '1';
-    wait until rising_edge(aclk);
-
-    ar_ready <= '0';
-    p_send(0, f_addr(0, 300),
-           std_logic_vector(to_unsigned(f_min(3, GC_FIFO_DEPTH) - 1, 8)));
-    p_wait_ar(0, f_addr(0, 300),
-              std_logic_vector(to_unsigned(f_min(3, GC_FIFO_DEPTH) - 1, 8)));
-
-    aresetn <= '0';                     -- reset with a locked transaction
-    wait until rising_edge(aclk);
-    wait until rising_edge(aclk);
-    aresetn <= '1';
-    wait until rising_edge(aclk);
-
-    assert ar_valid = '0'
-      report "FAIL: ar_valid not cleared after mid-stream reset" severity failure;
-    assert req_ready = (0 to GC_NUM_CLIENTS-1 => '1')
-      report "FAIL: client buffers not ready after mid-stream reset" severity failure;
-
-    -- A post-reset transaction must work normally.
-    ar_ready <= '1';
-    p_send(0, f_addr(0, 301), x"00");
-    p_wait_ar(0, f_addr(0, 301), x"00");
-    wait until rising_edge(aclk);
-    wait until rising_edge(aclk);
-
-    ------------------------------------------------------------------
-    -- Test 7: wider R-side credit returns (GC_R_BEATS_PER_POP > 1)
-    ------------------------------------------------------------------
-    -- One r_pop returns GC_R_BEATS_PER_POP credits, matching an R channel
-    -- widened by an axis_upsizer where one R beat carries multiple client
-    -- beats. With the default GC_R_BEATS_PER_POP=1 this test is skipped.
-    if GC_R_BEATS_PER_POP > 1 then
-      report "AR-MUX PHASE: test7 wider r-side";
-      aresetn <= '0';
-      wait until rising_edge(aclk);
-      wait until rising_edge(aclk);
-      aresetn <= '1';
-      wait until rising_edge(aclk);
-      ar_ready <= '1';
-
-      -- One full-budget request drains the configured credit budget to zero.
-      p_send(0, f_addr(0, 400),
-             std_logic_vector(to_unsigned(GC_FIFO_DEPTH - 1, 8)));
-      p_wait_ar(0, f_addr(0, 400),
-                std_logic_vector(to_unsigned(GC_FIFO_DEPTH - 1, 8)));
-      wait until rising_edge(aclk);   -- handshake, credit 0
-
-      -- A 1-beat request is blocked at zero credit.
-      req_valid(0) <= '1';
-      req_addr(0)  <= f_addr(0, 402);
-      req_len(0)   <= x"00";
-      for k in 0 to 3 loop
-        wait until rising_edge(aclk);
-        assert req_ready(0) = '0'
-          report "FAIL: wider r-side over-grant at zero credit" severity failure;
-      end loop;
-
-      -- ONE pop returns GC_R_BEATS_PER_POP credits, unblocking the 1-beat
-      -- request (proves the wider R side is accounted for).
-      r_pop(0) <= '1';
-      wait until rising_edge(aclk);
-      r_pop(0) <= '0';
-      req_valid(0) <= '0';
-      p_wait_ar(0, f_addr(0, 402), x"00");
-      wait until rising_edge(aclk);
-      req_valid(0) <= '0';
-    end if;
+    test_single_client_stream;
+    test_all_clients_line_rate;
+    test_exhausted_client;
+    test_reset_while_stalled;
+    test_pop_returns_ratio;
 
     report "ALL AR-MUX CHECKS PASSED";
     sim_done <= true;
