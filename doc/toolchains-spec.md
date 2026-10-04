@@ -45,7 +45,7 @@ If only one simulator is installed, one base section is enough:
 setup = <command-that-activates-modelsim>
 ```
 
-`run axis_fifo vhdl modelsim` executes the setup command in a child shell,
+`run axis_fifo_r vhdl modelsim` executes the setup command in a child shell,
 probes the resulting `vsim`, and uses that same environment for compilation
 and simulation.
 
@@ -89,9 +89,9 @@ When several versions are registered, the command's `--version` chooses the
 matching section:
 
 ```text
-run axis_fifo vhdl vivado --version 2023.2
-run axis_fifo vhdl vivado --version 2025.2
-run axis_fifo vhdl questa --version 2025.3
+run axis_fifo_r vhdl vivado --version 2023.2
+run axis_fifo_r vhdl vivado --version 2025.2
+run axis_fifo_r vhdl questa --version 2025.3
 ```
 
 If the setup command produces a different version than requested, `run.py`

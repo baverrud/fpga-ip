@@ -429,7 +429,7 @@ axi_read_tester #(
 
 Resolved by `scripts/vhdl.f` (inline closure, per repo convention):
 `axi_read_bridge` (+ `axi_ar_mux`, `axi_r_demux`, `axis_cdc`,
-`axis_upsizer`, `axis_fifo`, `jitter_gen`, `axis_latency_gen`),
+`axis_upsizer`, `axis_fifo_r`, `jitter_gen`, `axis_latency_gen`),
 `axi_monitor` (`req`/`rsp`/core), `axi_req_gen` (+ `xorshift32/128`),
 `axilite_io`, `common/util_pkg`. The integration testbench adds both
 selectable memory slaves: `GC_USE_MEM_STORE=true` selects `axi_mem_store`,

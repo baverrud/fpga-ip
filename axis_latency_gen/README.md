@@ -11,7 +11,7 @@ Licensed under Zero-Clause BSD (0BSD).
   adjustable without re-synthesis.
 - **Per-entry jitter** — Uses `jitter_gen` CDF-based PRNG jitter, sampled
   at entry time on the write side.
-- **Single wider `axis_fifo`** — Stores `{tdata, t_departure}` together,
+- **Single wider `axis_fifo_r`** — Stores `{tdata, t_departure}` together,
   no sync risk between parallel FIFOs.
 - **Timer-wrap safe** — Same-width modular subtraction interpreted as signed,
   `signed(timer - t_departure) >= 0`, handles rollover correctly when max
@@ -81,7 +81,7 @@ assert this configuration at runtime; integrators must enforce it.
 On `s_axis_tvalid & s_axis_tready`:
 1. Step `jitter_gen` (new sample used by the **next** write; first write after reset uses jitter=0)
 2. Compute `t_departure = timer + 1 (FWFT pipeline) + base_delay (gated) + jitter`
-3. Push `{s_axis_tdata, t_departure}` into the wider `axis_fifo`
+3. Push `{s_axis_tdata, t_departure}` into the wider `axis_fifo_r`
 
 ### Read path (dispatch)
 

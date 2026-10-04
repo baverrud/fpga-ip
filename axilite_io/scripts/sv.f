@@ -29,7 +29,7 @@ top = axilite_io_top
 top = axilite_io_tb
 axilite_io/tb/axilite_io_wrap.sv
 common/rtl/util_pkg.vhd
-axis_fifo/rtl/axis_fifo.vhd
+axis_fifo_r/rtl/axis_fifo_r.vhd
 axilite_io/tb/axilite_io_harness.vhd
 axilite_io/tb/axilite_io_th.vhd
 common/rtl/axilite_bfm_pkg.vhd

@@ -1,4 +1,4 @@
-# axis_fifo — Safe, Parameterizable AXI4-Stream FIFO
+# axis_fifo_r — Safe, Parameterizable AXI4-Stream FIFO
 
 A **First-Word Fall-Through (FWFT)** elastic buffer with Xilinx SRL inference,
 simulation-safe non-power-of-2 depth support, registered handshaking for
@@ -73,7 +73,7 @@ All transfers follow the standard AXI4-Stream valid-ready protocol:
                       +-------------------+
                       |                   |
   s_axis_tdata   ---->|                   |-----> m_axis_tdata
-  s_axis_tvalid  ---->|     axis_fifo     |-----> m_axis_tvalid
+  s_axis_tvalid  ---->|     axis_fifo_r     |-----> m_axis_tvalid
   s_axis_tready  <----|                   |<----- m_axis_tready
                       |                   |-----> fifo_count
                       +-------------------+
@@ -196,11 +196,10 @@ end if;
 ## File Structure
 
 ```
-axis_fifo/
+axis_fifo_r/
 ├── rtl/
-│   ├── axis_fifo_pkg.vhd           # Shared utility package (log2ceil)
-│   ├── axis_fifo.vhd               # Production VHDL core (VHDL-2008)
-│   ├── axis_fifo.sv                # Production SystemVerilog core
+│   ├── axis_fifo_r.vhd              # Production VHDL core (VHDL-2008)
+│   ├── axis_fifo_r.sv               # Production SystemVerilog core
 ├── top/
 │   ├── axis_fifo_top.vhd           # Synthesis top wrapper (VHDL)
 │   └── axis_fifo_top.sv            # Synthesis top wrapper (SystemVerilog)
@@ -216,6 +215,8 @@ axis_fifo/
 │   └── wave.do                     # Waveform configuration (GUI)
 └── README.md                       # This file
 ```
+
+The manifests compile `common/rtl/util_pkg.vhd` for the shared `log2ceil` function.
 
 > All automated simulation and synthesis artifacts are transient and land in
 > `.runs/modelsim/`, `.runs/xsim/`, or `.runs/vivado/` outside version control.
@@ -237,16 +238,16 @@ axis_fifo/
 From the repository root, use the unified launcher:
 
 ```
-run axis_fifo vhdl  modelsim          # ModelSim VHDL (batch)
-run axis_fifo uvvm  modelsim          # ModelSim UVVM (batch)
-run axis_fifo sv    modelsim          # ModelSim SV (batch)
-run axis_fifo vhdl  xsim              # XSim VHDL (batch)
-run axis_fifo sv    xsim              # XSim SV (batch)
-run axis_fifo vhdl  vivado            # Vivado VHDL synthesis (batch)
-run axis_fifo sv    vivado            # Vivado SV synthesis (batch)
-run axis_fifo all                     # All batch permutations
-run axis_fifo all   modelsim          # All .f files, ModelSim only
-run axis_fifo clean                   # Remove all artifacts
+run axis_fifo_r vhdl  modelsim          # ModelSim VHDL (batch)
+run axis_fifo_r uvvm  modelsim          # ModelSim UVVM (batch)
+run axis_fifo_r sv    modelsim          # ModelSim SV (batch)
+run axis_fifo_r vhdl  xsim              # XSim VHDL (batch)
+run axis_fifo_r sv    xsim              # XSim SV (batch)
+run axis_fifo_r vhdl  vivado            # Vivado VHDL synthesis (batch)
+run axis_fifo_r sv    vivado            # Vivado SV synthesis (batch)
+run axis_fifo_r all                     # All batch permutations
+run axis_fifo_r all   modelsim          # All .f files, ModelSim only
+run axis_fifo_r clean                   # Remove all artifacts
 ```
 
 > **Prerequisites:** Initialize your EDA tool environment before running any
@@ -256,11 +257,11 @@ run axis_fifo clean                   # Remove all artifacts
 
 | File List | Compiles | Simulates | Output | Notes |
 |-----------|----------|-----------|--------|-------|
-| `vhdl.f` | `axis_fifo_pkg.vhd` + `axis_fifo.vhd` + `axis_fifo_top.vhd` + `axis_fifo_tb.vhd` | VHDL simple tests | Console | Works in modelsim, xsim, vivado |
-| `sv.f` | `axis_fifo_pkg.vhd` + `axis_fifo.sv` + `axis_fifo_top.vhd` + `axis_fifo_tb.vhd` | SystemVerilog simple tests | Console | Works in modelsim, xsim, vivado |
-| `uvvm.f` | `axis_fifo_pkg.vhd` + `axis_fifo.vhd` + UVVM harness/sequencer | UVVM tests | Console + UVVM report | Modelsim only (no [top] — skipped by vivado) |
-| `uvvm_util.f` | `axis_fifo_pkg.vhd` + `axis_fifo.vhd` + `axis_fifo_uvvm_util_tb.vhd` | Direct-DUT util-only checks | Console + UVVM alert report | Works in modelsim; stock xsim flow currently fails because `uvvm_util` is not compiled/mapped |
-| `sv-uvvm.f` | `axis_fifo_pkg.vhd` + `axis_fifo.sv` + UVVM harness/sequencer | UVVM tests (SV core) | Console + UVVM report | Modelsim only (no [top] — skipped by vivado) |
+| `vhdl.f` | `util_pkg.vhd` + `axis_fifo_r.vhd` + `axis_fifo_top.vhd` + `axis_fifo_tb.vhd` | VHDL simple tests | Console | Works in modelsim, xsim, vivado |
+| `sv.f` | `util_pkg.vhd` + `axis_fifo_r.sv` + `axis_fifo_top.vhd` + `axis_fifo_tb.vhd` | SystemVerilog simple tests | Console | Works in modelsim, xsim, vivado |
+| `uvvm.f` | `util_pkg.vhd` + `axis_fifo_r.vhd` + UVVM harness/sequencer | UVVM tests | Console + UVVM report | Modelsim only (no [top] — skipped by vivado) |
+| `uvvm_util.f` | `util_pkg.vhd` + `axis_fifo_r.vhd` + `axis_fifo_uvvm_util_tb.vhd` | Direct-DUT util-only checks | Console + UVVM alert report | Works in modelsim; stock xsim flow currently fails because `uvvm_util` is not compiled/mapped |
+| `sv-uvvm.f` | `util_pkg.vhd` + `axis_fifo_r.sv` + UVVM harness/sequencer | UVVM tests (SV core) | Console + UVVM report | Modelsim only (no [top] — skipped by vivado) |
 
 ---
 
@@ -341,13 +342,13 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ## Instantiation
 
-Ready-to-copy templates for instantiating `axis_fifo` in a design. Signal
+Ready-to-copy templates for instantiating `axis_fifo_r` in a design. Signal
 names match the ports; the data width and depth are set via the
 `C_TDATA_WIDTH` and `C_FIFO_DEPTH` constants.
 
 ### Synthesis wrappers
 
-Ready-made synthesis tops are provided in both languages, so `axis_fifo`
+Ready-made synthesis tops are provided in both languages, so `axis_fifo_r`
 can be used as a standalone netlist top without writing an instance by
 hand:
 
@@ -382,7 +383,7 @@ architecture rtl of <your_design> is
 
 begin
 
-  u_axis_fifo : entity work.axis_fifo
+  u_axis_fifo : entity work.axis_fifo_r
     generic map (
       GC_TDATA_WIDTH => C_TDATA_WIDTH,
       GC_FIFO_DEPTH  => C_FIFO_DEPTH
@@ -434,7 +435,7 @@ module <your_module>;
   // FIFO occupancy
   logic [$clog2(C_FIFO_DEPTH):0] fifo_count;  // occupancy count
 
-  axis_fifo #(
+  axis_fifo_r #(
     .GC_TDATA_WIDTH (C_TDATA_WIDTH),
     .GC_FIFO_DEPTH  (C_FIFO_DEPTH)
   ) u_axis_fifo (

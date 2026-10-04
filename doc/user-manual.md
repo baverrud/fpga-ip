@@ -55,32 +55,32 @@ run <ip|all> <manifest|all> <tool|all>   # Sweep matrix, batch only
 
 | Command | Description |
 |---------|-------------|
-| `run axis_fifo vhdl modelsim` | ModelSim VHDL testbench (batch) |
-| `cd axis_fifo` then `run . vhdl modelsim` | Same command from inside the IP folder |
-| `cd axis_fifo` then `run . all all` | Sweep this IP's manifests and tools |
-| `run axis_fifo vhdl modelsim --tb default` | Same, explicit testbench |
-| `run axis_fifo uvvm modelsim` | ModelSim UVVM testbench (batch) |
-| `run axis_fifo sv modelsim` | ModelSim SystemVerilog testbench (batch) |
-| `run axis_fifo vhdl modelsim gui` | ModelSim VHDL (GUI + Wave window) |
-| `run axis_fifo vhdl modelsim project` | ModelSim native project + GUI |
-| `run axis_fifo vhdl vivado` | Vivado VHDL synthesis (batch) |
-| `run axis_fifo vhdl vivado gui` | Vivado non-project GUI synthesis |
-| `run axis_fifo vhdl vivado project` | Vivado native `.xpr` project + GUI |
-| `run axis_fifo vhdl vivado --version 2023.2` | Vivado 2023.2 synthesis using the matching local toolchain |
-| `run axis_fifo vhdl vivado --version 2025.2` | Vivado 2025.2 synthesis using the matching local toolchain |
-| `run axis_fifo vhdl vivado --version 2026.1` | Vivado 2026.1 synthesis using the matching local toolchain |
-| `run axis_fifo vhdl xsim` | XSim VHDL simulation (batch) |
-| `run axis_fifo vhdl xsim --version 2023.2` | XSim from Vivado 2023.2 |
-| `run axis_fifo vhdl xsim --version 2025.2` | XSim from Vivado 2025.2 |
-| `run axis_fifo vhdl xsim --version 2026.1` | XSim from Vivado 2026.1 |
-| `run axis_fifo vhdl xsim gui` | XSim VHDL (GUI) |
-| `run axis_fifo vhdl modelsim --version 2020.1` | ModelSim 2020.1 simulation |
-| `run axis_fifo vhdl questa --version 2025.3` | Questa 2025.3 simulation with VHDL-2019 capability |
-| `run axis_fifo vhdl modelsim project --project-dir proj/modelsim` | Persistent ModelSim project |
+| `run axis_fifo_r vhdl modelsim` | ModelSim VHDL testbench (batch) |
+| `cd axis_fifo_r` then `run . vhdl modelsim` | Same command from inside the IP folder |
+| `cd axis_fifo_r` then `run . all all` | Sweep this IP's manifests and tools |
+| `run axis_fifo_r vhdl modelsim --tb default` | Same, explicit testbench |
+| `run axis_fifo_r uvvm modelsim` | ModelSim UVVM testbench (batch) |
+| `run axis_fifo_r sv modelsim` | ModelSim SystemVerilog testbench (batch) |
+| `run axis_fifo_r vhdl modelsim gui` | ModelSim VHDL (GUI + Wave window) |
+| `run axis_fifo_r vhdl modelsim project` | ModelSim native project + GUI |
+| `run axis_fifo_r vhdl vivado` | Vivado VHDL synthesis (batch) |
+| `run axis_fifo_r vhdl vivado gui` | Vivado non-project GUI synthesis |
+| `run axis_fifo_r vhdl vivado project` | Vivado native `.xpr` project + GUI |
+| `run axis_fifo_r vhdl vivado --version 2023.2` | Vivado 2023.2 synthesis using the matching local toolchain |
+| `run axis_fifo_r vhdl vivado --version 2025.2` | Vivado 2025.2 synthesis using the matching local toolchain |
+| `run axis_fifo_r vhdl vivado --version 2026.1` | Vivado 2026.1 synthesis using the matching local toolchain |
+| `run axis_fifo_r vhdl xsim` | XSim VHDL simulation (batch) |
+| `run axis_fifo_r vhdl xsim --version 2023.2` | XSim from Vivado 2023.2 |
+| `run axis_fifo_r vhdl xsim --version 2025.2` | XSim from Vivado 2025.2 |
+| `run axis_fifo_r vhdl xsim --version 2026.1` | XSim from Vivado 2026.1 |
+| `run axis_fifo_r vhdl xsim gui` | XSim VHDL (GUI) |
+| `run axis_fifo_r vhdl modelsim --version 2020.1` | ModelSim 2020.1 simulation |
+| `run axis_fifo_r vhdl questa --version 2025.3` | Questa 2025.3 simulation with VHDL-2019 capability |
+| `run axis_fifo_r vhdl modelsim project --project-dir proj/modelsim` | Persistent ModelSim project |
 | `run all all all` | Sweep every IP/manifest/tool (batch) |
 | `run all vhdl modelsim` | Sweep every IP, `vhdl.f`, ModelSim |
-| `run axis_fifo all modelsim` | Sweep every manifest of one IP with ModelSim |
-| `run clean axis_fifo` | Remove `axis_fifo/.runs/` |
+| `run axis_fifo_r all modelsim` | Sweep every manifest of one IP with ModelSim |
+| `run clean axis_fifo_r` | Remove `axis_fifo_r/.runs/` |
 
 ### A Typical Workflow
 
@@ -154,8 +154,8 @@ Key points:
 across runs, pass a persistent directory:
 
 ```text
-run axis_fifo vhdl modelsim project --project-dir proj/modelsim
-run axis_fifo vhdl vivado   project --project-dir proj/vivado
+run axis_fifo_r vhdl modelsim project --project-dir proj/modelsim
+run axis_fifo_r vhdl vivado   project --project-dir proj/vivado
 ```
 
 - The path is **IP-relative**: `proj/modelsim` means `<ip>/proj/modelsim`
@@ -190,8 +190,8 @@ and prints a live, aligned progress table with `PASS`/`FAIL`/`SKIP` results:
 
 ```text
 IP            MANIFEST  TB       TOOL      RESULT
-axis_fifo     vhdl      default  modelsim  PASS
-axis_fifo     vhdl      default  vivado    PASS
+axis_fifo_r     vhdl      default  modelsim  PASS
+axis_fifo_r     vhdl      default  vivado    PASS
 ...
 Summary: 8 passed, 1 failed, 2 skipped (11 total)
 ```
@@ -295,7 +295,7 @@ Notes:
   [toolchains.ini specification](toolchains-spec.md) for the file format,
   the lookup precedence, and how `run.py` captures the tool environment.
 - Example version selection:
-  `run axis_fifo vhdl vivado --version 2025.2`. If the setup command produces
+  `run axis_fifo_r vhdl vivado --version 2025.2`. If the setup command produces
   another version, run.py stops with a clear mismatch error.
 - Before capability matching, `run.py` executes each profile's `probe` command
   and extracts the configured version and edition. `--version` and

@@ -14,7 +14,7 @@
 --     portless, abstract                         +-- AXI4-Lite VVC (master, idx 1)
 --                                                 +-- axilite_io_th (FIFO loopback)
 --                                                       +-- axilite_io_harness
---                                                       +-- axis_fifo x2
+--                                                       +-- axis_fifo_r x2
 --
 ---------------------------------------------------------------------------------------------------
 
@@ -330,7 +330,7 @@ begin
       -- ==========================================================================================
       -- Test 5-6: Stream push via FIFO loopback (channels 0 and 1)
       --   Writing to the stream-push address region (0x4000+) drives m_axis_tdata and
-      --   pulses m_axis_tvalid.  The TH routes this through an axis_fifo loopback back
+      --   pulses m_axis_tvalid.  The TH routes this through an axis_fifo_r loopback back
       --   to the DUT's s_axis input.  These tests verify that the stream output pipeline
       --   produces valid beats that are captured by the FIFO.
       -- ==========================================================================================
@@ -480,7 +480,7 @@ begin
       -- ==========================================================================================
       -- Test 16: FIFO ordering -- multiple stream pushes to same channel
       --   Pushes three items (AAA00001, BBB00002, CCC00003) to channel 0, then pops
-      --   them in order.  The axis_fifo preserves push order, so pops must return
+      --   them in order.  The axis_fifo_r preserves push order, so pops must return
       --   AAA, then BBB, then CCC.  This validates that the FIFO loopback does not
       --   reorder or drop beats, and that the stream push/pop address decoding does
       --   not alias channels.

@@ -1,6 +1,6 @@
 ---------------------------------------------------------------------------------------------------
 -- Filename         : axis_fifo_uvvm_util_tb.vhd
--- Description      : Direct DUT testbench for axis_fifo using uvvm_util only.
+-- Description      : Direct DUT testbench for axis_fifo_r using uvvm_util only.
 --                    No harness, no VVC framework, no abstract command layer.
 --                    The entity intentionally stays named axis_fifo_tb so the
 --                    generic run scripts can reuse the standard work.axis_fifo_tb
@@ -70,7 +70,7 @@ begin
   aclk <= not aclk after TCLK / 2 when test_done = '0' else '0';
 
   -- Device Under Test (DUT) Instantiation
-  dut: entity work.axis_fifo
+  dut: entity work.axis_fifo_r
     generic map (
       GC_TDATA_WIDTH => C_WIDTH,
       GC_FIFO_DEPTH  => C_DEPTH)

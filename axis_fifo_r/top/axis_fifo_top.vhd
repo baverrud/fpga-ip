@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------
 --Filename         : axis_fifo_top.vhd
---Description      : Synthesis Wrapper and Instantiation Top-Level for axis_fifo.
+--Description      : Synthesis Wrapper and Instantiation Top-Level for axis_fifo_r.
 --                 : Parameterized with generics to dynamically expose port width
 --                 : configurations, passing AXI4-Stream payload signals and
 --                 : occupancy count metrics directly.
@@ -50,7 +50,7 @@ begin
   fifo_count <= std_logic_vector(fifo_count_i);
 
   -- Instantiate the core IP block.
-  u_axis_fifo : entity work.axis_fifo
+  u_axis_fifo : entity work.axis_fifo_r
     generic map (
       GC_TDATA_WIDTH => GC_TDATA_WIDTH,
       GC_FIFO_DEPTH  => GC_FIFO_DEPTH

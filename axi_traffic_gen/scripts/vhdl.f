@@ -31,7 +31,7 @@ axi_traffic_gen/top/axi_req_gen_top.vhd
 
 [tb:reqgen]
 top = axi_req_gen_tb
-axis_fifo/rtl/axis_fifo.vhd
+axis_fifo_r/rtl/axis_fifo_r.vhd
 axi_ar_mux/rtl/axi_ar_mux.vhd
 axis_cdc/rtl/axis_cdc.vhd
 axis_upsizer/rtl/axis_upsizer.vhd
@@ -48,7 +48,7 @@ axi_traffic_gen/tb/axi_req_gen_tb.vhd
 
 [tb:reqsimple]
 top = axi_req_gen_simple_tb
-axis_fifo/rtl/axis_fifo.vhd
+axis_fifo_r/rtl/axis_fifo_r.vhd
 axi_ar_mux/rtl/axi_ar_mux.vhd
 axis_cdc/rtl/axis_cdc.vhd
 axis_upsizer/rtl/axis_upsizer.vhd

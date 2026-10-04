@@ -112,7 +112,7 @@ Example:
 ```text
 [rtl]
 common/rtl/util_pkg.vhd
-axis_fifo/rtl/axis_fifo.vhd      std=2008
+axis_fifo_r/rtl/axis_fifo_r.vhd      std=2008
 vendor/rtl/fifo_core.vhd         std=2008
 axi_monitor/rtl/axi_monitor.vhd              tool=vivado,questa
 ```
@@ -145,26 +145,26 @@ token contains no `=` is a file path. Testbench sections support:
 top = axis_fifo_tb
 requires =
 common/rtl/axis_bfm_pkg.vhd
-axis_fifo/tb/axis_fifo_tb.vhd
+axis_fifo_r/tb/axis_fifo_tb.vhd
 
 [tb:uvvm]
 top = axis_fifo_uvvm_tb
 time_res = fs
 requires = uvvm
-axis_fifo/tb/axis_fifo_uvvm_th.vhd
-axis_fifo/tb/axis_fifo_uvvm_tb.vhd
+axis_fifo_r/tb/axis_fifo_uvvm_th.vhd
+axis_fifo_r/tb/axis_fifo_uvvm_tb.vhd
 
 [tb:rev]
 top = axis_fifo_tb
 generics = GC_TS=13ns, GC_TM=10ns
-axis_fifo/tb/axis_fifo_tb.vhd
+axis_fifo_r/tb/axis_fifo_tb.vhd
 ```
 
 `generics` overrides top-level generics of the `top` entity (for example
 clock periods), so one parameterized testbench can serve multiple
 configurations without a second TB file. The `[tb:rev]` example runs the
 same `axis_fifo_tb` file with different periods via
-`run axis_fifo vhdl modelsim --tb rev`.
+`run axis_fifo_r vhdl modelsim --tb rev`.
 
 `requires` values must be present in `tool_capabilities.ini` under
 `[features] allowed_features`; an unknown token is a validation error
@@ -277,28 +277,28 @@ run my_ip vhdl modelsim
 run my_ip vhdl modelsim --tb default
 ```
 
-### 5.2 Simple standalone IP (`axis_fifo/scripts/vhdl.f`)
+### 5.2 Simple standalone IP (`axis_fifo_r/scripts/vhdl.f`)
 
 ```text
-# axis_fifo VHDL manifest
+# axis_fifo_r VHDL manifest
 DEFAULT_STD: 2008
 DEFAULT_LIB: work
 
 [rtl]
 common/rtl/util_pkg.vhd
-axis_fifo/rtl/axis_fifo.vhd    std=2008
+axis_fifo_r/rtl/axis_fifo_r.vhd    std=2008
 
 [top]
-axis_fifo/top/axis_fifo_top.vhd
+axis_fifo_r/top/axis_fifo_top.vhd
 
 [tb:default]
 top = axis_fifo_tb
 requires =
 common/rtl/axis_bfm_pkg.vhd
-axis_fifo/tb/axis_fifo_tb.vhd
+axis_fifo_r/tb/axis_fifo_tb.vhd
 ```
 
-### 5.3 UVVM verification manifest (`axis_fifo/scripts/uvvm.f`)
+### 5.3 UVVM verification manifest (`axis_fifo_r/scripts/uvvm.f`)
 
 ```text
 DEFAULT_STD: 2008
@@ -306,17 +306,17 @@ DEFAULT_LIB: work
 
 [rtl]
 common/rtl/util_pkg.vhd
-axis_fifo/rtl/axis_fifo.vhd
+axis_fifo_r/rtl/axis_fifo_r.vhd
 
 [tb:default]
 top = axis_fifo_uvvm_tb
 requires = uvvm
 time_res = fs
-axis_fifo/tb/axis_fifo_uvvm_th.vhd
-axis_fifo/tb/axis_fifo_uvvm_tb.vhd
+axis_fifo_r/tb/axis_fifo_uvvm_th.vhd
+axis_fifo_r/tb/axis_fifo_uvvm_tb.vhd
 ```
 
-### 5.4 Mixed-language manifest (`axis_fifo/scripts/sv-uvvm.f`)
+### 5.4 Mixed-language manifest (`axis_fifo_r/scripts/sv-uvvm.f`)
 
 ```text
 DEFAULT_STD: 2008
@@ -324,14 +324,14 @@ DEFAULT_LIB: work
 
 [rtl]
 common/rtl/util_pkg.vhd
-axis_fifo/rtl/axis_fifo.sv
+axis_fifo_r/rtl/axis_fifo_r.sv
 
 [tb:default]
 top = axis_fifo_uvvm_tb
 requires = uvvm
 time_res = fs
-axis_fifo/tb/axis_fifo_uvvm_th.vhd
-axis_fifo/tb/axis_fifo_uvvm_tb.vhd
+axis_fifo_r/tb/axis_fifo_uvvm_th.vhd
+axis_fifo_r/tb/axis_fifo_uvvm_tb.vhd
 ```
 
 ### 5.5 Complete manifest with includes, multiple testbenches, waves, and constraints

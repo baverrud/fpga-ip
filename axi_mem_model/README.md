@@ -459,7 +459,7 @@ run axi_mem_model vhdl modelsim
 | Dependency | Path |
 |------------|------|
 | `util_pkg` | `../common/rtl/util_pkg.vhd` |
-| `axis_fifo` | `../axis_fifo/rtl/axis_fifo.vhd` (wrapped by `axis_latency_gen`) |
+| `axis_fifo_r` | `../axis_fifo_r/rtl/axis_fifo_r.vhd` (wrapped by `axis_latency_gen`) |
 | `xorshift32` | `../parallel_prng/rtl/xorshift32.vhd` (wrapped by `jitter_gen`) |
 | `jitter_gen` | `../jitter_gen/rtl/jitter_gen.vhd` (wrapped by `axis_latency_gen`) |
 | `axis_latency_gen` | `../axis_latency_gen/rtl/axis_latency_gen.vhd` |

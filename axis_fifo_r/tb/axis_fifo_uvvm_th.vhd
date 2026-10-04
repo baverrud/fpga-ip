@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------
 --Filename         : axis_fifo_uvvm_th.vhd
---Description      : UVVM VVC-based Test Harness for axis_fifo.
+--Description      : UVVM VVC-based Test Harness for axis_fifo_r.
 --                 : Instantiates the DUT, AXI-Stream VVC master/slave,
 --                 : and encapsulates all physical port mapping.
 --                 : NOTE: In UVVM, the Test Harness (TH) is strictly
@@ -87,7 +87,7 @@ begin
   ----------------------------------------------------------------
   -- Device Under Test (DUT) Instantiation
   ----------------------------------------------------------------
-  dut : entity work.axis_fifo
+  dut : entity work.axis_fifo_r
     generic map (
       GC_TDATA_WIDTH => GC_DATA_WIDTH,
       GC_FIFO_DEPTH  => GC_FIFO_DEPTH

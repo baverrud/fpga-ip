@@ -1,5 +1,5 @@
 -----------------------------------------------------------------------
---Filename         : axis_fifo.vhd
+--Filename         : axis_fifo_r.vhd
 --Description      : Safe, Parameterizable Elastic Buffer (FBEB) with:
 --                 :  - Inferring of shift-register LUTs (SRLs, on Xilinx 
 --                 :    architectures) for depths > 2, or a double-buffer 
@@ -26,7 +26,7 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 use work.util_pkg.all;
 
-entity axis_fifo is
+entity axis_fifo_r is
   generic (
     GC_TDATA_WIDTH  : positive; -- Width of the unified AXI-Stream TDATA bus (can pack data + custom metadata)
     GC_FIFO_DEPTH   : positive range 2 to positive'high); 
@@ -47,7 +47,7 @@ entity axis_fifo is
     fifo_count      : out unsigned (log2ceil(GC_FIFO_DEPTH) downto 0)); -- FIFO occupancy level
 end entity;
 
-architecture arch of axis_fifo is
+architecture arch of axis_fifo_r is
 
   type srl_t is array (0 to GC_FIFO_DEPTH-1) of std_logic_vector (GC_TDATA_WIDTH-1 downto 0);
 

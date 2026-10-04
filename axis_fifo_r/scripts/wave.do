@@ -1,5 +1,5 @@
 # ============================================================================
-# wave.do -- Default Wave window setup for axis_fifo simulation
+# wave.do -- Default Wave window setup for axis_fifo_r simulation
 #
 # Formerly auto-loaded by the legacy sim_modelsim.do GUI flow (now removed;
 # run.py is the only launcher). Keep for manual `do wave.do` use.

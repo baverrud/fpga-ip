@@ -56,7 +56,7 @@ entity axi_monitor_rsp is
     rsp_resp  : in  std_logic_vector(1 downto 0);
     rsp_last  : in  std_logic;
 
-    -- Scoreboard read (from internal axis_fifo)
+    -- Scoreboard read (from internal axis_fifo_r)
     sb_tdata  : in  std_logic_vector(GC_ADDR_WIDTH + GC_TIME_WIDTH + 8 - 1 downto 0);
     sb_tvalid : in  std_logic;
     sb_tready : out std_logic;

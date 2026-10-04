@@ -9,7 +9,7 @@
 --                   against it, accumulating transaction, latency,
 --                   burst-length, and protocol-error statistics.
 --
---                   Data flow:  req tap -> (sb_tf) -> axis_fifo
+--                   Data flow:  req tap -> (sb_tf) -> axis_fifo_r
 --                               -> (sb_ff) -> rsp tap
 --                   The scoreboard decouples req capture from rsp
 --                   completion.  No backpressure is applied to either
@@ -107,7 +107,7 @@ architecture rtl of axi_monitor is
 begin
 
   ---------------------------------------------------------------------
-  -- Data flow:  req tap -> (sb_tf) -> axis_fifo -> (sb_ff) -> rsp tap
+  -- Data flow:  req tap -> (sb_tf) -> axis_fifo_r -> (sb_ff) -> rsp tap
   --             req tap  --req_valid/req_addr/req_len---> external bus
   --             rsp tap  <---rsp_valid/rsp_data/rsp_last-  external bus
   --
@@ -141,7 +141,7 @@ begin
 
   -- Scoreboard FIFO -- elastic buffer between req tap (producer) and
   -- rsp tap (consumer).  FWFT with registered handshakes.
-  u_sb_fifo : entity work.axis_fifo
+  u_sb_fifo : entity work.axis_fifo_r
     generic map (
       GC_TDATA_WIDTH => C_SB_WIDTH,
       GC_FIFO_DEPTH  => GC_SB_FIFO_DEPTH

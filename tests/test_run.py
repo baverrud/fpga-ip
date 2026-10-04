@@ -35,9 +35,9 @@ class RunnerTests(unittest.TestCase):
 
     def test_dot_ip_sweep_resolves_current_ip_name(self):
         with patch.object(
-            runner.Path, "cwd", return_value=REPO_ROOT / "axis_fifo"
+            runner.Path, "cwd", return_value=REPO_ROOT / "axis_fifo_r"
         ):
-            self.assertEqual(runner._resolve_sweep_dot(), "axis_fifo")
+            self.assertEqual(runner._resolve_sweep_dot(), "axis_fifo_r")
 
     def test_dot_clean_removes_current_ip_runs(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -54,10 +54,10 @@ class RunnerTests(unittest.TestCase):
             self.assertFalse(runs.exists())
 
     def test_auto_run_dirs_are_stable_and_grouped_by_tool(self):
-        modelsim_run = runner._auto_run_dir("axis_fifo", "modelsim")
-        repeated_modelsim_run = runner._auto_run_dir("axis_fifo", "modelsim")
-        questa_run = runner._auto_run_dir("axis_fifo", "questa")
-        vivado_run = runner._auto_run_dir("axis_fifo", "vivado")
+        modelsim_run = runner._auto_run_dir("axis_fifo_r", "modelsim")
+        repeated_modelsim_run = runner._auto_run_dir("axis_fifo_r", "modelsim")
+        questa_run = runner._auto_run_dir("axis_fifo_r", "questa")
+        vivado_run = runner._auto_run_dir("axis_fifo_r", "vivado")
 
         self.assertEqual(modelsim_run, repeated_modelsim_run)
         self.assertEqual(modelsim_run, questa_run)

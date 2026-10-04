@@ -14,8 +14,8 @@
 # Each line: <relative_path_from_sub_fpga_ip> [std=<vhdl_std>]
 #   vhdl_std defaults to DEFAULT_STD (2008) if omitted.
 #
-# axi_r_demux depends on axis_fifo (per-client elastic buffers) and
-# util_pkg (used by axis_fifo), so those are listed first in [rtl].
+# axi_r_demux depends on axis_fifo_r (per-client elastic buffers) and
+# util_pkg (used by axis_fifo_r), so those are listed first in [rtl].
 # ============================================================================
 DEFAULT_STD: 2008
 DEFAULT_LIB: work
@@ -23,7 +23,7 @@ DEFAULT_TB: default
 
 [rtl]
 common/rtl/util_pkg.vhd
-axis_fifo/rtl/axis_fifo.vhd
+axis_fifo_r/rtl/axis_fifo_r.vhd
 axi_r_demux/rtl/axi_r_demux.vhd
 
 [top]

@@ -2,7 +2,7 @@
 
 AXI4 Read Data Channel demultiplexer: routes each incoming R beat to one
 of `GC_NUM_CLIENTS` response interfaces selected by `r_id`. Each client
-gets an elastic per-ID FIFO (the existing `axis_fifo`) plus a registered
+gets an elastic per-ID FIFO (the existing `axis_fifo_r`) plus a registered
 read-data handshake, so a slow or stalled client never blocks another
 client's response traffic.
 
@@ -12,7 +12,7 @@ FIFOs** and the design is built to sustain **250 MHz**.
 ## Overview
 
 A single AXI R channel (interconnect -> this IP) fans out to many client
-response interfaces. Beats are buffered in a per-client `axis_fifo`, so
+response interfaces. Beats are buffered in a per-client `axis_fifo_r`, so
 traffic to one client is decoupled from the others: a client that stops
 asserting `rsp_ready` absorbs beats in its FIFO without back-pressuring
 the shared R channel until its FIFO (plus the one-beat skid) is full.
@@ -82,7 +82,7 @@ The micro-architecture is:
   lost or over-committed**.
 
 2. **Per-client elastic buffers.** Each client instantiates the existing
-   `axis_fifo` (see `sub/fpga-ip/axis_fifo`). The payload stored is
+   `axis_fifo_r` (see `sub/fpga-ip/axis_fifo_r`). The payload stored is
    `[ r_resp(2) | r_last(1) | r_data ]` - the data path is wide enough for
    the full `8*GC_DATA_BYTES` bits plus the 3 sideband bits.
 
@@ -122,7 +122,7 @@ xc7a35tftg256-1**, Vivado 2023.2, default 4 x 32-bit x depth-32 config:
 | Block RAM / DSP | 0 |
 | WNS @ 250 MHz | **+0.122 ns** (4 ns period) |
 
-The FIFO storage is SRL-based (`axis_fifo`), so the per-client elasticity
+The FIFO storage is SRL-based (`axis_fifo_r`), so the per-client elasticity
 costs no block RAM and almost no flip-flops; the only FFs are the shared
 skid, the registered input ready, and the `r_pop` credit registers. The
 critical path is the registered skid-payload load control (3 logic levels).

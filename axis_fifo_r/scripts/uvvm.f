@@ -2,8 +2,8 @@
 # uvvm.f -- UVVM Verification File List (language-agnostic)
 #
 # Used by:
-#   run axis_fifo uvvm modelsim      (simulation; requires UVVM)
-#   run axis_fifo uvvm questa        (simulation; requires UVVM)
+#   run axis_fifo_r uvvm modelsim      (simulation; requires UVVM)
+#   run axis_fifo_r uvvm questa        (simulation; requires UVVM)
 #
 # Section reference:
 #   [rtl]        -- RTL sources (shared with vhdl.f)
@@ -20,11 +20,11 @@ DEFAULT_LIB: work
 
 [rtl]
 common/rtl/util_pkg.vhd
-axis_fifo/rtl/axis_fifo.vhd
+axis_fifo_r/rtl/axis_fifo_r.vhd
 
 [tb:default]
 top = axis_fifo_uvvm_tb
 requires = uvvm
 time_res = fs
-axis_fifo/tb/axis_fifo_uvvm_th.vhd
-axis_fifo/tb/axis_fifo_uvvm_tb.vhd
+axis_fifo_r/tb/axis_fifo_uvvm_th.vhd
+axis_fifo_r/tb/axis_fifo_uvvm_tb.vhd

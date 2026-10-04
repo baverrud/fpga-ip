@@ -21,13 +21,13 @@ specification.
 From the repository root, on a machine with the EDA tool on `PATH`:
 
 ```text
-run axis_fifo vhdl modelsim      # ModelSim VHDL testbench, batch
-run axis_fifo vhdl vivado        # Vivado VHDL synthesis, batch
-run axis_fifo uvvm modelsim gui  # UVVM testbench, ModelSim GUI + waves
-cd axis_fifo && run . vhdl modelsim # Same command from inside an IP folder
-cd axis_fifo && run . all all    # Sweep this IP's manifests and tools
+run axis_fifo_r vhdl modelsim      # ModelSim VHDL testbench, batch
+run axis_fifo_r vhdl vivado        # Vivado VHDL synthesis, batch
+run axis_fifo_r uvvm modelsim gui  # UVVM testbench, ModelSim GUI + waves
+cd axis_fifo_r && run . vhdl modelsim # Same command from inside an IP folder
+cd axis_fifo_r && run . all all    # Sweep this IP's manifests and tools
 run all all all                  # Sweep: every IP/manifest/tool, batch
-run clean axis_fifo              # Remove axis_fifo/.runs/ build artifacts
+run clean axis_fifo_r              # Remove axis_fifo_r/.runs/ build artifacts
 ```
 
 - Windows: `run` is `run.bat` (thin wrapper around `python tools/run.py`).
@@ -70,11 +70,11 @@ the next run for that tool. Use `run clean <ip>` for a thorough cleanup.
 
 | IP | Path | Description |
 |----|------|-------------|
-| [axis_fifo](axis_fifo/README.md) | `axis_fifo/` | FWFT AXI4-Stream elastic buffer with registered handshake, SRL inference, UVVM testbench. |
+| [axis_fifo_r](axis_fifo_r/README.md) | `axis_fifo_r/` | FWFT AXI4-Stream elastic buffer with registered handshake, SRL inference, UVVM testbench. |
 | [axis_cdc](axis_cdc/README.md) | `axis_cdc/` | AXI4-Stream clock-domain converter (CDC) via Gray-pointer asynchronous FIFO. Line-rate throughput on both sides. |
 | [parallel_prng](parallel_prng/README.md) | `parallel_prng/` | Multi-output XORshift PRNG with configurable parallel lanes. |
 | [jitter_gen](jitter_gen/README.md) | `jitter_gen/` | CDF-based jitter injector with configurable bucket thresholds. Wraps `parallel_prng`. |
-| [axis_latency_gen](axis_latency_gen/README.md) | `axis_latency_gen/` | AXI4-Stream delay element with configurable base delay + jitter. Wraps `axis_fifo` and `jitter_gen`. |
+| [axis_latency_gen](axis_latency_gen/README.md) | `axis_latency_gen/` | AXI4-Stream delay element with configurable base delay + jitter. Wraps `axis_fifo_r` and `jitter_gen`. |
 | [axis_skid_buffer](axis_skid_buffer/README.md) | `axis_skid_buffer/` | AXI4-Stream 2-deep skid buffer with bypass path. Absorbs one beat of backpressure. |
 | [axis_downsizer](axis_downsizer/README.md) | `axis_downsizer/` | AXI4-Stream width downsizer (512 -> 128 default, 4:1). LSB-first unpacking, 250 MHz output line rate. |
 | [axis_upsizer](axis_upsizer/README.md) | `axis_upsizer/` | AXI4-Stream width upsizer (128 -> 512 default, 4:1). LSB-first packing, 250 MHz line rate. |

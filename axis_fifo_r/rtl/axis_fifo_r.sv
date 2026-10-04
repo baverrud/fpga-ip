@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------
-//Filename         : axis_fifo.sv
+//Filename         : axis_fifo_r.sv
 //Description      : Safe, Parameterizable Elastic Buffer (FBEB) translated to SystemVerilog:
 //                 :  - Inferring of shift-register LUTs (SRLs, on Xilinx
 //                 :    architectures) for depths > 2, or a double-buffer
@@ -18,7 +18,7 @@
 
 `timescale 1ns/1ps
 
-module axis_fifo #(
+module axis_fifo_r #(
     parameter int GC_TDATA_WIDTH = 8,
     parameter int GC_FIFO_DEPTH  = 3
 ) (

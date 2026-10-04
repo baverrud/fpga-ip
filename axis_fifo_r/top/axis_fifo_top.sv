@@ -1,6 +1,6 @@
 //-----------------------------------------------------------------------
 //Filename         : axis_fifo_top.sv
-//Description      : Synthesis wrapper for axis_fifo (SystemVerilog).
+//Description      : Synthesis wrapper for axis_fifo_r (SystemVerilog).
 //                 : Passes the data-width and FIFO-depth parameters
 //                 : through to the core.
 //Author           : Rune Baeverrud
@@ -33,7 +33,7 @@ module axis_fifo_top #(
   output logic [$clog2(GC_FIFO_DEPTH):0] fifo_count  // occupancy count
 );
 
-  axis_fifo #(
+  axis_fifo_r #(
     .GC_TDATA_WIDTH (GC_TDATA_WIDTH),
     .GC_FIFO_DEPTH  (GC_FIFO_DEPTH)
   ) u_axis_fifo (

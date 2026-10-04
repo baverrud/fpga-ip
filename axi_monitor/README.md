@@ -22,7 +22,7 @@ descriptor with its response.
 ```
 rtl/axi_monitor_req.vhd    # passive req tap -> pushes scoreboard descriptor
 rtl/axi_monitor_rsp.vhd    # passive rsp tap -> validates beats, accumulates stats
-rtl/axi_monitor.vhd        # core: req -> axis_fifo -> rsp (+ max-outstanding)
+rtl/axi_monitor.vhd        # core: req -> axis_fifo_r -> rsp (+ max-outstanding)
 top/axi_monitor_top.vhd    # synthesis wrapper (VHDL)
 top/axi_monitor_top.sv     # synthesis wrapper (SystemVerilog, mixed-language)
 tb/axi_monitor_tb.vhd      # integration testbench (axi_read_bridge + axi_mem_model)
@@ -36,7 +36,7 @@ scripts/vhdl.f             # file list (sim / synth)
 ## Data flow
 
 ```
-req tap --(sb_tf)--> axis_fifo --(sb_ff)--> rsp tap
+req tap --(sb_tf)--> axis_fifo_r --(sb_ff)--> rsp tap
   |                                           |
   +---- req_valid/req_addr/req_len ---------> client req
   +---- rsp_valid/rsp_data/rsp_last <-------- client rsp

@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------
 --Filename         : axis_fifo_tb.vhd
---Description      : Testbench for axis_fifo with AXI-Stream BFM
+--Description      : Testbench for axis_fifo_r with AXI-Stream BFM
 --                 : procedures encapsulating valid/ready handshake.
 --                 : Tests odd/non-power-of-two depths, back-to-back
 --                 : writes/reads, and empty/full boundary corner cases.
@@ -42,7 +42,7 @@ begin
   aclk <= not aclk after TCLK / 2 when test_done = '0' else '0';
 
   -- Device Under Test (DUT) Instantiation
-  dut: entity work.axis_fifo
+  dut: entity work.axis_fifo_r
     generic map (
       GC_TDATA_WIDTH => C_DATA_WIDTH,
       GC_FIFO_DEPTH  => C_DATA_DEPTH)
@@ -321,7 +321,7 @@ begin
       report "FAIL: fifo_count should return to 0 after post-reset push/pop"
       severity error;
 
-    report "=== axis_fifo simple TB completed. No assertion errors detected. ===";
+    report "=== axis_fifo_r simple TB completed. No assertion errors detected. ===";
     test_done <= '1';
     wait;
   end process;

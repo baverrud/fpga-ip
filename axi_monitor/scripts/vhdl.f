@@ -14,7 +14,7 @@
 # Each line: <relative_path_from_sub_fpga_ip> [std=<vhdl_std>]
 #   vhdl_std defaults to DEFAULT_STD (2008) if omitted.
 #
-# The monitor's own RTL needs only util_pkg + axis_fifo (scoreboard).
+# The monitor's own RTL needs only util_pkg + axis_fifo_r (scoreboard).
 # The [tb:monitor] section adds axi_read_bridge + axi_mem_model so the
 # integration testbench can tap a real bridge client interface.
 # ============================================================================
@@ -25,7 +25,7 @@ DEFAULT_TB: monitor
 [rtl]
 common/rtl/util_pkg.vhd
 common/rtl/axis_bfm_pkg.vhd
-axis_fifo/rtl/axis_fifo.vhd
+axis_fifo_r/rtl/axis_fifo_r.vhd
 axi_monitor/rtl/axi_monitor_req.vhd
 axi_monitor/rtl/axi_monitor_rsp.vhd
 axi_monitor/rtl/axi_monitor.vhd

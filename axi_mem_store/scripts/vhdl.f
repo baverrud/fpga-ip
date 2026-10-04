@@ -9,7 +9,7 @@ DEFAULT_TB: default
 
 [rtl]
 common/rtl/util_pkg.vhd
-axis_fifo/rtl/axis_fifo.vhd
+axis_fifo_r/rtl/axis_fifo_r.vhd
 parallel_prng/rtl/xorshift32.vhd
 parallel_prng/rtl/xorshift128.vhd
 jitter_gen/rtl/jitter_gen.vhd

@@ -3,7 +3,7 @@
 --Description      : AXI-Stream latency generator with configurable
 --                 : base delay and per-entry CDF-based jitter.
 --                 : Stores {tdata, t_departure} in a single wider
---                 : axis_fifo. Departure decided at entry time.
+--                 : axis_fifo_r. Departure decided at entry time.
 --                 : Timer wrap handled by signed subtraction; once the
 --                 : head entry is due it stays valid until popped.
 --Author           : Rune Baeverrud
@@ -220,7 +220,7 @@ begin
   --   * Result: jitter contribution is intentionally one accepted write
   --     delayed. The first accepted write after reset uses jitter=0.
   -- t_departure = timer + 1 (FWFT pipeline) + base_delay (gated) + jitter
-  -- The +1 accounts for the axis_fifo's registered output: an entry written
+  -- The +1 accounts for the axis_fifo_r's registered output: an entry written
   -- at timer=T appears at the FIFO output at timer=T+1. Without it, a
   -- base_delay of N would be consumed by the pipeline (timer advancing
   -- during the pipeline cycle) and the observed latency would be N rather
@@ -245,7 +245,7 @@ begin
   -- ================================================================
   -- Axis FIFO (wider: data + timestamp)
   -- ================================================================
-  u_fifo : entity work.axis_fifo
+  u_fifo : entity work.axis_fifo_r
     generic map (
       -- FIFO width = data + timestamp packed together
       GC_TDATA_WIDTH => C_FIFO_WIDTH,

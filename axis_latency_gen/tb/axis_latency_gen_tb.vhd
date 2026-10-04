@@ -496,7 +496,7 @@ begin
     -- Phase 11: Simultaneous push/pop at max rate
     --   Uses enable_base_delay=0 so entries flow through with only
     --   the 1-cycle FIFO floor, enabling same-cycle push/pop.
-    --   Verifies the axis_fifo handles concurrent access.
+    --   Verifies the axis_fifo_r handles concurrent access.
     -- ============================================================
     write(l, string'("=== Phase 11: Simultaneous push/pop ===")); writeline(output, l);
     base_delay <= to_unsigned(0, 32);

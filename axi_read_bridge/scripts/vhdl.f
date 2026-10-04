@@ -11,7 +11,7 @@ DEFAULT_TB: default
 
 [rtl]
 common/rtl/util_pkg.vhd
-axis_fifo/rtl/axis_fifo.vhd
+axis_fifo_r/rtl/axis_fifo_r.vhd
 axi_ar_mux/rtl/axi_ar_mux.vhd
 axis_cdc/rtl/axis_cdc.vhd
 axis_upsizer/rtl/axis_upsizer.vhd

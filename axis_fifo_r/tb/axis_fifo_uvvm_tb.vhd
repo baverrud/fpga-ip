@@ -1,6 +1,6 @@
 ---------------------------------------------------------------------------------------------------
 -- Filename         : axis_fifo_uvvm_tb.vhd
--- Description      : UVVM VVC-based Testbench Sequencer for axis_fifo.
+-- Description      : UVVM VVC-based Testbench Sequencer for axis_fifo_r.
 --                    Communicates strictly using abstract VVC command interfaces,
 --                    keeping the sequencer process completely free of physical port dependencies.
 -- Author           : Rune Baeverrud

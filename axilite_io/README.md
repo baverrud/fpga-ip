@@ -217,7 +217,7 @@ They are instead exposed as external signals that the CPU polls directly:
 
 > This polling-based model is suitable for low-throughput CPU-driven
 > streaming. For high-throughput or DMA-driven streaming, add a dedicated
-> AXI4-Stream FIFO (such as `axis_fifo`) between this core and the
+> AXI4-Stream FIFO (such as `axis_fifo_r`) between this core and the
 > streaming endpoint, or replace this core with a full DMA engine.
 
 ---
@@ -299,7 +299,7 @@ The hierarchy is:
 ```
 axilite_io_tb
   └── axilite_io_th            (slv32_array_t ports + FIFO loopback)
-        ├── axis_fifo x2       (m_axis → s_axis loopback)
+        ├── axis_fifo_r x2       (m_axis → s_axis loopback)
         └── axilite_io_harness  (slv32_array_t ↔ flattened conversion)
               └── axilite_io_wrap (flattened slv ports, VHDL or SV)
                     └── axilite_io.vhd or axilite_io.sv
@@ -557,7 +557,7 @@ endmodule
 | File | What it does |
 |------|--------------|
 | `tb/axilite_io_tb.vhd` | **Shared TB**: instantiates `axilite_io_th` which provides FIFO loopback and FIFO-status i_data. Runs 21 tests covering register access, byte strobes, stream push/pop, FIFO ordering, FIFO backpressure, reset state, back-to-back transactions, unmapped access, and consecutive-read stability. |
-| `tb/axilite_io_th.vhd` | **Test harness**: wraps `axilite_io_harness`, adds AXI-Stream loopback FIFOs (axis_fifo) between m_axis and s_axis, and exposes FIFO status on dedicated i_data slots. |
+| `tb/axilite_io_th.vhd` | **Test harness**: wraps `axilite_io_harness`, adds AXI-Stream loopback FIFOs (axis_fifo_r) between m_axis and s_axis, and exposes FIFO status on dedicated i_data slots. |
 | `tb/axilite_io_harness.vhd` | **Array-port wrapper**: converts between flattened `std_logic_vector` and `slv32_array_t`. No FIFOs — just array↔flattened conversion. |
 
 ### Running (from fpga-ip root)

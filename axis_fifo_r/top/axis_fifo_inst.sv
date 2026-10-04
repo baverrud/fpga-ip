@@ -25,7 +25,7 @@ module axis_fifo_inst #(
   logic [$clog2(GC_FIFO_DEPTH):0] fifo_count;
 
 
-  axis_fifo #(
+  axis_fifo_r #(
     .GC_TDATA_WIDTH (GC_TDATA_WIDTH),
     .GC_FIFO_DEPTH  (GC_FIFO_DEPTH)
   ) u_axis_fifo (

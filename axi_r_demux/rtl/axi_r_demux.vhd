@@ -1,7 +1,7 @@
 -----------------------------------------------------------------------
 --Filename         : axi_r_demux.vhd
 --Description      : AXI Read Data Channel Demultiplexer with per-ID
---                 : elastic buffering (instantiates axis_fifo per client):
+--                 : elastic buffering (instantiates axis_fifo_r per client):
 --                 :  - Routes incoming r_data, r_last, and r_resp based on r_id.
 --                 :  - Registered r_ready with a one-beat skid register, so
 --                 :    the input ready has no combinational path from r_id /
@@ -54,7 +54,7 @@ end entity axi_r_demux;
 
 architecture arch of axi_r_demux is
 
-  -- Total payload width packed into each axis_fifo:
+  -- Total payload width packed into each axis_fifo_r:
   -- Payload layout: [ r_resp (2 bits) | r_last (1 bit) | r_data (8*GC_DATA_BYTES bits) ]
   constant C_DATA_BITS    : positive := 8 * GC_DATA_BYTES;
   constant C_PAYLOAD_BITS : positive := C_DATA_BITS + 3;
@@ -242,7 +242,7 @@ begin
   -- Per-client elastic buffers.
   gen_client_fifos : for i in 0 to GC_NUM_CLIENTS-1 generate
 
-    i_client_fifo : entity work.axis_fifo
+    i_client_fifo : entity work.axis_fifo_r
       generic map (
         GC_TDATA_WIDTH => C_PAYLOAD_BITS,
         GC_FIFO_DEPTH  => GC_FIFO_DEPTH

@@ -22,7 +22,7 @@
 --
 -- Instantiation chain:
 --   axilite_io_th               (ports: slv32_array_t)
---     +-- axis_fifo [0..N-1]    (m_axis -> s_axis loopback)
+--     +-- axis_fifo_r [0..N-1]    (m_axis -> s_axis loopback)
 --     +-- axilite_io_harness    (ports: slv32_array_t)
 --           +-- axilite_io_wrap  (ports: flattened slv)
 --                 +-- axilite_io_vhd or axilite_io.sv
@@ -147,7 +147,7 @@ begin
   --  AXI-Stream loopback FIFOs: DUT m_axis -> FIFO -> DUT s_axis
   -- ================================================================
   -- FIFO 0: m_axis[0] -> s_axis[0] loopback
-  fifo_0 : entity work.axis_fifo
+  fifo_0 : entity work.axis_fifo_r
     generic map (GC_TDATA_WIDTH => 32, GC_FIFO_DEPTH => GC_FIFO_DEPTH)
     port map (
       aclk          => aclk,
@@ -162,7 +162,7 @@ begin
     );
 
   -- FIFO 1: m_axis[1] -> s_axis[1] loopback
-  fifo_1 : entity work.axis_fifo
+  fifo_1 : entity work.axis_fifo_r
     generic map (GC_TDATA_WIDTH => 32, GC_FIFO_DEPTH => GC_FIFO_DEPTH)
     port map (
       aclk          => aclk,
