@@ -21,9 +21,11 @@
 --                 :    fails the run (bandwidth regression guard).
 --                 :  - Packets of 2 groups so m_axis_tlast is exercised
 --                 :    on every 2nd output beat.
---                 :  - AXI R channel: rresp is driven on every beat and
---                 :    verified on every matching output beat; rid is
---                 :    constant per packed group and verified throughout.
+--                 :  - AXI R channel: each packet's rresp is driven on only
+--                 :    one beat per group (rotating position, OKAY on the
+--                 :    others), so the expected wide rresp is seen only if
+--                 :    the core keeps the worst response of the group; rid
+--                 :    is constant per packed group and verified throughout.
 --                 :  - Watchdog to catch deadlocks instead of hanging.
 --                 :  - Generic width/ratio so the same file runs the
 --                 :    default 128 -> 512-bit (4:1) configuration.
@@ -139,6 +141,18 @@ architecture sim of axis_upsizer_tb is
   function f_resp(p : natural) return std_logic_vector is
   begin
     return std_logic_vector(to_unsigned(p mod 4, 2));
+  end function;
+
+  -- Input response for narrow word i.  The packet response sits on one beat
+  -- of each group, moving with the group index so every lane position is
+  -- covered; the other beats are OKAY.  Because OKAY is the least severe
+  -- response, the wide beat must still carry f_resp of its packet.
+  function f_beat_resp(i : natural) return std_logic_vector is
+  begin
+    if (i mod GC_RATIO) = ((i / GC_RATIO) mod GC_RATIO) then
+      return f_resp(i / (2*GC_RATIO));
+    end if;
+    return "00";
   end function;
 
   -- Expected AXI R ID for packet p (constant per burst).
@@ -262,7 +276,7 @@ begin
       s_tdata <= f_word(v_sent);
       s_tlast <= f_tlast(v_sent);
       s_rid   <= f_rid(v_sent / (2*GC_RATIO));
-      s_rresp <= f_resp(v_sent / (2*GC_RATIO));
+      s_rresp <= f_beat_resp(v_sent);
       wait until rising_edge(aclk);
       if s_tready = '1' then
         v_sent := v_sent + 1;
@@ -297,7 +311,7 @@ begin
       s_tdata <= f_word(v_sent);
       s_tlast <= f_tlast(v_sent);
       s_rid   <= f_rid(v_sent / (2*GC_RATIO));
-      s_rresp <= f_resp(v_sent / (2*GC_RATIO));
+      s_rresp <= f_beat_resp(v_sent);
       wait until rising_edge(aclk);
       if s_tready = '1' then
         v_sent := v_sent + 1;
@@ -318,7 +332,7 @@ begin
       s_tdata <= f_word(v_sent);
       s_tlast <= f_tlast(v_sent);
       s_rid   <= f_rid(v_sent / (2*GC_RATIO));
-      s_rresp <= f_resp(v_sent / (2*GC_RATIO));
+      s_rresp <= f_beat_resp(v_sent);
       wait until rising_edge(aclk);
       if (s_tvalid = '1') and (s_tready = '1') then
         v_sent := v_sent + 1;
@@ -346,7 +360,7 @@ begin
       s_tdata <= f_word(v_sent);
       s_tlast <= f_tlast(v_sent);
       s_rid   <= f_rid(v_sent / (2*GC_RATIO));
-      s_rresp <= f_resp(v_sent / (2*GC_RATIO));
+      s_rresp <= f_beat_resp(v_sent);
       wait until rising_edge(aclk);
       if (s_tvalid = '1') and (s_tready = '1') then
         v_sent := v_sent + 1;
@@ -374,7 +388,7 @@ begin
       s_tdata <= f_word(v_sent);
       s_tlast <= f_tlast(v_sent);
       s_rid   <= f_rid(v_sent / (2*GC_RATIO));
-      s_rresp <= f_resp(v_sent / (2*GC_RATIO));
+      s_rresp <= f_beat_resp(v_sent);
       wait until rising_edge(aclk);
       if aresetn = '0' then
         -- Mid-stream reset hit: drop valid so no stale word is presented
@@ -387,7 +401,7 @@ begin
         s_tvalid <= '1';
         s_tdata  <= f_word(0);
         s_tlast  <= f_tlast(0);
-        s_rresp  <= f_resp(0);
+        s_rresp  <= f_beat_resp(0);
         s_rid    <= f_rid(0);
       elsif s_tready = '1' then
         v_sent := v_sent + 1;

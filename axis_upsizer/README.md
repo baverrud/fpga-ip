@@ -45,13 +45,13 @@ data path** - the accumulator is built entirely from register concatenation.
 | `aresetn`      | in  | Synchronous reset, active low. |
 | `s_axis_tdata` | in  | Narrow input beat (AXI R `rdata`). |
 | `s_axis_tlast` | in  | Packet end (must be ratio-aligned; AXI R `rlast`). |
-| `s_axis_rresp` | in  | AXI R response per input beat; responses must be uniform within each packed group. |
+| `s_axis_rresp` | in  | AXI R response per input beat; may differ between beats. |
 | `s_axis_rid`   | in  | AXI R ID, `GC_ID_WIDTH` bits; constant per burst. |
 | `s_axis_tvalid`| in  | Upstream has a valid narrow beat. |
 | `s_axis_tready`| out | This converter accepts a narrow beat. |
 | `m_axis_tdata` | out | Wide output beat (registered). |
 | `m_axis_tlast` | out | Packet end, forwarded from the group (AXI R `rlast`). |
-| `m_axis_rresp` | out | AXI R response, forwarded with the matching output beat. |
+| `m_axis_rresp` | out | AXI R response: the most severe response of the packed group. |
 | `m_axis_rid`   | out | AXI R ID, forwarded with every output beat. |
 | `m_axis_tvalid`| out | Valid wide beat on `m_axis_tdata`. |
 | `m_axis_tready`| in  | Downstream accepts the wide beat. |
@@ -105,13 +105,12 @@ The core is AXI read-data channel compatible (see `tmp/new-ip/axi_r_demux.vhd`
 for the surrounding R-channel convention): `tdata` maps to `rdata` and
 `tlast` maps to `rlast`. Two side-band signals are carried through:
 
-- **`rresp` (2 bits)** - AXI carries a response on every R-channel beat.
-  A single wide output beat represents `GC_RATIO` narrow beats, so this
-  core requires the input response to be uniform across each packed group.
-  The RTL captures the first response, checks every later response in the
-  group, and forwards the response on every output beat. A mismatch is a
-  simulation assertion failure because one output beat cannot preserve
-  multiple independent responses.
+- **`rresp` (2 bits)** - AXI carries a response on every R-channel beat,
+  and the responses within a burst may differ. A single wide output beat
+  represents `GC_RATIO` narrow beats and carries one response, so the core
+  keeps the most severe response of the group: `DECERR` > `SLVERR` >
+  `EXOKAY` > `OKAY`, which is simply the numeric maximum of the encoding.
+  An error on any narrow beat therefore always reaches the wide beat.
 - **`rid` (constant per burst)** - the ID is identical for every beat of a
   burst, so the core samples `s_axis_rid` on every accepted beat and
   forwards the captured value with every output beat.
@@ -224,7 +223,7 @@ u_upsize : entity work.axis_upsizer
     -- Slave interface (narrow input)
     s_axis_tdata  => s_axis_tdata,   -- rdata
     s_axis_tlast  => s_axis_tlast,   -- rlast
-    s_axis_rresp  => s_axis_rresp,   -- rresp (uniform per group)
+    s_axis_rresp  => s_axis_rresp,   -- rresp (per beat)
     s_axis_rid    => s_axis_rid,     -- rid
     s_axis_tvalid => s_axis_tvalid,
     s_axis_tready => s_axis_tready,
@@ -281,7 +280,7 @@ axis_upsizer #(
     // Slave interface (narrow input)
     .s_axis_tdata  (s_axis_tdata),   // rdata
     .s_axis_tlast  (s_axis_tlast),   // rlast
-    .s_axis_rresp  (s_axis_rresp),   // rresp (uniform per group)
+    .s_axis_rresp  (s_axis_rresp),   // rresp (per beat)
     .s_axis_rid    (s_axis_rid),     // rid
     .s_axis_tvalid (s_axis_tvalid),
     .s_axis_tready (s_axis_tready),
@@ -336,7 +335,8 @@ width/ratio) verifies:
 - `tlast` alignment on every 2-group packet (exercised on both tlast=0
   and tlast=1 output beats).
 - **AXI R channel:** `rid` and `rresp` are verified on every output beat;
-  the TB drives and checks a uniform response across each packed group.
+  the TB puts each packet's response on a single, rotating beat of every
+  group, so the check passes only if the worst response is kept.
 - Output and input payload/sidebands are checked for stability during
   backpressure.
 - Reset is applied while the output stage, accumulator, and skid register

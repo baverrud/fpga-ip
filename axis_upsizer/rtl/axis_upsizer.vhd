@@ -26,13 +26,14 @@
 --                 : the group and forwarded on the matching output beat.
 --                 :
 --                 : AXI R-CHANNEL SIDEBANDS: carries rresp on every wide
---                 : output beat and passes rid through. Responses must be
---                 : uniform across each packed group; a mismatch is an
---                 : assertion failure because one output beat has one
---                 : response. Mapping: tdata=rdata, tlast=rlast,
---                 : rresp=rresp, rid=rid.
+--                 : output beat and passes rid through. AXI allows a
+--                 : different response on every beat, so the response of a
+--                 : wide beat is the most severe response of its packed
+--                 : narrow beats; an error on any of them is never lost.
+--                 : Mapping: tdata=rdata, tlast=rlast, rresp=rresp,
+--                 : rid=rid.
 --Author           : Rune Baeverrud
---Current Revision : 1.20
+--Current Revision : 1.30
 --Licensing        : Zero-Clause BSD (0BSD)
 -----------------------------------------------------------------------
 library ieee;
@@ -73,6 +74,17 @@ end entity;
 architecture rtl of axis_upsizer is
 
   constant C_M_WIDTH : positive := GC_S_TDATA_WIDTH * GC_RATIO;
+
+  -- AXI orders response severity by its encoding: OKAY(00) < EXOKAY(01)
+  -- < SLVERR(10) < DECERR(11).  The worse of two is the numeric maximum.
+  function worst_resp(a, b : std_logic_vector(1 downto 0))
+    return std_logic_vector is
+  begin
+    if unsigned(a) > unsigned(b) then
+      return a;
+    end if;
+    return b;
+  end function;
 
   ---------------------------------------------------------------------
   -- State record (all registered state; single source for reset).
@@ -231,9 +243,9 @@ begin
           v.rresp_acc := s_axis_rresp;
           v.rid_acc   := s_axis_rid;
         else
-          assert s_axis_rresp = r.rresp_acc
-            report "axis_upsizer: rresp changed within packed group"
-            severity failure;
+          -- Keep the most severe response of the group: one wide beat
+          -- carries one response, and an error must not be masked.
+          v.rresp_acc := worst_resp(r.rresp_acc, s_axis_rresp);
           assert s_axis_rid = r.rid_acc
             report "axis_upsizer: rid changed within packed group"
             severity failure;
