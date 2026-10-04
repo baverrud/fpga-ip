@@ -216,7 +216,8 @@ begin
           check_beat_fields(id, "00", '0');
         end if;
         if check_pattern then
-          check_pattern_bytes(addr + beat_idx * C_DATA_BYTES);
+          -- AXI byte lanes: every beat is the aligned 64-byte window.
+          check_pattern_bytes((addr - addr mod C_DATA_BYTES) + beat_idx * C_DATA_BYTES);
         end if;
         release_r;
       end loop;
@@ -303,8 +304,9 @@ begin
     -- The final fully valid beat ends exactly at the top of memory.
     read_burst(2, C_MEM_BYTES - C_DATA_BYTES, 1, true);
 
-    -- A beat that crosses the top of memory returns zero data and SLVERR.
-    read_bad_burst(3, addr_of(C_MEM_BYTES - C_DATA_BYTES / 2), 1);
+    -- An unaligned beat reads its aligned window, which here is the last
+    -- beat of memory, so it is OKAY with that window's data.
+    read_burst(3, C_MEM_BYTES - C_DATA_BYTES / 2, 1, true);
 
     -- The first address outside memory is also SLVERR.
     read_bad_burst(4, addr_of(C_MEM_BYTES), 1);

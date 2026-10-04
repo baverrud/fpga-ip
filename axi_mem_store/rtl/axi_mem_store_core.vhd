@@ -4,6 +4,9 @@
 --                 : Memory contents are populated through a clocked byte
 --                 : write port and are preserved across AXI reset.
 --                 : Out-of-range read beats return zero data and SLVERR.
+--                 : Beats follow AXI INCR byte lanes: each beat is the
+--                 : aligned GC_DATA_BYTES window, and the byte at address A
+--                 : is on lane A mod GC_DATA_BYTES. Full-width bursts only.
 --                 : An accepted out-of-range byte write is reported by a
 --                 : one-clock pulse on mem_wr_error and is not stored.
 --Author           : Rune Baeverrud
@@ -54,6 +57,7 @@ architecture rtl of axi_mem_store_core is
   -- The AXI data bus is addressed and assembled a byte at a time.  The
   -- response payload is registered so it remains stable during backpressure.
   constant C_RDATA_WIDTH    : positive := 8 * GC_DATA_BYTES;
+  constant C_BEAT_CALC_WIDTH : positive := GC_ADDR_WIDTH + 8;
   -- Keep the memory index conversion narrower than the AXI address.  This
   -- avoids converting a large, out-of-range AXI address to an integer.
   constant C_MEM_INDEX_WIDTH : positive := log2ceil(GC_MEM_SIZE_BYTES) + 1;
@@ -64,6 +68,8 @@ architecture rtl of axi_mem_store_core is
   -- only when its last byte is below this limit.
   constant C_MEM_SIZE_ADDR_WIDE : unsigned(GC_ADDR_WIDTH downto 0) :=
     to_unsigned(GC_MEM_SIZE_BYTES, GC_ADDR_WIDTH + 1);
+  -- Address bits that select a byte lane within one data beat.
+  constant C_LANE_BITS : natural := log2ceil(GC_DATA_BYTES);
 
   subtype rdata_t   is std_logic_vector(C_RDATA_WIDTH-1 downto 0);
   subtype ar_id_t  is std_logic_vector(GC_ID_WIDTH-1 downto 0);
@@ -85,11 +91,25 @@ architecture rtl of axi_mem_store_core is
   end function;
 
   -- AXI INCR bursts advance by one native data beat for every R transfer.
-  function beat_addr(base_addr : ar_addr_t; beat_idx : ar_len_t)
-    return ar_addr_t is
+  -- Keep the calculation wider than the address port so a burst cannot wrap
+  -- into address zero before the range check sees the carry.
+  function beat_addr_wide(base_addr : ar_addr_t; beat_idx : ar_len_t)
+    return unsigned is
   begin
-    return base_addr +
-           to_unsigned(to_integer(beat_idx) * GC_DATA_BYTES, GC_ADDR_WIDTH);
+    return resize(base_addr, C_BEAT_CALC_WIDTH) +
+           to_unsigned(to_integer(beat_idx) * GC_DATA_BYTES,
+                       C_BEAT_CALC_WIDTH);
+  end function;
+
+  -- Clear the byte-lane offset. An unaligned first beat returns its whole
+  -- aligned window; the lanes below the start offset are ignored by AXI.
+  function aligned_beat(addr : ar_addr_t) return ar_addr_t is
+    variable v_addr : ar_addr_t := addr;
+  begin
+    if C_LANE_BITS > 0 then
+      v_addr(C_LANE_BITS-1 downto 0) := (others => '0');
+    end if;
+    return v_addr;
   end function;
 
   -- Check the complete native data beat, not just its first byte.  A beat
@@ -102,6 +122,11 @@ architecture rtl of axi_mem_store_core is
     v_last_byte := resize(addr, GC_ADDR_WIDTH + 1) +
                    to_unsigned(GC_DATA_BYTES - 1, GC_ADDR_WIDTH + 1);
     return v_last_byte < C_MEM_SIZE_ADDR_WIDE;
+  end function;
+
+  function beat_in_range_wide(addr : unsigned) return boolean is
+  begin
+    return addr < resize(C_MEM_SIZE_ADDR_WIDE, addr'length);
   end function;
 
   -- This conversion is called only after beat_in_range has succeeded, so the
@@ -146,7 +171,7 @@ architecture rtl of axi_mem_store_core is
     state    : state_t;               -- Current burst phase.
     beat_idx : ar_len_t;               -- Index of the currently held beat.
     cur_id   : ar_id_t;                -- ID copied from the active AR.
-    cur_addr : ar_addr_t;              -- Base byte address of the burst.
+    cur_addr : ar_addr_t;              -- Aligned address of the burst's first beat.
     cur_len  : ar_len_t;               -- AXI length, encoded as beats - 1.
     -- Once any beat of the burst falls outside memory, the remainder of the
     -- burst is answered with SLVERR.  Latching this avoids trusting a wrapped
@@ -188,6 +213,10 @@ begin
     report "axi_mem_store_core: memory must hold at least one data beat"
     severity failure;
 
+  assert (GC_MEM_SIZE_BYTES mod GC_DATA_BYTES) = 0
+    report "axi_mem_store_core: GC_MEM_SIZE_BYTES must be a multiple of GC_DATA_BYTES"
+    severity failure;
+
   -- Addressing every byte needs only log2ceil(GC_MEM_SIZE_BYTES) bits: the
   -- highest address is GC_MEM_SIZE_BYTES - 1.  The exclusive limit used by
   -- the range checks is widened separately and must not constrain the width.
@@ -223,9 +252,32 @@ begin
   p_comb : process(all)
     variable v           : reg_t;
     variable v_beat_addr : ar_addr_t;
+    variable v_beat_addr_wide : unsigned(C_BEAT_CALC_WIDTH-1 downto 0);
     variable v_next_idx  : ar_len_t;
     variable v_valid     : boolean;
     variable v_last      : std_logic;
+
+    procedure p_start_burst(variable state : inout reg_t;
+                             constant id : in ar_id_t;
+                             constant addr : in ar_addr_t;
+                             constant len : in ar_len_t) is
+      variable aligned_addr : ar_addr_t;
+      variable valid        : boolean;
+    begin
+      aligned_addr := aligned_beat(addr);
+      valid := beat_in_range(aligned_addr);
+      state.cur_id       := id;
+      state.cur_addr     := aligned_addr;
+      state.cur_len      := len;
+      state.beat_idx     := (others => '0');
+      state.cur_invalid  := '1' when not valid else '0';
+      state.r_id         := id;
+      state.r_data       := make_rdata(aligned_addr, valid);
+      state.r_resp       := response_for_range(valid);
+      state.r_last       := '1' when len = 0 else '0';
+      state.r_valid      := '1';
+      state.state        := S_SEND_BEATS;
+    end procedure;
   begin
     v := r;
     ar_ready <= '0';
@@ -235,22 +287,10 @@ begin
         -- The latency wrapper supplies a valid AR only when it has a request
         -- ready.  Capture it and form the first registered R beat here.
         v.r_valid := '0';
-        ar_ready <= '1';
+        ar_ready <= aresetn;
 
         if ar_valid = '1' then
-          v.cur_id   := ar_id;
-          v.cur_addr := unsigned(ar_addr);
-          v.cur_len  := unsigned(ar_len);
-          v.beat_idx := (others => '0');
-          v_valid    := beat_in_range(unsigned(ar_addr));
-          v.cur_invalid := '1' when not v_valid else '0';
-          v_last     := '1' when unsigned(ar_len) = 0 else '0';
-          v.r_id     := ar_id;
-          v.r_data   := make_rdata(unsigned(ar_addr), v_valid);
-          v.r_resp   := response_for_range(v_valid);
-          v.r_last   := v_last;
-          v.r_valid  := '1';
-          v.state    := S_SEND_BEATS;
+          p_start_burst(v, ar_id, unsigned(ar_addr), unsigned(ar_len));
         end if;
 
       when S_SEND_BEATS =>
@@ -265,17 +305,7 @@ begin
             -- The current burst is complete.  Replace it immediately when a
             -- new AR is already valid; otherwise return to the idle state.
             if ar_valid = '1' then
-              v.cur_id   := ar_id;
-              v.cur_addr := unsigned(ar_addr);
-              v.cur_len  := unsigned(ar_len);
-              v.beat_idx := (others => '0');
-              v_valid    := beat_in_range(unsigned(ar_addr));
-              v.cur_invalid := '1' when not v_valid else '0';
-              v_last     := '1' when unsigned(ar_len) = 0 else '0';
-              v.r_id     := ar_id;
-              v.r_data   := make_rdata(unsigned(ar_addr), v_valid);
-              v.r_resp   := response_for_range(v_valid);
-              v.r_last   := v_last;
+              p_start_burst(v, ar_id, unsigned(ar_addr), unsigned(ar_len));
             else
               v.r_valid := '0';
               v.state   := S_WAIT_AR;
@@ -283,11 +313,13 @@ begin
           else
             -- Advance only after an R handshake.  This is what holds every
             -- R field stable while the downstream interface applies backpressure.
-            v_next_idx  := r.beat_idx + 1;
-            v_beat_addr := beat_addr(r.cur_addr, v_next_idx);
+            v_next_idx      := r.beat_idx + 1;
+            v_beat_addr_wide := beat_addr_wide(r.cur_addr, v_next_idx);
+            v_beat_addr     := v_beat_addr_wide(GC_ADDR_WIDTH-1 downto 0);
             -- A beat already declared invalid keeps the burst invalid, so a
             -- wrapped address can never be re-admitted as an OKAY beat.
-            v_valid     := (r.cur_invalid = '0') and beat_in_range(v_beat_addr);
+            v_valid     := (r.cur_invalid = '0') and
+                           beat_in_range_wide(v_beat_addr_wide);
             v.cur_invalid := '1' when not v_valid else '0';
             v_last      := '1' when v_next_idx = r.cur_len else '0';
             v.beat_idx  := v_next_idx;

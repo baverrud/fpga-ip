@@ -1,6 +1,7 @@
 # axi_mem_store - Real-Data AXI Memory Model
 
-`axi_mem_store` is an AXI3/AXI4-compatible read slave backed by a
+`axi_mem_store` is an AXI3/AXI4-compatible read slave for full-width INCR
+bursts, backed by a
 parameterizable byte-addressed memory. Testbench or simulation logic populates
 the memory through a clocked one-byte write interface. Reads return stored
 values rather than an address-derived pattern.
@@ -173,18 +174,26 @@ shared `axis_write` procedure exercise the normal memory population handshake.
 
 ## Read behavior
 
-Memory is byte addressed and little endian. For an AXI beat starting at
-`ar_addr`, byte `b` is returned in `r_data(8*b+7 downto 8*b)`. Burst beat `n`
-starts at:
+Memory is byte addressed and little endian, and reads follow AXI INCR byte
+lanes: the byte at address `A` is returned on lane `A mod GC_DATA_BYTES`,
+i.e. in `r_data(8*b+7 downto 8*b)` with `b = A mod GC_DATA_BYTES`. Every beat
+is the aligned `GC_DATA_BYTES` window that contains it. Burst beat `n` reads
+the window at:
 
 ```text
-ar_addr + n * GC_DATA_BYTES
+aligned(ar_addr) + n * GC_DATA_BYTES
+aligned(a) = a with its low log2(GC_DATA_BYTES) bits cleared
 ```
 
-A complete beat inside memory returns `r_resp = "00"` (`OKAY`). If any byte of
-the beat lies outside the configured memory, the beat returns zero data and
-`r_resp = "10"` (`SLVERR`). The error is communicated on the R channel and
-`r_last` still follows the burst length.
+For an unaligned `ar_addr`, the first beat therefore also carries the bytes
+below the start address on the lower lanes; an AXI master ignores those lanes.
+There are no `ar_size` or `ar_burst` inputs: every transfer is a full-width
+INCR beat.
+
+A beat whose window is wholly inside memory returns `r_resp = "00"` (`OKAY`).
+If any byte of the window lies outside the configured memory, the beat returns
+zero data and `r_resp = "10"` (`SLVERR`). The error is communicated on the R
+channel and `r_last` still follows the burst length.
 
 Once a beat of a burst is out of range, every remaining beat of that burst is
 also `SLVERR`. A beat address that would wrap at the top of the address space
@@ -199,7 +208,8 @@ core. The R-side value is applied as per-entry response latency:
 R departure = R entry arrival + pipeline + base latency + jitter
 ```
 
-R-channel fields remain stable while `r_valid = '1'` and `r_ready = '0'`.
+R-channel fields remain stable while `r_valid = '1'` and `r_ready = '0'`,
+for any stall length.
 
 ## Verification
 
@@ -211,9 +221,23 @@ run axi_mem_store vhdl modelsim --tb simple
 run axi_mem_store vhdl modelsim --tb wide
 ```
 
+Run the same three testbenches with XSim (Vivado 2023.2) from the `fpga-ip`
+root:
+
+```text
+call C:\Xilinx\Vivado\2023.2\settings64.bat
+python tools\run.py axi_mem_store vhdl xsim
+python tools\run.py axi_mem_store vhdl xsim --tb simple
+python tools\run.py axi_mem_store vhdl xsim --tb wide
+```
+
+The VS Code task **Run axi_mem_store xsim (all modes)** runs this sequence.
+
 The comprehensive testbench populates real byte values and checks endian
 assembly, burst sequencing, boundary `SLVERR`, reset preservation,
-backpressure, R-side latency control, the one-clock `mem_wr_error` pulse and
+backpressure (including a 300-cycle `r_ready` stall, longer than half the
+8-bit latency timer), R-side latency control, the one-clock `mem_wr_error`
+pulse and
 out-of-range bursts that wrap at the top of the address space. It also
 instantiates `axi_mem_store_core` directly, without the latency wrapper, to
 check the minimum legal address width and the core's own AR lookahead
@@ -257,3 +281,4 @@ stages.
 - `top/` - VHDL and SystemVerilog wrappers and templates.
 - `tb/` - comprehensive, simple and wide-bus testbenches.
 - `scripts/vhdl.f` - manifest: source closure and testbench selections.
+- `AXI_MEM_STORE_REVIEW.md` - review findings and open tasks.

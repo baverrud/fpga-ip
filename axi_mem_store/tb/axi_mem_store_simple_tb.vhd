@@ -64,13 +64,43 @@ begin
       axis_write(aclk, mem_wr_tdata, mem_wr_tvalid,
                  mem_wr_tready, v_write);
     end procedure;
+
+    procedure read_one(id : natural; addr : natural;
+                       expected_data : std_logic_vector(31 downto 0)) is
+    begin
+      ar_id    <= std_logic_vector(to_unsigned(id, ar_id'length));
+      ar_addr  <= std_logic_vector(to_unsigned(addr, ar_addr'length));
+      ar_len   <= x"00";
+      ar_valid <= '1';
+      loop
+        wait until rising_edge(aclk);
+        exit when ar_ready = '1';
+      end loop;
+      ar_valid <= '0';
+
+      for timeout in 0 to 100 loop
+        wait until rising_edge(aclk);
+        exit when r_valid = '1';
+      end loop;
+      assert r_valid = '1'
+        report "simple test: response did not arrive" severity failure;
+      assert r_id = std_logic_vector(to_unsigned(id, r_id'length))
+        report "simple test: response ID mismatch" severity failure;
+      assert r_data = expected_data
+        report "simple test: response data mismatch" severity failure;
+      assert r_resp = "00" and r_last = '1'
+        report "simple test: response fields mismatch" severity failure;
+      wait until rising_edge(aclk);
+    end procedure;
   begin
     wait for C_CLK_PERIOD * 3;
     aresetn <= '1';
     wait for C_CLK_PERIOD * 2;
-    -- USER SMOKE-TEST AREA
     mem_wr(0, x"EF");
-    wait for C_CLK_PERIOD;
+    mem_wr(1, x"BE");
+    mem_wr(2, x"AD");
+    mem_wr(3, x"DE");
+    read_one(3, 0, x"DEADBEEF");
     done <= true;
     wait;
   end process;

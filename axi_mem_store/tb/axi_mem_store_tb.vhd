@@ -95,7 +95,7 @@ begin
 
   p_watchdog : process
   begin
-    wait for 10 us;
+    wait for 50 us;
     assert sim_done report "axi_mem_store_tb timeout" severity failure;
     wait;
   end process;
@@ -168,6 +168,14 @@ begin
     );
 
   p_test : process
+    -- Two delta cycles settle a clocked internal flag and its concurrent
+    -- output assignment without advancing simulation time.
+    procedure wait_for_dut_update is
+    begin
+      wait for 0 ns;
+      wait for 0 ns;
+    end procedure;
+
     -- Drive one byte through the testbench population stream.  This is a
     -- helper for mem_wr_*, not a full AXI write-channel procedure.
     procedure mem_wr(addr : natural; data : std_logic_vector(7 downto 0)) is
@@ -241,7 +249,8 @@ begin
         assert r_resp = expected_resp
           report "R RESP mismatch" severity failure;
 
-        byte_addr := addr + beat_idx * 4;
+        -- AXI byte lanes: every beat is the aligned 4-byte window.
+        byte_addr := (addr - addr mod 4) + beat_idx * 4;
         if check_pattern then
           for byte_idx in 0 to 3 loop
             assert r_data(8*byte_idx+7 downto 8*byte_idx) =
@@ -297,7 +306,110 @@ begin
       check_one_response(id, expected_data, expected_resp);
     end procedure;
 
-    procedure check_stalled_response(id : natural; addr : natural) is
+    procedure measure_response_latency(
+      id : natural; addr : natural;
+      variable ar_accept_time : out time;
+      variable r_valid_time   : out time) is
+    begin
+      ar_id    <= std_logic_vector(to_unsigned(id, C_ID_WIDTH));
+      ar_addr  <= std_logic_vector(to_unsigned(addr, C_ADDR_WIDTH));
+      ar_len   <= x"00";
+      ar_valid <= '1';
+      loop
+        wait until rising_edge(aclk);
+        if ar_ready = '1' then
+          ar_accept_time := now;
+          exit;
+        end if;
+      end loop;
+      ar_valid <= '0';
+      r_ready  <= '0';
+      for timeout_idx in 0 to 1000 loop
+        wait until rising_edge(aclk);
+        if r_valid = '1' then
+          r_valid_time := now;
+          exit;
+        end if;
+        assert timeout_idx < 1000
+          report "latency measurement timed out" severity failure;
+      end loop;
+      r_ready <= '1';
+      wait until rising_edge(aclk);
+      r_ready <= '0';
+    end procedure;
+
+    procedure check_latency_controls is
+      variable base_ar_time    : time;
+      variable base_r_time    : time;
+      variable delayed_ar_time : time;
+      variable delayed_r_time : time;
+      variable jitter_ar_time : time;
+      variable jitter_r_time  : time;
+      variable jitter_min     : time := time'high;
+      variable jitter_max     : time := 0 ns;
+      variable measured_delay : time;
+    begin
+      aresetn <= '0';
+      wait for C_CLK_PERIOD * 3;
+      aresetn <= '1';
+      wait for C_CLK_PERIOD * 2;
+
+      ar_base_enable   <= '0';
+      ar_jitter_enable <= '0';
+      r_base_enable    <= '0';
+      r_jitter_enable  <= '0';
+      base_latency     <= (others => '0');
+      base_beat_gap    <= (others => '0');
+      measure_response_latency(20, 0, base_ar_time, base_r_time);
+
+      aresetn <= '0';
+      wait for C_CLK_PERIOD * 3;
+      aresetn <= '1';
+      wait for C_CLK_PERIOD * 2;
+      ar_base_enable <= '1';
+      r_base_enable  <= '1';
+      base_latency   <= std_logic_vector(to_unsigned(3, C_TIMER_WIDTH));
+      base_beat_gap  <= std_logic_vector(to_unsigned(2, C_TIMER_WIDTH));
+      measure_response_latency(21, 0, delayed_ar_time, delayed_r_time);
+
+      assert (delayed_r_time - delayed_ar_time) >
+             (base_r_time - base_ar_time)
+        report "configured AR/R base delays did not increase latency"
+        severity failure;
+
+      aresetn <= '0';
+      wait for C_CLK_PERIOD * 3;
+      aresetn <= '1';
+      wait for C_CLK_PERIOD * 2;
+      ar_base_enable   <= '0';
+      ar_jitter_enable <= '1';
+      r_base_enable    <= '0';
+      r_jitter_enable  <= '1';
+      base_latency     <= (others => '0');
+      base_beat_gap    <= (others => '0');
+      for sample in 0 to 3 loop
+        measure_response_latency(24 + sample, 0,
+                                 jitter_ar_time, jitter_r_time);
+        measured_delay := jitter_r_time - jitter_ar_time;
+        if measured_delay < jitter_min then
+          jitter_min := measured_delay;
+        end if;
+        if measured_delay > jitter_max then
+          jitter_max := measured_delay;
+        end if;
+      end loop;
+      assert jitter_max > jitter_min
+        report "enabled jitter did not vary measured latency"
+        severity failure;
+
+      ar_base_enable   <= '0';
+      ar_jitter_enable <= '0';
+      r_base_enable    <= '0';
+      r_jitter_enable  <= '0';
+    end procedure;
+
+    procedure check_stalled_response(id : natural; addr : natural;
+                                     stall_cycles : positive := 3) is
       variable saved_id    : std_logic_vector(C_ID_WIDTH-1 downto 0);
       variable saved_data  : std_logic_vector(31 downto 0);
       variable saved_resp  : std_logic_vector(1 downto 0);
@@ -319,12 +431,13 @@ begin
       saved_data := r_data;
       saved_resp := r_resp;
       saved_last := r_last;
-      for stall_idx in 1 to 3 loop
+      for stall_idx in 1 to stall_cycles loop
         wait until rising_edge(aclk);
         assert r_valid = '1' and r_id = saved_id and
                r_data = saved_data and r_resp = saved_resp and
                r_last = saved_last
-          report "R response changed during backpressure" severity failure;
+          report "R response changed during backpressure after " &
+                 integer'image(stall_idx) & " stall cycles" severity failure;
       end loop;
       r_ready <= '1';
       wait until rising_edge(aclk);
@@ -351,6 +464,34 @@ begin
         assert got_beat report "timeout waiting for mixed boundary response"
           severity failure;
         if beat_idx = 0 then
+
+      -- Minimum-width address coverage: the first aligned beat at address 60
+      -- is valid, while the next beat at address 64 must remain SLVERR rather
+      -- than wrapping to address zero.
+      c_ar_id    <= std_logic_vector(to_unsigned(8, C_ID_WIDTH));
+      c_ar_addr  <= std_logic_vector(to_unsigned(60, C_CORE_ADDR_WIDTH));
+      c_ar_len   <= std_logic_vector(to_unsigned(1, 8));
+      c_ar_valid <= '1';
+      c_r_ready  <= '0';
+      loop
+        wait until rising_edge(aclk);
+        exit when c_ar_ready = '1';
+      end loop;
+      c_ar_valid <= '0';
+      wait for 1 ns;
+      assert c_r_valid = '1' and c_r_resp = "00" and c_r_last = '0'
+        report "minimum-width boundary first beat mismatch" severity failure;
+      c_r_ready <= '1';
+      wait until rising_edge(aclk);
+      c_r_ready <= '0';
+      wait for 1 ns;
+      assert c_r_valid = '1' and c_r_resp = "10" and c_r_last = '1' and
+             c_r_data = x"00000000"
+        report "minimum-width boundary overflow beat mismatch" severity failure;
+      c_r_ready <= '1';
+      wait until rising_edge(aclk);
+      c_r_ready <= '0';
+      wait for 1 ns;
           expected_resp := "00";
           expected_last := '0';
           -- The valid beat must return the populated bytes, not zeros.
@@ -376,11 +517,14 @@ begin
       r_ready <= '1';
     end procedure;
 
-    -- Wrapper-level check: the AR latency FIFO may accept and queue the next
-    -- AR while the final R beat is stalled.  This proves request buffering and
-    -- R-field retention.  The core's own AR lookahead is checked separately
-    -- against the direct core instance at the end of this process.
+    -- Wrapper-level check: the AR latency FIFO may accept and queue several
+    -- ARs while the first R beat is stalled. The held R payload must remain
+    -- stable, and queued responses must preserve order and IDs.
     procedure check_pending_ar_buffering is
+      variable saved_id   : std_logic_vector(C_ID_WIDTH-1 downto 0);
+      variable saved_data : std_logic_vector(31 downto 0);
+      variable saved_resp : std_logic_vector(1 downto 0);
+      variable saved_last : std_logic;
     begin
       r_ready <= '0';
       send_ar(12, 0, 1);
@@ -388,8 +532,14 @@ begin
         wait until rising_edge(aclk);
       end loop;
 
-      -- Present the next AR while the final R beat is stalled.  The wrapper
-      -- may buffer it in the AR latency FIFO; the held R beat must not change.
+      saved_id   := r_id;
+      saved_data := r_data;
+      saved_resp := r_resp;
+      saved_last := r_last;
+
+      -- Present two more ARs while the first R beat is stalled. The wrapper
+      -- may buffer them in the AR latency FIFO; the held R beat must not
+      -- change.
       ar_id    <= std_logic_vector(to_unsigned(13, C_ID_WIDTH));
       ar_addr  <= std_logic_vector(to_unsigned(4, C_ADDR_WIDTH));
       ar_len   <= (others => '0');
@@ -399,20 +549,71 @@ begin
         exit when ar_ready = '1';
       end loop;
       ar_valid <= '0';
+      ar_id    <= std_logic_vector(to_unsigned(14, C_ID_WIDTH));
+      ar_addr  <= std_logic_vector(to_unsigned(8, C_ADDR_WIDTH));
+      ar_valid <= '1';
+      loop
+        wait until rising_edge(aclk);
+        exit when ar_ready = '1';
+      end loop;
+      ar_valid <= '0';
       for stall_idx in 1 to 2 loop
         wait until rising_edge(aclk);
+        assert r_valid = '1' and r_id = saved_id and
+               r_data = saved_data and r_resp = saved_resp and
+               r_last = saved_last
+          report "stalled R payload changed while ARs were queued"
+          severity failure;
       end loop;
       assert r_valid = '1'
         report "final R beat was not held while a pending AR was present"
         severity failure;
 
       r_ready <= '1';
-      while ar_ready = '0' loop
-        wait until rising_edge(aclk);
-      end loop;
       wait until rising_edge(aclk);
       r_ready <= '0';
       check_one_response(13, x"1A171411", "00");
+      check_one_response(14, x"2623201D", "00");
+    end procedure;
+
+    -- Exercise ARLEN=255. With a 64-byte memory and 32-bit beats, the first
+    -- 16 beats are valid and the remaining 240 beats are deterministic
+    -- SLVERR responses; the final beat must still carry r_last.
+    procedure read_max_burst is
+      variable expected_resp : std_logic_vector(1 downto 0);
+      variable expected_last : std_logic;
+    begin
+      send_ar(18, 0, 256);
+      r_ready <= '0';
+      for beat_idx in 0 to 255 loop
+        for timeout_idx in 0 to 200 loop
+          wait until rising_edge(aclk);
+          exit when r_valid = '1';
+        end loop;
+        assert r_valid = '1'
+          report "maximum-length burst response timeout" severity failure;
+        expected_resp := "00";
+        if beat_idx >= 16 then
+          expected_resp := "10";
+        end if;
+        expected_last := '0';
+        if beat_idx = 255 then
+          expected_last := '1';
+        end if;
+        assert r_id = std_logic_vector(to_unsigned(18, C_ID_WIDTH))
+          report "maximum-length burst ID mismatch" severity failure;
+        assert r_resp = expected_resp and r_last = expected_last
+          report "maximum-length burst response fields mismatch"
+          severity failure;
+        if expected_resp = "10" then
+          assert r_data = x"00000000"
+            report "maximum-length SLVERR data was not zero" severity failure;
+        end if;
+        r_ready <= '1';
+        wait until rising_edge(aclk);
+        r_ready <= '0';
+      end loop;
+      r_ready <= '1';
     end procedure;
 
   begin
@@ -430,13 +631,11 @@ begin
     mem_wr_tvalid <= '1';
     wait until rising_edge(aclk);
     mem_wr_tvalid <= '0';
-    wait for 0 ns;
-    wait for 0 ns;
+    wait_for_dut_update;
     assert mem_wr_error = '1'
       report "invalid memory write did not pulse mem_wr_error" severity failure;
     wait until rising_edge(aclk);
-    wait for 0 ns;
-    wait for 0 ns;
+    wait_for_dut_update;
     assert mem_wr_error = '0'
       report "mem_wr_error was not one clock wide" severity failure;
 
@@ -459,15 +658,21 @@ begin
     mem_wr_word(24, x"44332211", "1011");
     read_one_expected(0, 24, x"44002211", "00");
 
-    -- Aligned and unaligned real-data reads.
+    -- Aligned and unaligned real-data reads. The unaligned burst from
+    -- address 1 must return the aligned windows 0..3 and 4..7 (AXI lanes).
     read_burst(1, 0, 1, "00", true);
     read_burst(2, 1, 2, "00", true);
+    read_burst(17, 6, 3, "00", true);
 
     -- A complete beat at the final aligned address is valid and returns data.
     read_burst(3, 60, 1, "00", true);
 
-    -- A beat crossing the upper boundary returns zero data and SLVERR.
-    read_burst(4, 62, 1, "10", false);
+    -- An unaligned beat near the top reads its aligned window 60..63, which
+    -- is wholly inside memory, so it is OKAY.
+    read_burst(4, 62, 1, "00", true);
+
+    -- The first beat above memory returns zero data and SLVERR.
+    read_burst(13, 64, 1, "10", false);
 
     -- Address arithmetic must not wrap a top-of-address-space read into the
     -- valid low memory range.
@@ -480,13 +685,23 @@ begin
     -- A burst can contain both a valid and an invalid native data beat.
     read_mixed_boundary(8);
 
+    -- Maximum ARLEN coverage.
+    read_max_burst;
+
     -- R payload fields must remain stable while the consumer is stalled.
     check_stalled_response(9, 0);
+
+    -- A stall longer than half the 8-bit latency timer (128 cycles) must
+    -- not drop RVALID: AXI requires it to stay high until the handshake.
+    check_stalled_response(16, 0, 300);
 
     -- A pending AR is buffered by the wrapper without disturbing a stalled
     -- final R beat.  The core's own same-cycle acceptance is checked against
     -- the direct core instance at the end of this sequence.
     check_pending_ar_buffering;
+
+    -- Verify the runtime timing controls independently of response data.
+    check_latency_controls;
 
     -- Exercise the existing R-side per-entry latency controls.
     r_base_enable   <= '1';
@@ -527,7 +742,9 @@ begin
     aresetn <= '1';
     wait for C_CLK_PERIOD * 2;
     read_burst(7, 0, 1, "00", true);
-    read_one_expected(15, 21, x"11000000", "00");
+    -- Byte 21 (lane 1 of the aligned word at 20) must still be zero: the
+    -- write presented during reset was not stored.
+    read_one_expected(15, 21, x"00000055", "00");
 
     -- ------------------------------------------------------------------
     -- Core-level checks.  The direct core instance has no latency FIFO, so
