@@ -213,14 +213,17 @@ begin
     end function;
 
   begin
-    -- Hold reset long enough for both clocks to observe it, then wait one
-    -- additional client edge so the bridge starts from a clean delta cycle.
+    -- Hold reset long enough for both clocks to observe it.  After release,
+    -- wait out the bridge's two-stage internal reset synchronizer (plus one
+    -- edge of margin) so the AR mux is out of reset before the requests.
     aresetn <= '0';
     for cycle in 1 to 8 loop
       wait until rising_edge(aclk);
     end loop;
     aresetn <= '1';
-    wait until rising_edge(aclk);
+    for cycle in 1 to 3 loop
+      wait until rising_edge(aclk);
+    end loop;
 
     -- Present one request per client at the same time.  The bridge's
     -- arbitration chooses the order, while the returned IDs must route
