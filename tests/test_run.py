@@ -73,6 +73,33 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(runner._run_cmd("printf test"), 0)
         self.assertEqual(launch.call_args.args[0], ["sh", "-c", "printf test"])
 
+    def test_msim_project_launch_uses_working_directory_without_shell_cd(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            run_dir = Path(temp_dir) / "project run"
+            run_dir.mkdir()
+            global_ini = Path(temp_dir) / "modelsim.ini"
+            global_ini.write_text("[Library]\n", encoding="utf-8")
+            environment = {
+                "MODELSIM": str(global_ini),
+                "QSIM_INI": "unused.ini",
+                "PATH": "tool-path",
+            }
+
+            with patch.object(runner, "_run_cmd", return_value=0) as launch:
+                self.assertEqual(
+                    runner.run_msim(run_dir, "sim_project.tcl", "project", environment),
+                    0,
+                )
+
+            self.assertEqual(launch.call_args.args[0], "vsim -do sim_project.tcl")
+            self.assertEqual(launch.call_args.kwargs["cwd"], run_dir)
+            self.assertNotIn("MODELSIM", launch.call_args.kwargs["env"])
+            self.assertNotIn("QSIM_INI", launch.call_args.kwargs["env"])
+            self.assertEqual(
+                (run_dir / "modelsim.ini").read_text(encoding="utf-8"),
+                "[Library]\n",
+            )
+
     def manifest(self, text: str):
         handle = tempfile.NamedTemporaryFile(
             mode="w", suffix=".f", delete=False, encoding="utf-8"

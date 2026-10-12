@@ -1570,7 +1570,7 @@ _LAST_FAILURE_ARTIFACT: Path | None = None
 
 def run_msim(launch_dir: Path, script_name: str, mode: str,
              tool_env: dict[str, str] | None = None) -> int:
-    """Invoke ModelSim/Questa (vsim) directly in a CMD shell.
+    """Invoke ModelSim/Questa (vsim) from the selected run directory.
 
     vsim must already be on the PATH.
     launch_dir is the selected run directory. GUI mode runs
@@ -1606,10 +1606,8 @@ def run_msim(launch_dir: Path, script_name: str, mode: str,
         env = dict(setup_env)
         env.pop("MODELSIM", None)
         env.pop("QSIM_INI", None)
-    inner = f"cd /d {launch_dir} & {vsim_cmd}"
-    # vsim inherits the console unless the sweep suppressed output; cwd is
-    # set via 'cd /d' inside the CMD string (vsim must start in the run dir).
-    rc = _run_cmd(inner, env=env, log_path=launch_dir / "tool_output.log")
+    rc = _run_cmd(vsim_cmd, cwd=launch_dir, env=env,
+                  log_path=launch_dir / "tool_output.log")
     transcript_failed = False
     if mode == "batch" and rc == 0:
         # vsim -c exits 0 even when a VHDL assertion fails at runtime
